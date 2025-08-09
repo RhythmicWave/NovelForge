@@ -1,0 +1,46 @@
+# 数据库相关
+backend/*.db
+backend/**/*.db
+
+# Python缓存
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Python虚拟环境
+venv/
+env/
+.venv/
+.env/
+
+# Alembic相关
+backend/alembic/versions/*.py
+!backend/alembic/versions/__init__.py
+
+# 忽略所有md文档，除了README
+*.md
+!README.md
+!README.MD
+
+# 忽略primitive_models整个文件夹
+primitive_models/
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志文件
+*.log
+*.log.*
+
+# 临时文件
+*.tmp
+*.temp 

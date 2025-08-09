@@ -1,0 +1,9 @@
+{
+  "message": {
+    "hello": "你好，世界"
+  },
+  "project": {
+    "title": "项目管理",
+    "fetch_projects": "获取项目列表"
+  }
+} 

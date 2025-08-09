@@ -1,0 +1,21 @@
+# 依赖和构建产物
+node_modules
+build/
+dist/
+out/
+
+# IDE配置
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 缓存和日志
+.eslintcache
+*.log*
+*.tmp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

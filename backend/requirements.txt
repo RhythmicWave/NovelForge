@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlmodel
+alembic
+loguru
+pydantic
+pydantic_ai
+openai>=1.0.0
