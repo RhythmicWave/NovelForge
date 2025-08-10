@@ -25,7 +25,7 @@
       </el-table-column>
     </el-table>
 
-    <el-drawer v-model="editor.visible" :title="editor.editing ? '编辑输出模型' : '新建输出模型'" size="65%">
+    <el-drawer v-model="editor.visible" :title="editor.editing ? '编辑输出模型' : '新建输出模型'" size="80%">
       <div class="editor-grid">
         <el-form label-position="top">
           <el-form-item label="名称">
@@ -85,7 +85,7 @@ const builderFields = ref<BuilderField[]>([])
 
 async function fetchModels() {
   loading.value = true
-  try { models.value = await request.get('/output-models') } finally { loading.value = false }
+  try { models.value = await request.get('/output-models/') } finally { loading.value = false }
 }
 
 function openEditor(row?: OutputModel) {
@@ -128,6 +128,7 @@ function builderToSchema(fields: BuilderField[]): any {
       if (f.isArray) node = { type: 'array', items: node }
     }
     node.title = title
+    if (f.description) node.description = f.description
     properties[f.name] = node
     if (f.required) required.push(f.name)
   }
@@ -154,7 +155,7 @@ function schemaToBuilder(schema: any): BuilderField[] {
     } else if (core?.type && ['string','number','integer','boolean'].includes(core.type)) {
       kind = core.type
     }
-    fields.push({ name: key, label: core?.title || key, kind, isArray, required: required.includes(key), relation })
+    fields.push({ name: key, label: core?.title || key, kind, isArray, required: required.includes(key), relation, description: core?.description || p?.description || '' })
   }
   return fields
 }

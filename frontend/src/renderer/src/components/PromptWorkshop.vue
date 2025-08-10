@@ -68,8 +68,7 @@ const promptForm = ref<FormInstance>();
 
 const dialogTitle = computed(() => (currentPrompt.value.id ? '编辑提示词' : '新建提示词'));
 
-const PRESET_PROMPT_NAMES = new Set(['polishing','standard_continuation','task0','task1','task2','task3','task4','task5','task6','task7']);
-const isBuiltInPrompt = (row: Prompt) => !!row.built_in || PRESET_PROMPT_NAMES.has(row.name);
+const isBuiltInPrompt = (row: Prompt) => !!row.built_in
 
 async function fetchPrompts() {
   loading.value = true;

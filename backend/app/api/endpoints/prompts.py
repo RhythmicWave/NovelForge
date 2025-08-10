@@ -71,6 +71,11 @@ def delete_prompt(
     """
     删除一个提示词模板。
     """
+    db_prompt = prompt_service.get_prompt(session=session, prompt_id=prompt_id)
+    if not db_prompt:
+        raise HTTPException(status_code=404, detail="提示词未找到")
+    if getattr(db_prompt, 'built_in', False):
+        raise HTTPException(status_code=400, detail="系统内置提示词不可删除")
     if not prompt_service.delete_prompt(session=session, prompt_id=prompt_id):
         raise HTTPException(status_code=404, detail="提示词未找到")
     return ApiResponse(message="提示词删除成功") 

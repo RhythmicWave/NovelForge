@@ -106,11 +106,8 @@ const llmConfigs = ref<Array<{ id: number; display_name: string }>>([])
 const prompts = ref<Array<{ id: number; name: string; description: string | null }>>([])
 const responseModels = ref<string[]>([])
 
-// 预设 AI 参数卡片名称（禁删）
-const PRESET_PARAM_CARD_NAMES = new Set([
-  '金手指生成','一句话梗概生成','大纲扩写生成','世界观生成','蓝图生成','分卷大纲生成','章节大纲生成'
-])
-const isBuiltInParamCard = (row: AIParamCard) => PRESET_PARAM_CARD_NAMES.has(row.name)
+// 预设 AI 参数卡片标记由数据自身的 built_in 字段决定
+const isBuiltInParamCard = (row: AIParamCard) => !!row.built_in
 
 // 加载配置数据
 async function loadConfigData() {

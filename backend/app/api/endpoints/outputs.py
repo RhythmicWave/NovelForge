@@ -40,6 +40,8 @@ def delete_output_model(model_id: int, db: Session = Depends(get_session)):
     om = db.get(OutputModel, model_id)
     if not om:
         raise HTTPException(status_code=404, detail="未找到输出模型")
+    if getattr(om, 'built_in', False):
+        raise HTTPException(status_code=400, detail="系统内置输出模型不可删除")
     db.delete(om)
     db.commit()
     return {"ok": True} 

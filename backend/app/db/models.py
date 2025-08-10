@@ -43,6 +43,7 @@ class Prompt(SQLModel, table=True):
     description: Optional[str] = None
     template: str 
     version: int = 1
+    built_in: bool = Field(default=False)
 
 # 新增：输出模型库
 class OutputModel(SQLModel, table=True):
@@ -60,17 +61,14 @@ class CardType(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     description: Optional[str] = None
-    # 允许为空：自定义类型仅提供 json_schema 时无需绑定后端模型名（遗留，待清理）
-    model_name: Optional[str] = Field(default=None) # e.g., 'Task0Response', 'CharacterCard'
     # 新增：统一选择输出模型（引用 OutputModel.name）
     output_model_name: Optional[str] = Field(default=None)
     editor_component: Optional[str] = None # e.g., 'NovelEditor' for custom UI
     is_ai_enabled: bool = Field(default=True)
     is_singleton: bool = Field(default=False) # e.g., only one 'Synopsis' card per project
+    built_in: bool = Field(default=False)
     # 新增：卡片类型级别的默认上下文注入模板
     default_ai_context_template: Optional[str] = Field(default=None)
-    # 遗留：自定义类型的 JSON Schema（将迁移到 OutputModel，后续清理）
-    json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 新增：UI 布局（可选），供前端 SectionedForm 使用
     ui_layout: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     cards: List["Card"] = Relationship(back_populates="card_type")

@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 import json
 from fastapi import Body
 from pydantic import ValidationError, create_model
+from pydantic import Field as PydanticField
 from typing import Type, Dict, Any, List
 from app.schemas.wizard import (
     WorldBuildingResponse, BlueprintResponse,
@@ -56,8 +57,13 @@ def _build_model_from_json_schema(model_name: str, schema: Dict[str, Any]):
     field_defs: Dict[str, tuple] = {}
     for fname, fsch in props.items():
         anno = _json_schema_to_py_type(fsch if isinstance(fsch, dict) else {})
-        default = ... if fname in required else None
-        field_defs[fname] = (anno, default)
+        desc = fsch.get('description') if isinstance(fsch, dict) else None
+        is_required = fname in required
+        if desc is not None:
+            default_val = PydanticField(... if is_required else None, description=desc)
+        else:
+            default_val = ... if is_required else None
+        field_defs[fname] = (anno, default_val)
     return create_model(model_name, **field_defs)
 
 # --- Schema $defs 递归补全（将内置模型的 $defs 注入自定义 Schema） ---
@@ -180,7 +186,7 @@ async def get_ai_config_options(session: Session = Depends(get_session)):
         response_models = get_content_models(session)
         return ApiResponse(data={
             "llm_configs": [{"id": config.id, "display_name": config.display_name or config.model_name} for config in llm_configs],
-            "prompts": [{"id": prompt.id, "name": prompt.name, "description": prompt.description} for prompt in prompts],
+            "prompts": [{"id": prompt.id, "name": prompt.name, "description": prompt.description, "built_in": getattr(prompt, 'built_in', False)} for prompt in prompts],
             "available_tasks": [],
             "response_models": response_models
         })

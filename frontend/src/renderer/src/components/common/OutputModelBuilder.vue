@@ -32,6 +32,11 @@
           <el-switch v-model="row.required" />
         </template>
       </el-table-column>
+      <el-table-column label="注解" min-width="240">
+        <template #default="{ row }">
+          <el-input v-model="row.description" placeholder="用于 Field 描述，提升 AI 结构化准确率" />
+        </template>
+      </el-table-column>
       <el-table-column label="关系配置" min-width="200">
         <template #default="{ row }">
           <div v-if="row.kind==='relation'" class="rel-config">
@@ -65,6 +70,7 @@ export interface BuilderField {
   isArray?: boolean
   required?: boolean
   relation: { targetModelName: string | null }
+  description?: string
 }
 
 const props = defineProps<{
@@ -96,7 +102,7 @@ function cloneField(f: BuilderField): BuilderField {
 }
 
 function addField() {
-  localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, relation: { targetModelName: null } })
+  localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, relation: { targetModelName: null }, description: '' })
 }
 function removeField(idx: number) { localFields.value.splice(idx, 1) }
 function moveUp(idx: number) { if (idx <= 0) return; const a = localFields.value; [a[idx-1], a[idx]] = [a[idx], a[idx-1]] }
@@ -106,6 +112,60 @@ function onKindChange(row: BuilderField) {
 }
 function isEmbedSelf(row: BuilderField, targetName: string) {
   return row.kind === 'relation' && props.currentModelName && props.currentModelName === targetName
+}
+
+function builderToSchema(fields: BuilderField[]): any {
+  const properties: Record<string, any> = {}
+  const required: string[] = []
+  const defs: Record<string, any> = {}
+  for (const f of fields) {
+    if (!f.name) continue
+    const title = f.label || f.name
+    let node: any = {}
+    if (f.kind === 'relation') {
+      const defName = f.relation.targetModelName
+      if (defName) {
+        node = f.isArray ? { type: 'array', items: { $ref: `#/$defs/${defName}` } } : { $ref: `#/$defs/${defName}` }
+        const target = targetModels.value.find(m => m.name === defName)
+        if (target?.json_schema) defs[defName] = target.json_schema
+      } else {
+        node = { type: 'object', properties: {} }
+      }
+    } else {
+      node = { type: f.kind }
+      if (f.isArray) node = { type: 'array', items: node }
+    }
+    node.title = title
+    if (f.description) node.description = f.description
+    properties[f.name] = node
+    if (f.required) required.push(f.name)
+  }
+  const schema: any = { type: 'object', properties }
+  if (required.length) schema.required = required
+  if (Object.keys(defs).length) schema.$defs = defs
+  return schema
+}
+
+function schemaToBuilder(schema: any): BuilderField[] {
+  const props = schema?.properties || {}
+  const required: string[] = schema?.required || []
+  const fields: BuilderField[] = []
+  for (const key of Object.keys(props)) {
+    const p = props[key]
+    const isArray = p?.type === 'array'
+    const core = isArray ? p.items : p
+    let kind: BuilderField['kind'] = 'string'
+    let relation: BuilderField['relation'] = { targetModelName: null }
+    if (core?.$ref) {
+      kind = 'relation'
+      const refName = String(core.$ref).split('/').pop() || null
+      relation = { targetModelName: refName }
+    } else if (core?.type && ['string','number','integer','boolean'].includes(core.type)) {
+      kind = core.type
+    }
+    fields.push({ name: key, label: core?.title || key, kind, isArray, required: required.includes(key), relation, description: core?.description || p?.description || '' })
+  }
+  return fields
 }
 </script>
 

@@ -41,6 +41,11 @@ def update_card_type(card_type_id: int, card_type: CardTypeUpdate, db: Session =
 @router.delete("/card-types/{card_type_id}", status_code=204)
 def delete_card_type(card_type_id: int, db: Session = Depends(get_session)):
     service = CardTypeService(db)
+    db_card_type = service.get_by_id(card_type_id)
+    if not db_card_type:
+        raise HTTPException(status_code=404, detail="CardType not found")
+    if getattr(db_card_type, 'built_in', False):
+        raise HTTPException(status_code=400, detail="系统内置卡片类型不可删除")
     if not service.delete(card_type_id):
         raise HTTPException(status_code=404, detail="CardType not found")
     return {"ok": True}

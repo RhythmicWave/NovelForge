@@ -51,9 +51,10 @@ def init_prompts(db: Session):
             existing_prompt = next(p for p in existing_prompts if p.name == name)
             existing_prompt.template = prompt_data['template']
             existing_prompt.description = prompt_data.get('description')
+            existing_prompt.built_in = True
             updated_count += 1
         else:
-            prompts_to_add.append(Prompt(**prompt_data))
+            prompts_to_add.append(Prompt(**prompt_data, built_in=True))
             new_count += 1
     
     if prompts_to_add:
@@ -92,20 +93,20 @@ def init_output_models(db: Session):
 
 def create_default_card_types(db: Session):
     default_types = {
-        "作品标签": {"model_name": "Tags", "output_model_name": "Tags", "editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
-        "金手指": {"model_name": "Task0Response", "output_model_name": "Task0Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content"},
-        "一句话梗概": {"model_name": "Task1Response", "output_model_name": "Task1Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities"},
-        "故事大纲": {"model_name": "Task2Response", "output_model_name": "Task2Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\none_sentence: @一句话梗概.content.one_sentence"},
-        "世界观设定": {"model_name": "WorldBuildingResponse", "output_model_name": "WorldBuildingResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview"},
-        "核心蓝图": {"model_name": "BlueprintResponse", "output_model_name": "BlueprintResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview\nword_view: @世界观设定.content"},
+        "作品标签": {"output_model_name": "Tags", "editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
+        "金手指": {"output_model_name": "Task0Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content"},
+        "一句话梗概": {"output_model_name": "Task1Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities"},
+        "故事大纲": {"output_model_name": "Task2Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\none_sentence: @一句话梗概.content.one_sentence"},
+        "世界观设定": {"output_model_name": "WorldBuildingResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview"},
+        "核心蓝图": {"output_model_name": "BlueprintResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview\nword_view: @世界观设定.content"},
         # 分卷大纲默认上下文：引用核心蓝图、上一卷与当前卷（若存在）
-        "分卷大纲": {"model_name": "VolumeOutlineResponse", "output_model_name": "VolumeOutlineResponse", "default_ai_context_template": (
+        "分卷大纲": {"output_model_name": "VolumeOutlineResponse", "default_ai_context_template": (
             "blueprint: @核心蓝图.content\n"
             "previous_volume: @type:分卷大纲[index=$current.volumeNumber-1].content\n"
             "current_volume: @self.content\n"
         )},
         # 章节大纲默认上下文：参考 task6 所需输入
-        "章节大纲": {"model_name": "ChapterOutlineResponse", "output_model_name": "ChapterOutlineResponse", "default_ai_context_template": (
+        "章节大纲": {"output_model_name": "ChapterOutlineResponse", "default_ai_context_template": (
             "blueprint: @核心蓝图.content\n"
             "word_view: @世界观设定.content\n"
             "volume_number: @self.content.chapter_outline.volume_number\n"
@@ -118,9 +119,9 @@ def create_default_card_types(db: Session):
             "stage_reference_chapter: @stage:current.reference_chapter\n"
             "previous_chapters: @chapters:previous\n"
         )},
-        "章节正文": {"model_name": "Chapter", "output_model_name": "ChapterOutline", "editor_component": "NovelEditor", "is_ai_enabled": False, "default_ai_context_template": None},
-        "角色卡": {"model_name": "CharacterCard", "output_model_name": "CharacterCard", "default_ai_context_template": None},
-        "场景卡": {"model_name": "SceneCard", "output_model_name": "SceneCard", "default_ai_context_template": None},
+        "章节正文": {"output_model_name": "ChapterOutline", "editor_component": "NovelEditor", "is_ai_enabled": False, "default_ai_context_template": None},
+        "角色卡": {"output_model_name": "CharacterCard", "default_ai_context_template": None},
+        "场景卡": {"output_model_name": "SceneCard", "default_ai_context_template": None},
     }
 
     existing_types = db.exec(select(CardType)).all()
@@ -131,25 +132,25 @@ def create_default_card_types(db: Session):
             card_type = CardType(
                 name=name,
                 description=details.get("description", f"{name}的默认卡片类型"),
-                model_name=details.get("model_name"),
                 output_model_name=details.get("output_model_name"),
                 editor_component=details.get("editor_component"),
                 is_ai_enabled=details.get("is_ai_enabled", True),
                 is_singleton=details.get("is_singleton", False),
-                default_ai_context_template=details.get("default_ai_context_template")
+                default_ai_context_template=details.get("default_ai_context_template"),
+                built_in=True,
             )
             db.add(card_type)
             logger.info(f"Created default card type: {name}")
         else:
-            # 增量更新（同步 output_model_name 等）
+            # 增量更新
             ct = next(ct for ct in existing_types if ct.name == name)
-            ct.model_name = details.get("model_name")
             ct.output_model_name = details.get("output_model_name")
             ct.editor_component = details.get("editor_component")
             ct.is_ai_enabled = details.get("is_ai_enabled", True)
             ct.is_singleton = details.get("is_singleton", False)
             ct.description = details.get("description", f"{name}的默认卡片类型")
             ct.default_ai_context_template = details.get("default_ai_context_template")
+            ct.built_in = True
 
     db.commit()
     logger.info("Default card types committed.")

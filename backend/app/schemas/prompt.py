@@ -9,6 +9,7 @@ class PromptBase(SQLModel):
 
 class PromptRead(PromptBase):
     id: int
+    built_in: bool = False
 
 class PromptCreate(PromptBase):
     pass

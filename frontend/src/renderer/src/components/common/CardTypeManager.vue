@@ -74,8 +74,10 @@ type CardTypeRead = components['schemas']['CardTypeRead']
 type CardTypeCreate = components['schemas']['CardTypeCreate']
 type CardTypeUpdate = components['schemas']['CardTypeUpdate']
 
-// 系统预设类型名称（禁删）
-const PRESET_CARD_TYPES = new Set(['作品标签','金手指','一句话梗概','故事大纲','世界观设定','核心蓝图','分卷大纲','章节大纲','章节正文','角色卡','场景卡'])
+// 依赖后端 built_in 字段
+function isBuiltInCardType(row: any): boolean {
+  return !!row?.built_in
+}
 
 // 数据源
 const loading = ref(false)
@@ -100,10 +102,6 @@ const filteredTypes = computed(() => {
 const drawer = ref({ visible: false, editing: false, id: 0 })
 const form = ref<any>({ name: '', description: '', is_ai_enabled: true, is_singleton: false, default_ai_context_template: '', output_model_name: '' })
 const uiLayoutText = ref('')
-
-function isBuiltInCardType(row: any): boolean {
-  return PRESET_CARD_TYPES.has(row?.name) || !!row?.model_name
-}
 
 function openEditor(row?: CardTypeRead) {
   drawer.value = { visible: true, editing: !!row, id: row?.id || 0 }
