@@ -25,7 +25,7 @@
       </el-table-column>
     </el-table>
 
-    <el-drawer v-model="editor.visible" :title="editor.editing ? '编辑输出模型' : '新建输出模型'" size="80%">
+    <el-drawer v-model="editor.visible" :title="editor.editing ? '编辑输出模型' : '新建输出模型'" size="85%">
       <div class="editor-grid">
         <el-form label-position="top">
           <el-form-item label="名称">
@@ -58,7 +58,8 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@renderer/api/request'
-import OutputModelBuilder, { type BuilderField } from './OutputModelBuilder.vue'
+import OutputModelBuilder from './OutputModelBuilder.vue'
+import { type BuilderField, schemaToBuilder as utilSchemaToBuilder, builderToSchema as utilBuilderToSchema } from '@renderer/utils/outputModelSchemaUtils'
 
 interface OutputModel {
   id?: number
@@ -94,7 +95,7 @@ function openEditor(row?: OutputModel) {
     editor.editing = true
     editor.form = { ...row }
     schemaText.value = JSON.stringify(row.json_schema ?? {}, null, 2)
-    builderFields.value = schemaToBuilder(editor.form.json_schema as any)
+    builderFields.value = utilSchemaToBuilder(editor.form.json_schema as any)
     advancedMode.value = false
   } else {
     editor.visible = true
@@ -106,59 +107,8 @@ function openEditor(row?: OutputModel) {
   }
 }
 
-function builderToSchema(fields: BuilderField[]): any {
-  const properties: Record<string, any> = {}
-  const required: string[] = []
-  const defs: Record<string, any> = {}
-  for (const f of fields) {
-    if (!f.name) continue
-    const title = f.label || f.name
-    let node: any = {}
-    if (f.kind === 'relation') {
-      const defName = f.relation.targetModelName
-      if (defName) {
-        node = f.isArray ? { type: 'array', items: { $ref: `#/$defs/${defName}` } } : { $ref: `#/$defs/${defName}` }
-        const target = models.value.find(m => m.name === defName)
-        if (target?.json_schema) defs[defName] = target.json_schema
-      } else {
-        node = { type: 'object', properties: {} }
-      }
-    } else {
-      node = { type: f.kind }
-      if (f.isArray) node = { type: 'array', items: node }
-    }
-    node.title = title
-    if (f.description) node.description = f.description
-    properties[f.name] = node
-    if (f.required) required.push(f.name)
-  }
-  const schema: any = { type: 'object', properties }
-  if (required.length) schema.required = required
-  if (Object.keys(defs).length) schema.$defs = defs
-  return schema
-}
-
-function schemaToBuilder(schema: any): BuilderField[] {
-  const props = schema?.properties || {}
-  const required: string[] = schema?.required || []
-  const fields: BuilderField[] = []
-  for (const key of Object.keys(props)) {
-    const p = props[key]
-    const isArray = p?.type === 'array'
-    const core = isArray ? p.items : p
-    let kind: BuilderField['kind'] = 'string'
-    let relation: BuilderField['relation'] = { targetModelName: null }
-    if (core?.$ref) {
-      kind = 'relation'
-      const refName = String(core.$ref).split('/').pop() || null
-      relation = { targetModelName: refName }
-    } else if (core?.type && ['string','number','integer','boolean'].includes(core.type)) {
-      kind = core.type
-    }
-    fields.push({ name: key, label: core?.title || key, kind, isArray, required: required.includes(key), relation, description: core?.description || p?.description || '' })
-  }
-  return fields
-}
+function builderToSchema(fields: BuilderField[]): any { return utilBuilderToSchema(fields) }
+function schemaToBuilder(schema: any): BuilderField[] { return utilSchemaToBuilder(schema) }
 
 async function save() {
   try {

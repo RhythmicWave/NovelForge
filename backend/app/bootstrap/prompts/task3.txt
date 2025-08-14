@@ -4,4 +4,7 @@
     1. 根据用户故事梗概、标签信息，设计并生成小说的世界观。
     /nothink
 
+- knowledge:
+    - @KB{ name=起名指南 }
+
 -OutputFormat：请严格根据提供的Json Schema返回结果

@@ -6,6 +6,8 @@ from app.api.router import api_router
 from app.db.session import engine
 from app.db import models
 from app.bootstrap.init_app import init_prompts, create_default_card_types, init_output_models
+# 新增：知识库初始化
+from app.bootstrap.init_app import init_knowledge
 
 def init_db():
     models.SQLModel.metadata.create_all(engine)
@@ -13,13 +15,31 @@ def init_db():
 # 创建所有表
 # models.Base.metadata.create_all(bind=engine)
 
-# 创建 FastAPI 应用实例
+from contextlib import asynccontextmanager
+
+# 使用 lifespan 事件处理器替代 on_event
+@asynccontextmanager
+async def lifespan(app):
+    # 启动时执行
+    # 确保所有表存在（开发阶段可用；生产建议通过 Alembic 迁移）
+    models.SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        init_prompts(session)
+        init_output_models(session)
+        create_default_card_types(session)
+        # 初始化知识库
+        init_knowledge(session)
+    yield
+    # 关闭时可添加清理逻辑（如有需要）
+
+# 创建 FastAPI 应用实例，注册 lifespan
 app = FastAPI(
     title="NovelForge API",
     version="1.0.0",
     openapi_url="/openapi.json",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # 设置CORS中间件，允许所有来源的请求
@@ -35,16 +55,16 @@ app.add_middleware(
 # 包含API路由
 app.include_router(api_router, prefix="/api")
 
-@app.on_event("startup")
-def on_startup():
-    # 数据库表的创建和迁移应完全由Alembic管理
-    # init_db() 
-    
-    # 初始化默认提示词、输出模型、默认卡片类型
-    with Session(engine) as session:
-        init_prompts(session)
-        init_output_models(session)
-        create_default_card_types(session)
+# @app.on_event("startup")
+# def on_startup():
+#     # 数据库表的创建和迁移应完全由Alembic管理
+#     # init_db() 
+#     
+#     # 初始化默认提示词、输出模型、默认卡片类型
+#     with Session(engine) as session:
+#         init_prompts(session)
+#         init_output_models(session)
+#         create_default_card_types(session)
 
 @app.get("/")
 def read_root():
@@ -53,4 +73,11 @@ def read_root():
 if __name__ == "__main__":
     import uvicorn
     # 添加reload=True，这样当代码修改时会自动重新加载
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # 配置更短的优雅关闭时间，便于 Ctrl+C 快速退出
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+        timeout_graceful_shutdown=1,
+    )

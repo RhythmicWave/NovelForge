@@ -24,6 +24,7 @@
       </el-table-column>
       <el-table-column prop="temperature" label="温度" width="80" />
       <el-table-column prop="max_tokens" label="最大Token" width="100" />
+      <el-table-column prop="timeout" label="超时(秒)" width="100" />
       <el-table-column label="操作" width="180">
         <template #default="{ row, $index }">
           <el-button size="small" @click="openEditDialog(row, $index)">编辑</el-button>
@@ -74,7 +75,10 @@
           <el-input-number v-model="editCard.temperature" :min="0" :max="2" :step="0.1" style="width: 100%" />
         </el-form-item>
         <el-form-item label="最大Token">
-          <el-input-number v-model="editCard.max_tokens" :min="100" :max="4000" :step="100" style="width: 100%" />
+          <el-input-number v-model="editCard.max_tokens" :min="100" :max="40000" :step="100" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="超时(秒)">
+          <el-input-number v-model="editCard.timeout" :min="5" :max="600" :step="5" style="width: 100%" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -146,7 +150,8 @@ async function openEditDialog(card?: AIParamCard, index?: number) {
       prompt_name: '',
       response_model_name: '',
       temperature: 0.7,
-      max_tokens: 2000
+      max_tokens: 2000,
+      timeout: 60,
     })
     editIndex = -1
   }

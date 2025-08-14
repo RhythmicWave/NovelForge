@@ -39,6 +39,18 @@ export const useEditorStore = defineStore('editor', () => {
   let startX = 0
   let startWidth = 0
 
+  // 编辑器跨组件修订接口（由 NovelEditor 注册）
+  type ReplacePair = { from: string; to: string }
+  const applyChapterReplacements = ref<null | ((pairs: ReplacePair[]) => Promise<void> | void)>(null)
+
+  // 新增：用于跨组件触发“提取动态信息”的回调
+  const triggerExtractDynamicInfoRef = ref<null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)>(null)
+
+  // 写作上下文共享：卷号/章节号/标题（供其它面板使用）
+  const currentVolumeNumber = ref<number | null>(null)
+  const currentChapterNumber = ref<number | null>(null)
+  const currentChapterTitle = ref<string>('')
+
   // Actions
   function setActiveEditor(editor: { type: string; id: string; data?: any } | null) {
     activeEditor.value = editor
@@ -118,6 +130,32 @@ export const useEditorStore = defineStore('editor', () => {
     window.removeEventListener('mouseup', stopResizing)
   }
 
+  function setApplyChapterReplacements(fn: ((pairs: ReplacePair[]) => Promise<void> | void) | null) {
+    applyChapterReplacements.value = fn
+  }
+
+  async function applyReplacements(pairs: ReplacePair[]) {
+    if (applyChapterReplacements.value) {
+      await applyChapterReplacements.value(pairs)
+    }
+  }
+
+  function setTriggerExtractDynamicInfo(fn: null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)) {
+    triggerExtractDynamicInfoRef.value = fn
+  }
+
+  async function triggerExtractDynamicInfo(opts: { llm_config_id?: number; preview?: boolean }) {
+    if (triggerExtractDynamicInfoRef.value) {
+      await triggerExtractDynamicInfoRef.value(opts)
+    }
+  }
+
+  function setCurrentContextInfo(payload: { volume?: number | null; chapter?: number | null; title?: string }) {
+    if (payload.volume !== undefined) currentVolumeNumber.value = payload.volume ?? null
+    if (payload.chapter !== undefined) currentChapterNumber.value = payload.chapter ?? null
+    if (payload.title !== undefined) currentChapterTitle.value = payload.title ?? ''
+  }
+
   function reset() {
     activeEditor.value = null
     leftSidebarWidth.value = 250
@@ -126,6 +164,11 @@ export const useEditorStore = defineStore('editor', () => {
     contextMenu.visible = false
     aiConfigDialog.visible = false
     resizing.value = null
+    applyChapterReplacements.value = null
+    triggerExtractDynamicInfoRef.value = null
+    currentVolumeNumber.value = null
+    currentChapterNumber.value = null
+    currentChapterTitle.value = ''
   }
 
   return {
@@ -141,6 +184,10 @@ export const useEditorStore = defineStore('editor', () => {
     contextMenu,
     aiConfigDialog,
     resizing,
+    applyChapterReplacements,
+    currentVolumeNumber,
+    currentChapterNumber,
+    currentChapterTitle,
     
     // Actions
     setActiveEditor,
@@ -156,6 +203,11 @@ export const useEditorStore = defineStore('editor', () => {
     startResizing,
     handleResizing,
     stopResizing,
+    setApplyChapterReplacements,
+    applyReplacements,
+    setTriggerExtractDynamicInfo,
+    triggerExtractDynamicInfo,
+    setCurrentContextInfo,
     reset
   }
 }) 

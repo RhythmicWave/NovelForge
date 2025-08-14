@@ -68,6 +68,8 @@ import { ElMessage } from 'element-plus'
 import request from '@renderer/api/request'
 import type { components } from '@renderer/types/generated'
 import { getAIConfigOptions } from '@renderer/api/ai'
+import { useCardStore } from '@renderer/stores/useCardStore'
+import { schemaService } from '@renderer/api/schema'
 
 // 后端 CardType 类型
 type CardTypeRead = components['schemas']['CardTypeRead']
@@ -78,6 +80,8 @@ type CardTypeUpdate = components['schemas']['CardTypeUpdate']
 function isBuiltInCardType(row: any): boolean {
   return !!row?.built_in
 }
+
+const cardStore = useCardStore()
 
 // 数据源
 const loading = ref(false)
@@ -124,6 +128,10 @@ async function saveType(): Promise<void> {
     }
     drawer.value.visible = false
     await fetchTypes()
+    // 刷新全局的类型与模型缓存，避免需要重启
+    await cardStore.fetchCardTypes()
+    await cardStore.fetchAvailableModels()
+    await schemaService.refreshSchemas()
   } catch (e:any) { ElMessage.error('保存失败：' + (e?.message || e)) }
 }
 

@@ -8,12 +8,12 @@
 
       <div class="section">
         <h4>上下文模板</h4>
-        <el-input v-model="aiContext" type="textarea" :rows="12" placeholder="在此编辑上下文模板，支持 @ 引用" class="context-area" :spellcheck="false" />
+        <el-input v-model="aiContext" type="textarea" :rows="8" placeholder="在此编辑上下文模板，支持 @ 引用" class="context-area" :spellcheck="false" />
         <div class="chips">
           <el-tag v-for="(t, i) in tokens" :key="i" closable @close="removeToken(t)">@{{ t }}</el-tag>
         </div>
         <div class="actions">
-          <el-button size="small" @click="$emit('open-selector')">插入引用 @</el-button>
+          <el-button size="small" @click="$emit('open-selector', aiContext)">插入引用 @</el-button>
           <el-button size="small" type="primary" @click="apply">应用到卡片</el-button>
         </div>
       </div>
@@ -23,10 +23,15 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useCardStore } from '@renderer/stores/useCardStore'
+import { storeToRefs } from 'pinia'
+import { unwrapChapterOutline, extractParticipantsFrom } from '@renderer/services/contextHelpers'
 
 const props = defineProps<{
   modelValue: boolean
   contextTemplate: string
+  previewText?: string
 }>()
 const emit = defineEmits(['update:modelValue','apply-context','open-selector'])
 
@@ -52,6 +57,31 @@ function removeToken(token: string) {
 }
 
 function apply() { emit('apply-context', aiContext.value) }
+
+// 在抽屉中输入 @ 时弹出选择器
+const cardStore = useCardStore()
+const { activeCard } = storeToRefs(cardStore)
+let drawerTextarea: HTMLTextAreaElement | null = null
+watch(() => visible.value, (v) => {
+  if (v) {
+    setTimeout(() => {
+      drawerTextarea = document.querySelector('.context-area textarea') as HTMLTextAreaElement | null
+      drawerTextarea?.addEventListener('input', handleDrawerInput)
+    }, 0)
+  } else {
+    drawerTextarea?.removeEventListener('input', handleDrawerInput)
+    drawerTextarea = null
+  }
+})
+
+function handleDrawerInput(ev: Event) {
+  const textarea = ev.target as HTMLTextAreaElement
+  const cursorPos = textarea.selectionStart
+  const lastChar = textarea.value.substring(cursorPos - 1, cursorPos)
+  if (lastChar === '@') {
+    emit('open-selector', textarea.value)
+  }
+}
 </script>
 
 <style scoped>

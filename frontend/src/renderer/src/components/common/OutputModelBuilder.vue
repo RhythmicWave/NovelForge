@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-button type="primary" @click="addField">新增字段</el-button>
     </div>
-    <el-table :data="localFields" size="small" class="field-table">
+    <el-table :data="localFields" size="小" class="field-table">
       <el-table-column label="名称" width="150">
         <template #default="{ row }">
           <el-input v-model="row.name" placeholder="字段名" />
@@ -37,6 +37,25 @@
           <el-input v-model="row.description" placeholder="用于 Field 描述，提升 AI 结构化准确率" />
         </template>
       </el-table-column>
+      <el-table-column label="示例" min-width="220">
+        <template #default="{ row }">
+          <el-input v-model="row.example" placeholder="示例（兼容 pydantic 的 examples[0]/example，可填写 JSON 字符串）" />
+        </template>
+      </el-table-column>
+      <el-table-column label="元组元素" min-width="260">
+        <template #default="{ row }">
+          <div v-if="row.kind==='tuple'" class="tuple-editor">
+            <div v-for="(t, i) in row.tupleItems" :key="i" class="tuple-chip">
+              <el-select v-model="row.tupleItems[i]" size="small" style="width:120px">
+                <el-option v-for="tk in tupleKinds" :key="tk" :label="tk" :value="tk" />
+              </el-select>
+              <el-button size="small" text type="danger" @click="removeTupleItem(row, i)" :disabled="(row.tupleItems?.length||0) <= 1">删</el-button>
+            </div>
+            <el-button size="small" text type="primary" @click="addTupleItem(row)">+ 元素</el-button>
+          </div>
+          <div v-else class="rel-config muted">—</div>
+        </template>
+      </el-table-column>
       <el-table-column label="关系配置" min-width="200">
         <template #default="{ row }">
           <div v-if="row.kind==='relation'" class="rel-config">
@@ -60,30 +79,15 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue'
+import { type BuilderField } from '@renderer/utils/outputModelSchemaUtils'
 
 export interface OutputModelLite { name: string; json_schema?: any }
 
-export interface BuilderField {
-  name: string
-  label?: string
-  kind: 'string' | 'number' | 'integer' | 'boolean' | 'relation'
-  isArray?: boolean
-  required?: boolean
-  relation: { targetModelName: string | null }
-  description?: string
-}
-
-const props = defineProps<{
-  modelValue: BuilderField[]
-  // 所有可用的输出模型（用于 embed）
-  models: OutputModelLite[]
-  // 当前正在编辑的模型名称（避免自嵌）
-  currentModelName?: string
-}>()
-
+const props = defineProps<{ modelValue: BuilderField[]; models: OutputModelLite[]; currentModelName?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: BuilderField[]] }>()
 
-const baseKinds: Array<BuilderField['kind']> = ['string', 'number', 'integer', 'boolean']
+const baseKinds: Array<BuilderField['kind']> = ['string', 'number', 'integer', 'boolean', 'tuple']
+const tupleKinds: Array<NonNullable<BuilderField['tupleItems']>[number]> = ['string','number','integer','boolean']
 
 const localFields = ref<BuilderField[]>(props.modelValue?.map(cloneField) || [])
 const syncingFromProps = ref(false)
@@ -97,75 +101,28 @@ watch(localFields, (v) => { if (!syncingFromProps.value) emit('update:modelValue
 
 const targetModels = computed(() => props.models || [])
 
-function cloneField(f: BuilderField): BuilderField {
-  return JSON.parse(JSON.stringify(f))
-}
-
-function addField() {
-  localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, relation: { targetModelName: null }, description: '' })
-}
+function cloneField(f: BuilderField): BuilderField { return JSON.parse(JSON.stringify(f)) }
+function addField() { localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, relation: { targetModelName: null }, description: '', example: '', tupleItems: [] }) }
 function removeField(idx: number) { localFields.value.splice(idx, 1) }
 function moveUp(idx: number) { if (idx <= 0) return; const a = localFields.value; [a[idx-1], a[idx]] = [a[idx], a[idx-1]] }
 function moveDown(idx: number) { const a = localFields.value; if (idx >= a.length - 1) return; [a[idx+1], a[idx]] = [a[idx], a[idx+1]] }
 function onKindChange(row: BuilderField) {
   if (row.kind !== 'relation') row.relation = { targetModelName: null }
-}
-function isEmbedSelf(row: BuilderField, targetName: string) {
-  return row.kind === 'relation' && props.currentModelName && props.currentModelName === targetName
-}
-
-function builderToSchema(fields: BuilderField[]): any {
-  const properties: Record<string, any> = {}
-  const required: string[] = []
-  const defs: Record<string, any> = {}
-  for (const f of fields) {
-    if (!f.name) continue
-    const title = f.label || f.name
-    let node: any = {}
-    if (f.kind === 'relation') {
-      const defName = f.relation.targetModelName
-      if (defName) {
-        node = f.isArray ? { type: 'array', items: { $ref: `#/$defs/${defName}` } } : { $ref: `#/$defs/${defName}` }
-        const target = targetModels.value.find(m => m.name === defName)
-        if (target?.json_schema) defs[defName] = target.json_schema
-      } else {
-        node = { type: 'object', properties: {} }
-      }
-    } else {
-      node = { type: f.kind }
-      if (f.isArray) node = { type: 'array', items: node }
-    }
-    node.title = title
-    if (f.description) node.description = f.description
-    properties[f.name] = node
-    if (f.required) required.push(f.name)
+  if (row.kind === 'tuple') {
+    if (!Array.isArray(row.tupleItems) || row.tupleItems.length === 0) row.tupleItems = ['string','string']
+  } else {
+    row.tupleItems = []
   }
-  const schema: any = { type: 'object', properties }
-  if (required.length) schema.required = required
-  if (Object.keys(defs).length) schema.$defs = defs
-  return schema
 }
+function isEmbedSelf(row: BuilderField, targetName: string) { return row.kind === 'relation' && props.currentModelName && props.currentModelName === targetName }
 
-function schemaToBuilder(schema: any): BuilderField[] {
-  const props = schema?.properties || {}
-  const required: string[] = schema?.required || []
-  const fields: BuilderField[] = []
-  for (const key of Object.keys(props)) {
-    const p = props[key]
-    const isArray = p?.type === 'array'
-    const core = isArray ? p.items : p
-    let kind: BuilderField['kind'] = 'string'
-    let relation: BuilderField['relation'] = { targetModelName: null }
-    if (core?.$ref) {
-      kind = 'relation'
-      const refName = String(core.$ref).split('/').pop() || null
-      relation = { targetModelName: refName }
-    } else if (core?.type && ['string','number','integer','boolean'].includes(core.type)) {
-      kind = core.type
-    }
-    fields.push({ name: key, label: core?.title || key, kind, isArray, required: required.includes(key), relation, description: core?.description || p?.description || '' })
-  }
-  return fields
+function addTupleItem(row: BuilderField) {
+  if (!Array.isArray(row.tupleItems)) row.tupleItems = []
+  row.tupleItems.push('string')
+}
+function removeTupleItem(row: BuilderField, idx: number) {
+  if (!Array.isArray(row.tupleItems)) return
+  row.tupleItems.splice(idx, 1)
 }
 </script>
 
@@ -175,4 +132,6 @@ function schemaToBuilder(schema: any): BuilderField[] {
 .field-table { width: 100%; }
 .rel-config { display: flex; gap: 8px; align-items: center; }
 .muted { color: var(--el-text-color-secondary); }
+.tuple-editor { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tuple-chip { display: flex; gap: 6px; align-items: center; }
 </style> 

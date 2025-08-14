@@ -25,6 +25,7 @@
         <el-tooltip placement="top" :content="paramFullText">
           <el-tag size="small" effect="plain" class="param-summary">{{ paramShortText }}</el-tag>
         </el-tooltip>
+        <el-button v-if="props.card.card_type.name === '章节正文' && projectStore.currentProject?.id" size="small" @click="openStudio">专注创作</el-button>
       </div>
     </div>
 
@@ -59,7 +60,7 @@
       </template>
     </ContextDrawer>
 
-    <CardReferenceSelectorDialog v-model="isSelectorVisible" :cards="cards" @confirm="handleReferenceConfirm" />
+    <CardReferenceSelectorDialog v-model="isSelectorVisible" :cards="cards" :currentCardId="props.card.id" @confirm="handleReferenceConfirm" />
     <CardVersionsDialog
       v-if="projectStore.currentProject?.id"
       v-model="showVersions"
@@ -192,6 +193,11 @@ async function loadSchemaForCard(card: CardRead) {
       return
     }
     schema.value = schemaService.getSchema(outputModelName)
+    // 若首次未命中（可能是刚新增的模型），尝试强制刷新一次
+    if (!schema.value) {
+      await schemaService.refreshSchemas()
+      schema.value = schemaService.getSchema(outputModelName)
+    }
     const props: any = (schema.value as any)?.properties || {}
     const keys = Object.keys(props)
     const onlyKey = keys.length === 1 ? keys[0] : undefined
@@ -227,8 +233,9 @@ function handleReferenceConfirm(reference: string) {
     return
   }
   const text = localAiContextTemplate.value
+  const isAt = text.charAt(atIndexForInsertion) === '@'
   const before = text.substring(0, atIndexForInsertion)
-  const after = text.substring(atIndexForInsertion + 1) // 跳过触发的 @
+  const after = text.substring(atIndexForInsertion + (isAt ? 1 : 0))
   localAiContextTemplate.value = before + reference + after
   atIndexForInsertion = -1
   ElMessage.success('已插入引用')
@@ -287,7 +294,8 @@ function openSelectorFromDrawer() {
   const textarea = document.querySelector('.context-area textarea') as HTMLTextAreaElement | null
   if (textarea) {
     localAiContextTemplate.value = textarea.value
-    atIndexForInsertion = textarea.selectionStart - 1 // 若用户未输入@，后续会走追加逻辑
+    // 在光标当前位置插入，不回退一位
+    atIndexForInsertion = textarea.selectionStart
   }
   isSelectorVisible.value = true
 }
@@ -347,7 +355,10 @@ async function handleGenerate() {
   const selectedParamCard = aiParamCardStore.findByKey(selectedAiParamCardId.value)
   if (!selectedParamCard || !selectedParamCard.llm_config_id) { ElMessage.error('请先选择一个有效的AI参数配置。'); return }
   const { resolveTemplate } = await import('@renderer/services/contextResolver')
-  const resolvedContext = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: props.card })
+  // 关键修复：用“当前编辑态”的内容参与解析（未保存也生效）
+  const editingContent = wrapperName.value ? innerData.value : localData.value
+  const currentCardForResolve = { ...props.card, content: editingContent }
+  const resolvedContext = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
   try {
     const result = await aiStore.generateContent(String(outputModelName), resolvedContext, selectedParamCard.llm_config_id, selectedParamCard.prompt_name ?? undefined)
     if (result) { localData.value = result; ElMessage.success('内容生成成功！') }
@@ -362,6 +373,13 @@ async function handleRestoreVersion(v: any) {
   showVersions.value = false
   ElMessage.success('已恢复版本，自动保存中...')
   await handleSave()
+}
+
+function openStudio() {
+  const pid = projectStore.currentProject?.id
+  if (!pid) return
+  // @ts-ignore
+  window.api?.openChapterStudio?.(pid, props.card.id)
 }
 </script>
 

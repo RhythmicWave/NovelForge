@@ -4,4 +4,7 @@
     1. 根据用户提供的标签等信息，设计小说金手指。
     /nothink
 
+- knowledge:
+    - @KB{ name=起名指南 }
+
 -OutputFormat：请严格根据提供的Json Schema返回结果

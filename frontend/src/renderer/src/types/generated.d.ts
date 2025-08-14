@@ -94,59 +94,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/chapters/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** 创建新章节 */
-        post: operations["create_chapter_api_chapters__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/chapters/by_volume/{volume_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 根据分卷获取章节列表 */
-        get: operations["get_chapters_by_volume_api_chapters_by_volume__volume_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/chapters/{chapter_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 获取单个章节 */
-        get: operations["get_chapter_api_chapters__chapter_id__get"];
-        /** 更新章节 */
-        put: operations["update_chapter_api_chapters__chapter_id__put"];
-        post?: never;
-        /** 删除章节 */
-        delete: operations["delete_chapter_endpoint_api_chapters__chapter_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/ai/schemas": {
         parameters: {
             query?: never;
@@ -155,9 +102,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 获取所有卡片内容模型的JSON Schema
-         * @description 返回一个包含 RESPONSE_MODEL_MAP 中所有Pydantic模型及其所有依赖的JSON Schema的字典。
-         *     这为前端动态表单渲染提供了所有必要的模型定义。
+         * 获取所有输出模型的JSON Schema（内置+自定义）
+         * @description 返回内置模型和数据库 OutputModel 的 schema 聚合，键为模型名称。
          */
         get: operations["get_all_schemas_api_ai_schemas_get"];
         put?: never;
@@ -175,10 +121,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * 获取所有可用于卡片内容的模型名称
-         * @description 返回一个包含所有已在RESPONSE_MODEL_MAP中注册的Pydantic模型名称的列表。
-         */
+        /** 获取所有可用输出模型名称 */
         get: operations["get_content_models_api_ai_content_models_get"];
         put?: never;
         post?: never;
@@ -389,6 +332,335 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/output-models/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Output Models */
+        get: operations["list_output_models_api_output_models__get"];
+        put?: never;
+        /** Create Output Model */
+        post: operations["create_output_model_api_output_models__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/output-models/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Output Model */
+        put: operations["update_output_model_api_output_models__model_id__put"];
+        post?: never;
+        /** Delete Output Model */
+        delete: operations["delete_output_model_api_output_models__model_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/context/assemble": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 装配写作上下文（更早摘要 + 事实子图 + 最近原文） */
+        post: operations["assemble_api_context_assemble_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/context/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取上下文装配设置 */
+        get: operations["get_context_settings_api_context_settings_get"];
+        put?: never;
+        /** 更新上下文装配设置（部分字段） */
+        post: operations["update_context_settings_api_context_settings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/ingest-card-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Card Text */
+        post: operations["ingest_card_text_api_memory_ingest_card_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 检索子图/快照 */
+        post: operations["query_api_memory_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/ingest-relations-llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 使用 LLM 抽取实体关系并入图（严格） */
+        post: operations["ingest_relations_llm_api_memory_ingest_relations_llm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/extract-relations-llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 仅抽取实体关系（不入图） */
+        post: operations["extract_relations_only_api_memory_extract_relations_llm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/extract-dynamic-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 仅提取动态信息（不更新） */
+        post: operations["extract_dynamic_info_only_api_memory_extract_dynamic_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/ingest-relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 根据 RelationExtraction 结果入图 */
+        post: operations["ingest_relations_from_preview_api_memory_ingest_relations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/update-dynamic-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 仅更新动态信息到角色卡 */
+        post: operations["update_dynamic_info_only_api_memory_update_dynamic_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/consistency/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 一致性校验（精简版：基于结构化事实） */
+        post: operations["check_api_consistency_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/foreshadow/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 伏笔候选建议（启发式占位） */
+        post: operations["suggest_api_foreshadow_suggest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/foreshadow/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出项目的伏笔登记 */
+        get: operations["list_items_api_foreshadow_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/foreshadow/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 登记一组伏笔条目 */
+        post: operations["register_api_foreshadow_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/foreshadow/resolve/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 将伏笔标记为已回收 */
+        post: operations["resolve_api_foreshadow_resolve__item_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/foreshadow/delete/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 删除伏笔条目 */
+        post: operations["delete_api_foreshadow_delete__item_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取知识库列表 */
+        get: operations["list_knowledge_api_knowledge__get"];
+        put?: never;
+        /** 创建知识库 */
+        post: operations["create_knowledge_api_knowledge__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge/{kid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取单个知识库 */
+        get: operations["get_knowledge_api_knowledge__kid__get"];
+        /** 更新知识库 */
+        put: operations["update_knowledge_api_knowledge__kid__put"];
+        post?: never;
+        /** 删除知识库 */
+        delete: operations["delete_knowledge_api_knowledge__kid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/": {
         parameters: {
             query?: never;
@@ -422,17 +694,6 @@ export interface components {
             /** Message */
             message?: string | null;
         };
-        /** ApiResponse[ChapterRead] */
-        ApiResponse_ChapterRead_: {
-            /**
-             * Status
-             * @default success
-             */
-            status: string;
-            data?: components["schemas"]["ChapterRead"] | null;
-            /** Message */
-            message?: string | null;
-        };
         /** ApiResponse[ContinuationResponse] */
         ApiResponse_ContinuationResponse_: {
             /**
@@ -441,6 +702,17 @@ export interface components {
              */
             status: string;
             data?: components["schemas"]["ContinuationResponse"] | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApiResponse[KnowledgeRead] */
+        ApiResponse_KnowledgeRead_: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            data?: components["schemas"]["KnowledgeRead"] | null;
             /** Message */
             message?: string | null;
         };
@@ -455,15 +727,15 @@ export interface components {
             /** Message */
             message?: string | null;
         };
-        /** ApiResponse[List[ChapterRead]] */
-        ApiResponse_List_ChapterRead__: {
+        /** ApiResponse[List[KnowledgeRead]] */
+        ApiResponse_List_KnowledgeRead__: {
             /**
              * Status
              * @default success
              */
             status: string;
             /** Data */
-            data?: components["schemas"]["ChapterRead"][] | null;
+            data?: components["schemas"]["KnowledgeRead"][] | null;
             /** Message */
             message?: string | null;
         };
@@ -525,12 +797,70 @@ export interface components {
             /** Message */
             message?: string | null;
         };
+        /** AssembleContextRequest */
+        AssembleContextRequest: {
+            /**
+             * Project Id
+             * @description 项目ID
+             */
+            project_id?: number | null;
+            /**
+             * Volume Number
+             * @description 卷号
+             */
+            volume_number?: number | null;
+            /**
+             * Chapter Number
+             * @description 章节号
+             */
+            chapter_number?: number | null;
+            /**
+             * Chapter Id
+             * @description 章节卡片ID（可选）
+             */
+            chapter_id?: number | null;
+            /**
+             * Participants
+             * @description 参与实体名称列表
+             */
+            participants?: string[] | null;
+            /**
+             * Current Draft Tail
+             * @description 上下文模板（草稿尾部）
+             */
+            current_draft_tail?: string | null;
+            /**
+             * Recent Chapters Window
+             * @description 最近窗口N（保留，为将来扩展）
+             */
+            recent_chapters_window?: number | null;
+        };
+        /** AssembleContextResponse */
+        AssembleContextResponse: {
+            /**
+             * Facts Subgraph
+             * @description 事实子图的文本回显（可选，仅回显）
+             * @default
+             */
+            facts_subgraph: string;
+            /**
+             * Budget Stats
+             * @description 上下文字数预算统计（可能包含嵌套 parts dict）
+             */
+            budget_stats?: {
+                [key: string]: unknown;
+            };
+            /** @description 结构化事实子图 */
+            facts_structured?: components["schemas"]["FactsStructured"] | null;
+        };
         /** CardCreate */
         CardCreate: {
             /** Title */
             title: string;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
             /** Parent Id */
             parent_id?: number | null;
             /** Card Type Id */
@@ -541,7 +871,9 @@ export interface components {
             /** Title */
             title: string;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
             /** Parent Id */
             parent_id?: number | null;
             /** Card Type Id */
@@ -569,8 +901,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /** Model Name */
-            model_name?: string | null;
+            /** Output Model Name */
+            output_model_name?: string | null;
             /** Editor Component */
             editor_component?: string | null;
             /**
@@ -585,10 +917,10 @@ export interface components {
             is_singleton: boolean;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
-            /** Json Schema */
-            json_schema?: Record<string, never> | null;
             /** Ui Layout */
-            ui_layout?: Record<string, never> | null;
+            ui_layout?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** CardTypeRead */
         CardTypeRead: {
@@ -596,8 +928,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /** Model Name */
-            model_name?: string | null;
+            /** Output Model Name */
+            output_model_name?: string | null;
             /** Editor Component */
             editor_component?: string | null;
             /**
@@ -612,12 +944,17 @@ export interface components {
             is_singleton: boolean;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
-            /** Json Schema */
-            json_schema?: Record<string, never> | null;
             /** Ui Layout */
-            ui_layout?: Record<string, never> | null;
+            ui_layout?: {
+                [key: string]: unknown;
+            } | null;
             /** Id */
             id: number;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
         };
         /** CardTypeUpdate */
         CardTypeUpdate: {
@@ -625,8 +962,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
-            /** Model Name */
-            model_name?: string | null;
+            /** Output Model Name */
+            output_model_name?: string | null;
             /** Editor Component */
             editor_component?: string | null;
             /** Is Ai Enabled */
@@ -635,17 +972,19 @@ export interface components {
             is_singleton?: boolean | null;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
-            /** Json Schema */
-            json_schema?: Record<string, never> | null;
             /** Ui Layout */
-            ui_layout?: Record<string, never> | null;
+            ui_layout?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** CardUpdate */
         CardUpdate: {
             /** Title */
             title?: string | null;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
             /** Parent Id */
             parent_id?: number | null;
             /** Display Order */
@@ -655,48 +994,42 @@ export interface components {
             /** Selected Ai Param Card Id */
             selected_ai_param_card_id?: string | null;
         };
-        /** ChapterCreate */
-        ChapterCreate: {
-            /** Title */
-            title: string;
-            /** Content */
-            content?: string | null;
+        /** CheckRequest */
+        CheckRequest: {
             /**
-             * Word Count
-             * @default 0
+             * Text
+             * @description 待校验文本
              */
-            word_count: number;
-            /** Outline */
-            outline?: Record<string, never> | null;
-        };
-        /** ChapterRead */
-        ChapterRead: {
-            /** Title */
-            title: string;
-            /** Content */
-            content?: string | null;
+            text: string;
             /**
-             * Word Count
-             * @default 0
+             * Facts Structured
+             * @description 结构化事实子图（relation_summaries等）
              */
-            word_count: number;
-            /** Outline */
-            outline?: Record<string, never> | null;
-            /** Id */
-            id: number;
-            /** Volume Id */
-            volume_id?: number | null;
+            facts_structured?: {
+                [key: string]: unknown;
+            } | null;
         };
-        /** ChapterUpdate */
-        ChapterUpdate: {
-            /** Title */
-            title?: string | null;
-            /** Content */
-            content?: string | null;
-            /** Word Count */
-            word_count?: number | null;
-            /** Outline */
-            outline?: Record<string, never> | null;
+        /** CheckResponse */
+        CheckResponse: {
+            /** Issues */
+            issues: components["schemas"]["Issue"][];
+            /** Suggested Fixes */
+            suggested_fixes: components["schemas"]["FixSuggestion"][];
+        };
+        /** ContextSettingsModel */
+        ContextSettingsModel: {
+            /** Recent Chapters Window */
+            recent_chapters_window: number;
+            /** Total Context Budget Chars */
+            total_context_budget_chars: number;
+            /** Soft Budget Chars */
+            soft_budget_chars: number;
+            /** Quota Recent */
+            quota_recent: number;
+            /** Quota Older Summary */
+            quota_older_summary: number;
+            /** Quota Facts */
+            quota_facts: number;
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -709,29 +1042,342 @@ export interface components {
              * @default false
              */
             stream: boolean;
+            /** Project Id */
+            project_id?: number | null;
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+            /** Participants */
+            participants?: string[] | null;
+            /**
+             * Temperature
+             * @description 采样温度 0-2，留空使用模型默认
+             */
+            temperature?: number | null;
+            /**
+             * Max Tokens
+             * @description 生成的最大token数，留空使用默认
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 生成超时(秒)，留空使用默认
+             */
+            timeout?: number | null;
+            /**
+             * Current Draft Tail
+             * @description 上下文模板，将在装配阶段作为草稿尾部注入
+             */
+            current_draft_tail?: string | null;
+            /**
+             * Prompt Name
+             * @description 参数卡选择的提示词名称
+             */
+            prompt_name?: string | null;
         };
         /** ContinuationResponse */
         ContinuationResponse: {
             /** Content */
             content: string;
         };
+        /** DynamicInfo */
+        DynamicInfo: {
+            /**
+             * Name
+             * @description 角色名称。
+             */
+            name: string;
+            /**
+             * Dynamic Info
+             * @description 动态信息字典，键为 DynamicInfoType；值为带 id/weight 的信息项列表。‘心理想法/目标快照’为必选项。
+             */
+            dynamic_info?: {
+                [key: string]: components["schemas"]["DynamicInfoItem"][];
+            };
+        };
+        /** DynamicInfoItem */
+        DynamicInfoItem: {
+            /**
+             * Id
+             * @description 手动设置，无需生成；并入时若为-1将自动赋值为该类别的顺序序号（从1开始）
+             * @default -1
+             */
+            id: number;
+            /**
+             * Info
+             * @description 简要描述具体动态信息。
+             */
+            info: string;
+            /**
+             * Weight
+             * @description 该信息的重要性权重，范围0~1，越大越重要
+             */
+            weight: number;
+        };
+        /**
+         * DynamicInfoType
+         * @description 角色动态信息大类。
+         * @enum {string}
+         */
+        DynamicInfoType: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "人脉/人情" | "心理想法/目标快照";
+        /** ExtractOnlyRequest */
+        ExtractOnlyRequest: {
+            /** Project Id */
+            project_id?: number | null;
+            /** Text */
+            text: string;
+            /** Participants */
+            participants?: string[] | null;
+            /**
+             * Llm Config Id
+             * @default 1
+             */
+            llm_config_id: number;
+            /** Timeout */
+            timeout?: number | null;
+            /** Extra Context */
+            extra_context?: string | null;
+        };
+        /** ExtractRelationsRequest */
+        ExtractRelationsRequest: {
+            /** Text */
+            text: string;
+            /** Participants */
+            participants?: string[] | null;
+            /**
+             * Llm Config Id
+             * @default 1
+             */
+            llm_config_id: number;
+            /** Timeout */
+            timeout?: number | null;
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+        };
+        /** FactsStructured */
+        FactsStructured: {
+            /**
+             * Fact Summaries
+             * @description 关键事实摘要
+             */
+            fact_summaries?: string[];
+            /**
+             * Relation Summaries
+             * @description 关系摘要（含近期对话/事件）
+             */
+            relation_summaries?: components["schemas"]["RelationItem"][];
+        };
+        /** FixSuggestion */
+        FixSuggestion: {
+            /** Range */
+            range?: number[] | null;
+            /** Replacement */
+            replacement: string;
+        };
+        /** ForeshadowDeleteRequest */
+        ForeshadowDeleteRequest: {
+            /** Project Id */
+            project_id: number;
+        };
+        /** ForeshadowItem */
+        ForeshadowItem: {
+            /** Id */
+            id?: number | null;
+            /** Project Id */
+            project_id: number;
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /** Title */
+            title: string;
+            /**
+             * Type
+             * @default other
+             */
+            type: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Status
+             * @default open
+             */
+            status: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Resolved At */
+            resolved_at?: string | null;
+        };
+        /** ForeshadowListResponse */
+        ForeshadowListResponse: {
+            /** Items */
+            items: components["schemas"]["ForeshadowItem"][];
+        };
+        /** ForeshadowRegisterItem */
+        ForeshadowRegisterItem: {
+            /** Title */
+            title: string;
+            /**
+             * Type
+             * @description goal|item|person|other
+             * @default other
+             */
+            type: string;
+            /** Note */
+            note?: string | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
+        };
+        /** ForeshadowRegisterRequest */
+        ForeshadowRegisterRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Items */
+            items: components["schemas"]["ForeshadowRegisterItem"][];
+        };
+        /** ForeshadowResolveRequest */
+        ForeshadowResolveRequest: {
+            /** Project Id */
+            project_id: number;
+        };
         /** GeneralAIRequest */
         GeneralAIRequest: {
             /** Input */
-            input: Record<string, never>;
+            input: {
+                [key: string]: unknown;
+            };
             /** Llm Config Id */
             llm_config_id?: number | null;
             /** Prompt Name */
             prompt_name?: string | null;
             /** Response Model Name */
-            response_model_name?: string | null;
+            response_model_name?: {
+                [key: string]: unknown;
+            } | string | null;
             /** Response Model Schema */
-            response_model_schema?: Record<string, never> | null;
+            response_model_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Temperature
+             * @description 采样温度 0-2，留空使用模型默认
+             */
+            temperature?: number | null;
+            /**
+             * Max Tokens
+             * @description 生成的最大token数，留空使用默认
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 生成超时(秒)，留空使用默认
+             */
+            timeout?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** IngestCardTextRequest */
+        IngestCardTextRequest: {
+            /**
+             * Project Id
+             * @description 项目ID
+             */
+            project_id: number;
+            /**
+             * Card Id
+             * @description 卡片ID（章节正文卡）
+             */
+            card_id: number;
+        };
+        /** IngestRelationsFromPreviewRequest */
+        IngestRelationsFromPreviewRequest: {
+            /** Project Id */
+            project_id: number;
+            data: components["schemas"]["RelationExtraction-Input"];
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+        };
+        /** IngestRelationsFromPreviewResponse */
+        IngestRelationsFromPreviewResponse: {
+            /** Written */
+            written: number;
+        };
+        /** IngestRelationsLLMRequest */
+        IngestRelationsLLMRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Text */
+            text: string;
+            /** Participants */
+            participants?: string[] | null;
+            /**
+             * Llm Config Id
+             * @default 1
+             */
+            llm_config_id: number;
+            /** Timeout */
+            timeout?: number | null;
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+        };
+        /** IngestRelationsLLMResponse */
+        IngestRelationsLLMResponse: {
+            /** Written */
+            written: number;
+        };
+        /** Issue */
+        Issue: {
+            /** Type */
+            type: string;
+            /** Message */
+            message: string;
+            /** Position */
+            position?: number[] | null;
+        };
+        /** KnowledgeCreate */
+        KnowledgeCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Content */
+            content: string;
+        };
+        /** KnowledgeRead */
+        KnowledgeRead: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
+            /** Id */
+            id: number;
+        };
+        /** KnowledgeUpdate */
+        KnowledgeUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Content */
+            content?: string | null;
         };
         /** LLMConfigCreate */
         LLMConfigCreate: {
@@ -785,6 +1431,54 @@ export interface components {
             /** Api Key */
             api_key: string;
         };
+        /** ModifyDynamicInfo */
+        ModifyDynamicInfo: {
+            /**
+             * Name
+             * @description 角色名称。
+             */
+            name: string;
+            /** @description 动态信息类型。 */
+            dynamic_type: components["schemas"]["DynamicInfoType"];
+            /**
+             * Id
+             * @description 要修改的动态类型信息的id
+             */
+            id: number;
+            /**
+             * Weight
+             * @description 修改后该信息的权重，范围0~1，表示重要性
+             */
+            weight: number;
+        };
+        /** OutputModel */
+        OutputModel: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
         /** ProjectCreate */
         ProjectCreate: {
             /** Name */
@@ -827,6 +1521,11 @@ export interface components {
             template: string;
             /** Id */
             id: number;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
         };
         /** PromptUpdate */
         PromptUpdate: {
@@ -836,6 +1535,119 @@ export interface components {
             description?: string | null;
             /** Template */
             template?: string | null;
+        };
+        /** QueryRequest */
+        QueryRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Participants */
+            participants?: string[] | null;
+            /**
+             * Radius
+             * @default 2
+             */
+            radius: number;
+        };
+        /** QueryResponse */
+        QueryResponse: {
+            /** Nodes */
+            nodes: {
+                [key: string]: unknown;
+            }[];
+            /** Edges */
+            edges: {
+                [key: string]: unknown;
+            }[];
+            /** Fact Summaries */
+            fact_summaries: string[];
+            /** Relation Summaries */
+            relation_summaries: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** RecentEventSummary */
+        RecentEventSummary: {
+            /**
+             * Summary
+             * @description A、B 之间近期发生事件的一句摘要（本次提取建议融合为一条）
+             */
+            summary: string;
+            /**
+             * Volume Number
+             * @description 发生的卷号（置空，系统可补全）
+             */
+            volume_number?: number | null;
+            /**
+             * Chapter Number
+             * @description 发生的章节号（置空，系统可补全）
+             */
+            chapter_number?: number | null;
+        };
+        /** RelationExtraction */
+        "RelationExtraction-Input": {
+            /** Relations */
+            relations?: components["schemas"]["RelationItem"][];
+        };
+        /** RelationExtraction */
+        "RelationExtraction-Output": {
+            /** Relations */
+            relations?: components["schemas"]["RelationItem"][];
+        };
+        /** RelationItem */
+        RelationItem: {
+            /**
+             * A
+             * @description 实体 A 名称（参与者之一）
+             */
+            a: string;
+            /**
+             * B
+             * @description 实体 B 名称（参与者之一）
+             */
+            b: string;
+            /**
+             * Kind
+             * @description 关系类型（中文）
+             * @enum {string}
+             */
+            kind: "同盟" | "敌对" | "亲属" | "师徒" | "对手" | "隶属";
+            /**
+             * A To B Addressing
+             * @description A 对 B 的称呼词，如：师兄、先生
+             */
+            a_to_b_addressing?: string | null;
+            /**
+             * B To A Addressing
+             * @description B 对 A 的称呼词
+             */
+            b_to_a_addressing?: string | null;
+            /**
+             * Recent Dialogues
+             * @description 近期对话片段（建议包含双方各至少一句，可用 A:“…”, B:“…” 合并片段；长度≥20字）
+             */
+            recent_dialogues?: string[];
+            /**
+             * Recent Event Summaries
+             * @description 近期 A、B 之间发生事件（本次提取建议融合为一条）
+             */
+            recent_event_summaries?: components["schemas"]["RecentEventSummary"][];
+        };
+        /** SuggestRequest */
+        SuggestRequest: {
+            /**
+             * Text
+             * @description 待分析文本
+             */
+            text: string;
+        };
+        /** SuggestResponse */
+        SuggestResponse: {
+            /** Goals */
+            goals: string[];
+            /** Items */
+            items: string[];
+            /** Persons */
+            persons: string[];
         };
         /**
          * Tags
@@ -863,6 +1675,65 @@ export interface components {
              * @default
              */
             affection: string;
+        };
+        /** UpdateContextSettingsRequest */
+        UpdateContextSettingsRequest: {
+            /** Recent Chapters Window */
+            recent_chapters_window?: number | null;
+            /** Total Context Budget Chars */
+            total_context_budget_chars?: number | null;
+            /** Soft Budget Chars */
+            soft_budget_chars?: number | null;
+            /** Quota Recent */
+            quota_recent?: number | null;
+            /** Quota Older Summary */
+            quota_older_summary?: number | null;
+            /** Quota Facts */
+            quota_facts?: number | null;
+        };
+        /** UpdateDynamicInfo */
+        "UpdateDynamicInfo-Input": {
+            /**
+             * Info List
+             * @description 需要更新的动态信息列表，尽量只提取足够重要的信息
+             */
+            info_list: components["schemas"]["DynamicInfo"][];
+            /**
+             * Modify Info List
+             * @description （可选）对已有信息的权重修正列表
+             */
+            modify_info_list?: components["schemas"]["ModifyDynamicInfo"][] | null;
+        };
+        /** UpdateDynamicInfo */
+        "UpdateDynamicInfo-Output": {
+            /**
+             * Info List
+             * @description 需要更新的动态信息列表，尽量只提取足够重要的信息
+             */
+            info_list: components["schemas"]["DynamicInfo"][];
+            /**
+             * Modify Info List
+             * @description （可选）对已有信息的权重修正列表
+             */
+            modify_info_list?: components["schemas"]["ModifyDynamicInfo"][] | null;
+        };
+        /** UpdateDynamicInfoRequest */
+        UpdateDynamicInfoRequest: {
+            /** Project Id */
+            project_id: number;
+            data: components["schemas"]["UpdateDynamicInfo-Input"];
+            /**
+             * Queue Size
+             * @default 5
+             */
+            queue_size: number | null;
+        };
+        /** UpdateDynamicInfoResponse */
+        UpdateDynamicInfoResponse: {
+            /** Success */
+            success: boolean;
+            /** Updated Card Count */
+            updated_card_count: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -1184,167 +2055,6 @@ export interface operations {
             };
         };
     };
-    create_chapter_api_chapters__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChapterCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ChapterRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_chapters_by_volume_api_chapters_by_volume__volume_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                volume_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_List_ChapterRead__"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_chapter_api_chapters__chapter_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                chapter_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ChapterRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_chapter_api_chapters__chapter_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                chapter_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChapterUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ChapterRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_chapter_endpoint_api_chapters__chapter_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                chapter_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_all_schemas_api_ai_schemas_get: {
         parameters: {
             query?: never;
@@ -1360,7 +2070,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -1951,6 +2663,793 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_output_models_api_output_models__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputModel"][];
+                };
+            };
+        };
+    };
+    create_output_model_api_output_models__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutputModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_output_model_api_output_models__model_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutputModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_output_model_api_output_models__model_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assemble_api_context_assemble_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssembleContextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssembleContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_context_settings_api_context_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextSettingsModel"];
+                };
+            };
+        };
+    };
+    update_context_settings_api_context_settings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateContextSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextSettingsModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_card_text_api_memory_ingest_card_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestCardTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_api_memory_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_relations_llm_api_memory_ingest_relations_llm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestRelationsLLMRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestRelationsLLMResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_relations_only_api_memory_extract_relations_llm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractRelationsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationExtraction-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_dynamic_info_only_api_memory_extract_dynamic_info_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractOnlyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateDynamicInfo-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_relations_from_preview_api_memory_ingest_relations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestRelationsFromPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestRelationsFromPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_dynamic_info_only_api_memory_update_dynamic_info_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDynamicInfoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateDynamicInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_api_consistency_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_api_foreshadow_suggest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_items_api_foreshadow_list_get: {
+        parameters: {
+            query: {
+                project_id: number;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeshadowListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_api_foreshadow_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForeshadowRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeshadowListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_api_foreshadow_resolve__item_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForeshadowResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeshadowItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_api_foreshadow_delete__item_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForeshadowDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_knowledge_api_knowledge__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_List_KnowledgeRead__"];
+                };
+            };
+        };
+    };
+    create_knowledge_api_knowledge__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_KnowledgeRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_knowledge_api_knowledge__kid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_KnowledgeRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_knowledge_api_knowledge__kid__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_KnowledgeRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_knowledge_api_knowledge__kid__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

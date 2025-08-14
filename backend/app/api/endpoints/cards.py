@@ -6,6 +6,8 @@ from app.db.session import get_session
 from app.services.card_service import CardService, CardTypeService
 from app.schemas.card import CardRead, CardCreate, CardUpdate, CardTypeRead, CardTypeCreate, CardTypeUpdate
 from app.db.models import Card, CardType
+# from app.services.memory_service import MemoryService
+from loguru import logger
 
 router = APIRouter()
 
@@ -55,7 +57,10 @@ def delete_card_type(card_type_id: int, db: Session = Depends(get_session)):
 @router.post("/projects/{project_id}/cards", response_model=CardRead)
 def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session)):
     service = CardService(db)
-    return service.create(card, project_id)
+    created = service.create(card, project_id)
+    # 入图（创建时）
+    # 新方案：创建/更新卡片不再自动入图
+    return created
 
 @router.get("/projects/{project_id}/cards", response_model=List[CardRead])
 def get_all_cards_for_project(project_id: int, db: Session = Depends(get_session)):
@@ -76,6 +81,7 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
     db_card = service.update(card_id, card)
     if db_card is None:
         raise HTTPException(status_code=404, detail="Card not found")
+    # 新方案：创建/更新卡片不再自动入图
     return db_card
 
 @router.delete("/cards/{card_id}", status_code=204)

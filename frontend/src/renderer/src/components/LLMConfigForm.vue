@@ -29,8 +29,6 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import request from '@renderer/api/request'
 import type { components } from '@renderer/types/generated'
 import type { FormInstance, FormRules } from 'element-plus'
 

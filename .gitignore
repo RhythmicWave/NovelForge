@@ -36,6 +36,7 @@ primitive_models/
 .DS_Store
 Thumbs.db
 desktop.ini
+.env
 
 # 日志文件
 *.log

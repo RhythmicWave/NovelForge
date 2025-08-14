@@ -4,4 +4,8 @@
     1. 根据用户故事梗概、世界观、角色设计、该卷的主线、支线等信息,设计并生成一系列章节标题、概述
     /nothink
 
+- knowledge:
+    - @KB{ name=起名指南 }
+
+
 -OutputFormat：请严格根据提供的Json Schema返回结果

@@ -5,4 +5,7 @@
     2. 设计并生成该章节的剧情点,最好不超过8个。
     /nothink
 
+- knowledge:
+    - @KB{ name=起名指南 }
+
 -OutputFormat：请严格根据提供的Json Schema返回结果

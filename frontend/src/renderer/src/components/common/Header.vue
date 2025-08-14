@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Setting, Sunny, Moon } from '@element-plus/icons-vue'
+import { Setting, Sunny, Moon, Collection } from '@element-plus/icons-vue'
 import { useAppStore } from '@renderer/stores/useAppStore'
+import KnowledgeManager from './KnowledgeManager.vue'
 
 const appStore = useAppStore()
 const { currentView, isDarkMode } = storeToRefs(appStore)
@@ -22,18 +23,24 @@ function handleLogoClick() {
 }
 
 const isLogoClickable = computed(() => currentView.value === 'editor')
+
+// 知识库抽屉
+const kbVisible = ref(false)
 </script>
 
 <template>
   <header class="app-header">
     <div class="logo-container" @click="handleLogoClick" :class="{ clickable: isLogoClickable }">
-      <!-- You can replace this with an actual SVG logo later -->
       <span class="logo-text">Novel Forge</span>
     </div>
     <div class="actions-container">
+      <el-button :icon="Collection" @click="kbVisible = true" circle title="知识库" />
       <el-button :icon="isDarkMode ? Moon : Sunny" @click="toggleTheme" circle title="切换主题" />
       <el-button :icon="Setting" @click="openSettingsDialog" circle title="设置" />
     </div>
+    <el-drawer v-model="kbVisible" title="知识库" size="50%" append-to-body>
+      <KnowledgeManager />
+    </el-drawer>
   </header>
 </template>
 

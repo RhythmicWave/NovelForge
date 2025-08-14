@@ -98,4 +98,24 @@ class Card(SQLModel, table=True):
     # Used for ordering cards under the same parent
     display_order: int = Field(default=0) 
     ai_context_template: Optional[str] = Field(default=None) 
-    selected_ai_param_card_id: Optional[str] = Field(default=None) 
+    selected_ai_param_card_id: Optional[str] = Field(default=None)
+
+# 新增：伏笔登记表
+class ForeshadowItem(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id")
+    chapter_id: Optional[int] = Field(default=None)  # 章节卡片ID或章节ID
+    title: str
+    type: str = Field(default='other', index=True)  # goal | item | person | other
+    note: Optional[str] = None
+    status: str = Field(default='open', index=True)  # open | resolved
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    resolved_at: Optional[datetime] = None
+
+# 新增：知识库模型
+class Knowledge(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    content: str
+    built_in: bool = Field(default=False) 

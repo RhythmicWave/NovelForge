@@ -1,13 +1,12 @@
 import { registerHook } from './index'
 
 registerHook('分卷大纲', async (card: any, ctx: any) => {
-  // 从卡片内容中读取分卷大纲的嵌套结构
+  // 读取当前卡片内容（新结构：字段直挂在 content 顶层）
   const currentCard = ctx.cards.value.find((c: any) => c.id === card.id)
   const content: any = currentCard?.content ?? {}
-  const volumeOutline: any = content?.volume_outline ?? {}
 
-  const newCharacterCards: any[] = Array.isArray(volumeOutline?.new_character_cards)
-    ? volumeOutline.new_character_cards
+  const newCharacterCards: any[] = Array.isArray(content?.new_character_cards)
+    ? content.new_character_cards
     : []
 
   if (!newCharacterCards.length) return
@@ -35,13 +34,10 @@ registerHook('分卷大纲', async (card: any, ctx: any) => {
     })
   }
 
-  // 清空 volume_outline.new_character_cards，保持其他嵌套字段不变
+  // 清空 content.new_character_cards，保持其他字段不变
   const updatedContent = {
     ...content,
-    volume_outline: {
-      ...(content?.volume_outline || {}),
-      new_character_cards: []
-    }
+    new_character_cards: []
   }
 
   await ctx.modifyCard(card.id, { content: updatedContent }, { skipHooks: true })

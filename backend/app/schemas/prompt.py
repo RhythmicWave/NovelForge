@@ -17,4 +17,24 @@ class PromptCreate(PromptBase):
 class PromptUpdate(SQLModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    template: Optional[str] = None 
+    template: Optional[str] = None
+
+# 新增：知识库Schema
+class KnowledgeBase(SQLModel):
+    name: str
+    description: Optional[str] = None
+    content: str
+    built_in: bool = False
+
+class KnowledgeRead(KnowledgeBase):
+    id: int
+
+class KnowledgeCreate(SQLModel):
+    name: str
+    description: Optional[str] = None
+    content: str
+
+class KnowledgeUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[str] = None 

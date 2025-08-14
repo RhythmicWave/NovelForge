@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref, computed, defineAsyncComponent } from 'vue'
 import { storeToRefs } from 'pinia'
 import Dashboard from './views/Dashboard.vue'
 import Editor from './views/Editor.vue'
@@ -8,7 +8,9 @@ import SettingsDialog from './components/common/SettingsDialog.vue'
 import { useAppStore } from './stores/useAppStore'
 import { useProjectStore } from './stores/useProjectStore'
 import type { components } from '@renderer/types/generated'
-import { schemaService } from '@renderer/api/schema'
+import { schemaService } from './api/schema'
+
+const ChapterStudio = defineAsyncComponent(() => import('./views/ChapterStudio.vue'))
 
 type Project = components['schemas']['ProjectRead']
 
@@ -36,6 +38,8 @@ function handleCloseSettings() {
   appStore.closeSettings()
 }
 
+const isStudio = computed(() => (window.location.hash || '').startsWith('#/chapter-studio'))
+
 // 初始化主题和加载全局资源
 onMounted(() => {
   appStore.initTheme()
@@ -45,14 +49,17 @@ onMounted(() => {
 
 <template>
   <div class="app-layout">
-    <Header />
+    <Header v-if="!isStudio" />
     <main class="main-content">
-      <Dashboard v-if="currentView === 'dashboard'" @project-selected="handleProjectSelected" />
-      <Editor
-        v-else-if="currentView === 'editor' && currentProject"
-        :initial-project="currentProject"
-        @back-to-dashboard="handleBackToDashboard"
-      />
+      <ChapterStudio v-if="isStudio" />
+      <template v-else>
+        <Dashboard v-if="currentView === 'dashboard'" @project-selected="handleProjectSelected" />
+        <Editor
+          v-else-if="currentView === 'editor' && currentProject"
+          :initial-project="currentProject"
+          @back-to-dashboard="handleBackToDashboard"
+        />
+      </template>
     </main>
     <SettingsDialog 
       v-model="settingsDialogVisible"

@@ -8,11 +8,27 @@ export type ContinuationResponse = components['schemas']['ContinuationResponse']
 // Manually define AIConfigOptions if it's not in generated types
 export interface AIConfigOptions {
   llm_configs: Array<{ id: number; display_name: string }>
-  prompts: Array<{ id: number; name: string; description: string | null }>
+  prompts: Array<{ id: number; name: string; description: string | null; built_in?: boolean }>
   available_tasks?: string[]
   response_models: string[]
 }
 
+// 使用后端生成的类型
+export type ContextSettingsModel = components['schemas']['ContextSettingsModel']
+export type AssembleContextRequest = components['schemas']['AssembleContextRequest']
+export type AssembleContextResponse = components['schemas']['AssembleContextResponse']
+
+export function getContextSettings(): Promise<ContextSettingsModel> {
+  return aiHttpClient.get<ContextSettingsModel>('/context/settings')
+}
+
+export function updateContextSettings(patch: Partial<ContextSettingsModel>): Promise<ContextSettingsModel> {
+  return aiHttpClient.post<ContextSettingsModel>('/context/settings', patch)
+}
+
+export function assembleContext(body: AssembleContextRequest): Promise<AssembleContextResponse> {
+  return aiHttpClient.post<AssembleContextResponse>('/context/assemble', body)
+}
 
 export function generateAIContent(
   params: GeneralAIRequest
@@ -20,33 +36,31 @@ export function generateAIContent(
   return aiHttpClient.post<any>('/ai/generate', params)
 }
 
-// 3. 获取AI配置选项
 export function getAIConfigOptions(): Promise<AIConfigOptions> {
   return aiHttpClient.get<AIConfigOptions>('/ai/config-options')
 }
 
-// 4. 续写接口
 export function generateContinuation(params: ContinuationRequest): Promise<ContinuationResponse> {
   return aiHttpClient.post<ContinuationResponse>('/ai/generate/continuation', params)
-} 
+}
 
-// 5. 续写流式接口（SSE）
 export function generateContinuationStreaming(
     params: ContinuationRequest, 
     onData: (data: string) => void, 
     onClose: () => void,
     onError?: (err: any) => void
 ) {
-  // Use fetch for better streaming support
-  const API_BASE_URL = 'http://127.0.0.1:8000/api' // Adjust if your base URL is different
-  
+  const API_BASE_URL = 'http://127.0.0.1:8000/api'
+  const controller = new AbortController()
+  const signal = controller.signal
   fetch(`${API_BASE_URL}/ai/generate/continuation`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream'
     },
-    body: JSON.stringify(params)
+    body: JSON.stringify(params),
+    signal,
   }).then(response => {
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -55,39 +69,80 @@ export function generateContinuationStreaming(
         throw new Error('Response body is null');
     }
     const reader = response.body.getReader();
-
     const decoder = new TextDecoder();
-
-    function push() {
+    let buffer = ''
+    function pump() {
       reader.read().then(({ done, value }) => {
-        if (done) {
-          onClose();
-          return;
+        if (done) { onClose(); return }
+        buffer += decoder.decode(value, { stream: true })
+        // 按行解析标准 SSE：可能出现 data: 多行，空行表示一次事件结束
+        const events = buffer.split('\n\n')
+        // 保留最后一个不完整事件在 buffer
+        buffer = events.pop() || ''
+        for (const evt of events) {
+          const lines = evt.split('\n').map(l => l.trim())
+          const dataLines = lines.filter(l => l.startsWith('data: ')).map(l => l.substring(6))
+          if (!dataLines.length) continue
+          try {
+            const payload = JSON.parse(dataLines.join(''))
+            if (typeof payload.content === 'string' && payload.content.length) onData(payload.content)
+          } catch {}
         }
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\\n');
-
-        for (const line of lines) {
-            if (line.startsWith('data: ')) {
-                try {
-                    const jsonData = JSON.parse(line.substring(6));
-                    if (jsonData.content) {
-                        onData(jsonData.content);
-                    }
-                } catch (e) {
-                    // Ignore incomplete JSON
-                }
-            }
-        }
-        push();
-      }).catch(err => {
-        if (onError) onError(err);
-      });
+        pump()
+      }).catch(err => { 
+        // fetch 中断时，reader.read 会抛异常；此时视为正常关闭
+        if ((err as any)?.name === 'AbortError') { onClose(); return }
+        if (onError) onError(err) 
+      })
     }
-    push();
-
+    pump();
   }).catch(err => {
     if (onError) onError(err);
   });
+  return {
+    cancel: () => { try { controller.abort() } catch {} }
+  }
+}
+
+// 一致性校验
+export interface ConsistencyIssue { type: string; message: string; position?: number[] | null }
+export interface ConsistencyFix { range?: number[] | null; replacement: string }
+export interface ConsistencyResponse { issues: ConsistencyIssue[]; suggested_fixes: ConsistencyFix[] }
+export function checkConsistency(body: { text: string; facts_structured?: Record<string, any> }): Promise<ConsistencyResponse> {
+  return aiHttpClient.post<ConsistencyResponse>('/consistency/check', body)
+}
+
+// 伏笔建议（占位）
+export interface ForeshadowResponse { goals: string[]; items: string[]; persons: string[] }
+export function foreshadowSuggest(text: string): Promise<ForeshadowResponse> {
+  return aiHttpClient.post<ForeshadowResponse>('/foreshadow/suggest', { text })
+}
+
+// 伏笔登记 CRUD
+export interface ForeshadowItem {
+  id: number
+  project_id: number
+  chapter_id?: number | null
+  title: string
+  type: 'goal' | 'item' | 'person' | 'other'
+  note?: string | null
+  status: 'open' | 'resolved'
+  created_at: string
+  resolved_at?: string | null
+}
+export interface ForeshadowListResponse { items: ForeshadowItem[] }
+export function listForeshadow(projectId: number, status?: 'open' | 'resolved'): Promise<ForeshadowListResponse> {
+  const qs = new URLSearchParams({ project_id: String(projectId), ...(status ? { status } : {}) })
+  return aiHttpClient.get<ForeshadowListResponse>(`/foreshadow/list?${qs.toString()}`)
+}
+export function registerForeshadow(projectId: number, items: Array<{ title: string; type?: 'goal' | 'item' | 'person' | 'other'; note?: string; chapter_id?: number }>): Promise<ForeshadowListResponse> {
+  return aiHttpClient.post<ForeshadowListResponse>('/foreshadow/register', { project_id: projectId, items })
+}
+export function resolveForeshadow(projectId: number, itemId: number): Promise<ForeshadowItem> {
+  return aiHttpClient.post<ForeshadowItem>(`/foreshadow/resolve/${itemId}`, { project_id: projectId })
+}
+export function deleteForeshadow(projectId: number, itemId: number): Promise<{ success: boolean }> {
+  return aiHttpClient.post<{ success: boolean }>(`/foreshadow/delete/${itemId}`, { project_id: projectId })
 } 
+
+ 

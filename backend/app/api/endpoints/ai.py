@@ -12,14 +12,19 @@ from pydantic import Field as PydanticField
 from typing import Type, Dict, Any, List
 from app.schemas.wizard import (
     WorldBuildingResponse, BlueprintResponse,
-    VolumeOutlineResponse, ChapterOutlineResponse,
     VolumeOutline, ChapterOutline,
     Task0Response, Task1Response, Task2Response,
-    CharacterCard, SceneCard, StoryLine, CharacterAction, ChapterPoint, Enemy, ResolveEnemy, SmallChapter, Task6Response,
-    Tags, WorldviewTemplate
+    CharacterCard, SceneCard, StoryLine, StageLine, CharacterAction, ChapterPoint, Enemy, ResolveEnemy, SmallChapter, Task6Response,
+    Tags, WorldviewTemplate, Chapter
 )
 from app.db.models import OutputModel
 from copy import deepcopy
+
+# 新增：引入知识库
+from app.services.knowledge_service import KnowledgeService
+import re
+from app.schemas.entity import DynamicInfoType
+from app.schemas import entity as entity_schemas
 
 router = APIRouter()
 
@@ -126,16 +131,105 @@ RESPONSE_MODEL_MAP = {
     'WorldBuildingResponse': WorldBuildingResponse,
     'WorldviewTemplate': WorldviewTemplate,
     'BlueprintResponse': BlueprintResponse,
-    'VolumeOutlineResponse': VolumeOutlineResponse,
-    'ChapterOutlineResponse': ChapterOutlineResponse,
-    'Task6Response': Task6Response,
-    # 添加基础schema，这样它们会自动包含在OpenAPI中
+    # 使用未包装模型
     'VolumeOutline': VolumeOutline,
     'ChapterOutline': ChapterOutline,
+    'Chapter': Chapter,
+    'Task6Response': Task6Response,
+    # 基础schema，自动包含在OpenAPI中
     'CharacterCard': CharacterCard,
     'SceneCard': SceneCard,
     'SmallChapter': SmallChapter,
+    # 新增：显式导出嵌套类型，便于前端字段树解析
+    'StageLine': StageLine,
+    'StoryLine': StoryLine,
 }
+
+# 新增：知识库占位符解析与替换
+_KB_ID_PATTERN = re.compile(r"@KB\{\s*id\s*=\s*(\d+)\s*\}")
+_KB_NAME_PATTERN = re.compile(r"@KB\{\s*name\s*=\s*([^}]+)\}")
+
+
+def _inject_knowledge(session: Session, template: str) -> str:
+    """将模板中的知识库占位符注入为实际内容。
+
+    规则：
+    1) 对 "- knowledge:" 段落内的多个占位符，按顺序注入并以编号分隔：
+       - knowledge:\n1.\n<KB1>\n\n2.\n<KB2> ...
+    2) knowledge 段之外若出现占位符，做就地替换为知识全文。
+    3) 若找不到对应知识库，保留提示注释，避免中断。
+    """
+    svc = KnowledgeService(session)
+
+    def fetch_kb_by_id(kid: int) -> str:
+        kb = svc.get_by_id(kid)
+        return kb.content if kb and kb.content else f"/* 知识库未找到: id={kid} */"
+
+    def fetch_kb_by_name(name: str) -> str:
+        kb = svc.get_by_name(name)
+        return kb.content if kb and kb.content else f"/* 知识库未找到: name={name} */"
+
+    # 先处理 knowledge 分段（更结构化的注入）
+    lines = template.splitlines()
+    i = 0
+    out_lines: list[str] = []
+    while i < len(lines):
+        line = lines[i]
+        # 匹配顶级的 "- knowledge:" 行（大小写不敏感）
+        if re.match(r"^\s*-\s*knowledge\s*:\s*$", line, flags=re.IGNORECASE):
+            # 收集该段落内的占位符行，直到遇到下一个顶级 "- <Something>" 行或文件结尾
+            j = i + 1
+            block_lines: list[str] = []
+            while j < len(lines) and not re.match(r"^\s*-\s*\w", lines[j]):
+                block_lines.append(lines[j])
+                j += 1
+            # 提取占位符顺序
+            placeholders: list[tuple[str, str]] = []  # (mode, value)
+            for bl in block_lines:
+                for m in _KB_ID_PATTERN.finditer(bl):
+                    placeholders.append(("id", m.group(1)))
+                for m in _KB_NAME_PATTERN.finditer(bl):
+                    placeholders.append(("name", m.group(1).strip().strip('\"\'')))
+            # 构建编号内容
+            out_lines.append(line)  # 保留标题行 "- knowledge:"
+            if placeholders:
+                for idx, (mode, val) in enumerate(placeholders, start=1):
+                    out_lines.append(f"{idx}.")
+                    if mode == "id":
+                        try:
+                            content = fetch_kb_by_id(int(val))
+                        except Exception:
+                            content = f"/* 知识库未找到: id={val} */"
+                    else:
+                        content = fetch_kb_by_name(val)
+                    out_lines.append(content.strip())
+                    # 段落间空行
+                    if idx < len(placeholders):
+                        out_lines.append("")
+            # 跳过原 block
+            i = j
+            continue
+        else:
+            out_lines.append(line)
+            i += 1
+
+    enumerated_text = "\n".join(out_lines)
+
+    # knowledge 段之外的就地替换（若仍有占位符残留）
+    def repl_id(m: re.Match) -> str:
+        try:
+            kid = int(m.group(1))
+        except Exception:
+            return f"/* 知识库未找到: id={m.group(1)} */"
+        return fetch_kb_by_id(kid)
+
+    def repl_name(m: re.Match) -> str:
+        name = m.group(1).strip().strip('\"\'')
+        return fetch_kb_by_name(name)
+
+    result = _KB_ID_PATTERN.sub(repl_id, enumerated_text)
+    result = _KB_NAME_PATTERN.sub(repl_name, result)
+    return result
 
 @router.get("/schemas", response_model=Dict[str, Any], summary="获取所有输出模型的JSON Schema（内置+自定义）")
 def get_all_schemas(session: Session = Depends(get_session)):
@@ -151,12 +245,60 @@ def get_all_schemas(session: Session = Depends(get_session)):
             del schema['$defs']
         all_definitions[name] = schema
 
+    # --- 动态修复：将 CharacterCard.dynamic_info 从 Dict 展开为显式 properties（按枚举值），便于前端解析 ---
+    try:
+        cc = all_definitions.get('CharacterCard')
+        if isinstance(cc, dict):
+            props = (cc.get('properties') or {})
+            if 'dynamic_info' in props:
+                # 内联 DynamicInfoItem 结构，避免 $defs 引用导致前端解析困难
+                item_schema = {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "info": {"type": "string"},
+                        "weight": {"type": "number"}
+                    },
+                    "required": ["id", "info", "weight"]
+                }
+                enum_values = [t.value for t in DynamicInfoType]
+                props['dynamic_info'] = {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        ev: {"type": "array", "items": item_schema} for ev in enum_values
+                    },
+                    "description": "角色动态信息，按类别分组的数组（键为枚举中文值）"
+                }
+                cc['properties'] = props
+                all_definitions['CharacterCard'] = cc
+    except Exception:
+        pass
+
     # 2) 数据库输出模型
     db_models = session.exec(select(OutputModel)).all()
     for om in db_models:
         if om.json_schema:
             # 返回时对 DB 模型做 $defs 递归补全，便于前端解析嵌入-嵌入结构
             all_definitions[om.name] = _augment_schema_with_builtin_defs(om.json_schema)
+
+    # 3) 注入 entity 动态信息相关模型（用于前端解析 $ref: DynamicInfo 等）
+    try:
+        entity_models = [
+            entity_schemas.DynamicInfoItem,
+            entity_schemas.DynamicInfo,
+            entity_schemas.ModifyDynamicInfo,
+            entity_schemas.UpdateDynamicInfo,
+            entity_schemas.DynamicInfoType,
+        ]
+        for mdl in entity_models:
+            sch = mdl.model_json_schema(ref_template="#/$defs/{model}")
+            if '$defs' in sch:
+                all_definitions.update(sch['$defs'])
+                del sch['$defs']
+            all_definitions[mdl.__name__] = sch
+    except Exception:
+        pass
 
     return all_definitions
 
@@ -206,7 +348,7 @@ async def generate_ai_content(
     if not all([request.input, request.llm_config_id, request.prompt_name, request.response_model_name]):
         raise HTTPException(status_code=400, detail="缺少必要的生成参数: input, llm_config_id, prompt_name, 或 response_model_name")
 
-    # 解析响应模型
+    # 解析响应模型（保持原有实现）
     resp_model = None
     schema_for_prompt: Dict[str, Any] | None = None
     # 1) 优先动态 schema
@@ -219,13 +361,13 @@ async def generate_ai_content(
             raise HTTPException(status_code=400, detail=f"动态创建模型失败: {e}")
     else:
         # 2) 尝试内置
-        built_in = RESPONSE_MODEL_MAP.get(request.response_model_name)
+        built_in = RESPONSE_MODEL_MAP.get(request.response_model_name) if isinstance(request.response_model_name, str) else None
         if built_in is not None:
             resp_model = built_in
             schema_for_prompt = built_in.model_json_schema()
         else:
             # 3) 数据库 OutputModel
-            om = session.exec(select(OutputModel).where(OutputModel.name == request.response_model_name)).first()
+            om = session.exec(select(OutputModel).where(OutputModel.name == request.response_model_name)).first() if isinstance(request.response_model_name, str) else None
             if not om or not om.json_schema:
                 raise HTTPException(status_code=400, detail=f"未找到响应模型: {request.response_model_name}")
             try:
@@ -240,11 +382,13 @@ async def generate_ai_content(
     if not prompt:
         raise HTTPException(status_code=400, detail=f"未找到提示词名称: {request.prompt_name}")
 
+    # 注入知识库占位符
+    prompt_template = _inject_knowledge(session, prompt.template or '')
+
     # 准备 System Prompt：把 schema 发送给 LLM（尽量使用原始 JSON Schema，保持训练一致性）
     schema_json = json.dumps(schema_for_prompt if schema_for_prompt is not None else resp_model.model_json_schema(), indent=2, ensure_ascii=False)
     system_prompt = (
-        f"{prompt.template}\n\n"
-        "请严格按照下面的JSON Schema格式输出，不要添加任何额外的解释或说明文字：\n"
+        f"{prompt_template}\n\n"
         f"```json\n{schema_json}\n```"
     )
 
@@ -254,7 +398,10 @@ async def generate_ai_content(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         output_type=resp_model,
-        llm_config_id=request.llm_config_id
+        llm_config_id=request.llm_config_id,
+        max_tokens=request.max_tokens,
+        temperature=request.temperature,
+        timeout=request.timeout,
     )
     return ApiResponse(data=result)
 
@@ -275,16 +422,25 @@ async def generate_continuation(
     session: Session = Depends(get_session),
 ):
     try:
+        # 强制从 prompt_name 读取模板作为 system prompt
+        if not request.prompt_name:
+            raise HTTPException(status_code=400, detail="续写必须指定 prompt_name")
+        p = prompt_service.get_prompt_by_name(session, request.prompt_name)
+        if not p or not p.template:
+            raise HTTPException(status_code=400, detail=f"未找到提示词名称: {request.prompt_name}")
+        # 注入知识库
+        system_prompt = _inject_knowledge(session, str(p.template))
+
         if request.stream:
-            stream_generator = agent_service.generate_continuation_streaming(session, request)
+            stream_generator = agent_service.generate_continuation_streaming(session, request, system_prompt)
             return StreamingResponse(stream_wrapper(stream_generator), media_type="text/event-stream")
         else:
-            result = await agent_service.generate_continuation(session, request)
+            result = await agent_service.generate_continuation(session, request, system_prompt)
             return ApiResponse(data=result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @router.get("/models/tags", response_model=Tags, summary="导出 Tags 模型（用于类型生成）")
 def export_tags_model():

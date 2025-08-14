@@ -4,7 +4,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   setApiKey: (id: number, apiKey: string) => ipcRenderer.invoke('secure:set-api-key', { id, apiKey }),
-  getApiKey: (id: number) => ipcRenderer.invoke('secure:get-api-key', { id })
+  getApiKey: (id: number) => ipcRenderer.invoke('secure:get-api-key', { id }),
+  openChapterStudio: (projectId: number, chapterCardId: number) => ipcRenderer.invoke('chapter:open-studio', { projectId, chapterCardId })
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -2,7 +2,7 @@ import { registerHook } from './index'
 
 registerHook('核心蓝图',
   async (card, ctx) => {
-    // --- 读取蓝图内容 ---
+    // --- 读取蓝图内容（新结构：字段直挂在 content 顶层） ---
     const blueprintContent: any = (ctx.cards.value.find(c => c.id === card.id)?.content) ?? {}
     const volumeCount: number = Number(blueprintContent?.volume_count || 0)
     const characterCards: any[] = Array.isArray(blueprintContent?.character_cards) ? blueprintContent.character_cards : []
@@ -24,7 +24,7 @@ registerHook('核心蓝图',
               title,
               parent_id: null,
               card_type_id: volumeTypeId,
-              content: { volume_outline: { volume_number: i } } as any
+              content: { volume_number: i } as any
             })
           }
         }

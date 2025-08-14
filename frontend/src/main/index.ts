@@ -6,6 +6,8 @@ import keytar from 'keytar'
 
 const KEYTAR_SERVICE_NAME = 'NovelCreationEditor-LLM'
 
+const studioWindows = new Map<string, BrowserWindow>()
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -47,6 +49,36 @@ function createWindow(): void {
   })
 }
 
+function openChapterStudio(projectId: number, chapterCardId: number) {
+  const key = `${projectId}:${chapterCardId}`
+  const existing = studioWindows.get(key)
+  if (existing && !existing.isDestroyed()) {
+    existing.focus()
+    return
+  }
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    show: true,
+    title: 'Chapter Studio',
+    autoHideMenuBar: true,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+  studioWindows.set(key, win)
+  win.on('closed', () => studioWindows.delete(key))
+
+  const hash = `#/chapter-studio?projectId=${projectId}&cardId=${chapterCardId}`
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'] + hash)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+  }
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -83,6 +115,11 @@ app.whenReady().then(() => {
       console.error('Failed to get API key:', error)
       return { success: false, error: (error as Error).message }
     }
+  })
+
+  ipcMain.handle('chapter:open-studio', async (_, { projectId, chapterCardId }) => {
+    openChapterStudio(projectId, chapterCardId)
+    return { success: true }
   })
 
   createWindow()

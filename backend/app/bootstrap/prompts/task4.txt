@@ -5,4 +5,7 @@
     2. 设计并生成小说的地图/副本
     /nothink
 
+- knowledge:
+    - @KB{ name=起名指南 }
+
 -OutputFormat：请严格根据提供的Json Schema返回结果

@@ -1,8 +1,11 @@
 import os
 from sqlmodel import Session, select
-from app.db.models import Prompt, CardType, OutputModel
+from app.db.models import Prompt, CardType, OutputModel, Card
 from loguru import logger
 from app.api.endpoints.ai import RESPONSE_MODEL_MAP
+
+# 新增
+from app.db.models import Knowledge
 
 def _parse_prompt_file(file_path: str):
     """解析单个提示词文件，支持frontmatter元数据"""
@@ -99,27 +102,36 @@ def create_default_card_types(db: Session):
         "故事大纲": {"output_model_name": "Task2Response", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\none_sentence: @一句话梗概.content.one_sentence"},
         "世界观设定": {"output_model_name": "WorldBuildingResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview"},
         "核心蓝图": {"output_model_name": "BlueprintResponse", "is_singleton": True, "default_ai_context_template": "tags: @作品标签.content\nspecial_abilities: @金手指.content.special_abilities\noverview: @故事大纲.content.overview\nword_view: @世界观设定.content"},
-        # 分卷大纲默认上下文：引用核心蓝图、上一卷与当前卷（若存在）
-        "分卷大纲": {"output_model_name": "VolumeOutlineResponse", "default_ai_context_template": (
-            "blueprint: @核心蓝图.content\n"
-            "previous_volume: @type:分卷大纲[index=$current.volumeNumber-1].content\n"
-            "current_volume: @self.content\n"
+        # 分卷大纲：使用未包装模型 VolumeOutline
+        "分卷大纲": {"output_model_name": "VolumeOutline", "default_ai_context_template": (
+            "volume_count:@核心蓝图.content.volume_count\n"
+            "overview:@故事大纲.content.overview\n"
+            "tags:@作品标签\n"
+            "world_view: @世界观设定.content.world_view\n"
+            "character_card:@type:角色卡[previous]\n"
+            "scene_card:@type:场景卡[previous]\n"
+            "上一卷信息: @type:分卷大纲[index=$current.volumeNumber-1].content\n"
+            "接下来请你创作第 @self.content.volume_number 卷的细纲\n"
         )},
-        # 章节大纲默认上下文：参考 task6 所需输入
-        "章节大纲": {"output_model_name": "ChapterOutlineResponse", "default_ai_context_template": (
-            "blueprint: @核心蓝图.content\n"
+        # 章节大纲：使用未包装模型 ChapterOutline
+        "章节大纲": {"output_model_name": "ChapterOutline", "default_ai_context_template": (
             "word_view: @世界观设定.content\n"
-            "volume_number: @self.content.chapter_outline.volume_number\n"
-            "volume_main_target: @type:分卷大纲[index=$current.volumeNumber].content.volume_outline.main_target\n"
-            "volume_branch_line: @type:分卷大纲[index=$current.volumeNumber].content.volume_outline.branch_line\n"
-            "volume_character_cards: @type:分卷大纲[index=$current.volumeNumber].content.volume_outline.character_action_list\n"
-            "stage_current: @stage:current\n"
-            "stage_analysis: @stage:current.analysis\n"
-            "stage_overview: @stage:current.overview\n"
-            "stage_reference_chapter: @stage:current.reference_chapter\n"
-            "previous_chapters: @chapters:previous\n"
+            "volume_number: @self.content.volume_number\n"
+            "volume_main_target: @type:分卷大纲[index=$current.volumeNumber].content.main_target\n"
+            "volume_branch_line: @type:分卷大纲[index=$current.volumeNumber].content.branch_line\n"
+            "volume_character_cards: @type:分卷大纲[index=$current.volumeNumber].content.character_action_list\n"
+            "当前阶段故事概述: @stage:current.overview\n"
+            "当前阶段覆盖章节范围: @stage:current.reference_chapter\n"
+            "之前的章节大纲: @type:章节大纲[sibling].{content.chapter_number,content.overview}\n"
+            "请开始创作第 @self.content.chapter_number 章的大纲，保证连贯性"
         )},
-        "章节正文": {"output_model_name": "ChapterOutline", "editor_component": "NovelEditor", "is_ai_enabled": False, "default_ai_context_template": None},
+        "章节正文": {"output_model_name": "Chapter", "editor_component": "NovelEditor", "is_ai_enabled": False, "default_ai_context_template": (
+            "word_view: @世界观设定.content\n"
+            "current_stage_overview: @stage:current.overview\n"
+            "current_chapter_outline: @parent.content\n"
+            "最近的章节原文:@type:章节正文[previous:2].{content.title,content.chapter_number,content.content}\n"
+            "请开始创作第@self.content.chapter_number 章正文内容"
+            )},
         "角色卡": {"output_model_name": "CharacterCard", "default_ai_context_template": None},
         "场景卡": {"output_model_name": "SceneCard", "default_ai_context_template": None},
     }
@@ -154,3 +166,42 @@ def create_default_card_types(db: Session):
 
     db.commit()
     logger.info("Default card types committed.")
+
+# 新增：初始化知识库（从 bootstrap/knowledge 目录导入 *.txt）
+def init_knowledge(db: Session):
+    knowledge_dir = os.path.join(os.path.dirname(__file__), 'knowledge')
+    if not os.path.exists(knowledge_dir):
+        logger.warning(f"Knowledge directory not found at {knowledge_dir}. Cannot load knowledge base.")
+        return
+
+    existing = {k.name: k for k in db.exec(select(Knowledge)).all()}
+    created = 0
+    updated = 0
+
+    for filename in os.listdir(knowledge_dir):
+        if not filename.lower().endswith(('.txt', '.md')):
+            continue
+        file_path = os.path.join(knowledge_dir, filename)
+        name = os.path.splitext(filename)[0]
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+        except Exception as e:
+            logger.warning(f"读取知识库文件失败 {file_path}: {e}")
+            continue
+        description = f"预置知识库：{name}"
+        if name in existing:
+            kb = existing[name]
+            kb.content = content
+            kb.description = description
+            kb.built_in = True
+            updated += 1
+        else:
+            db.add(Knowledge(name=name, description=description, content=content, built_in=True))
+            created += 1
+
+    if created or updated:
+        db.commit()
+        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}")
+    else:
+        logger.info("知识库已是最新状态。")

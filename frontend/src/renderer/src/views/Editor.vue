@@ -117,198 +117,208 @@ import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { ElMessage } from 'element-plus'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
+import { useProjectStore } from '@renderer/stores/useProjectStore'
  
  // Mock components that will be created later
  const CardEditorHost = defineAsyncComponent(() => import('@renderer/components/cards/CardEditorHost.vue'));
  const CardMarket = defineAsyncComponent(() => import('@renderer/components/cards/CardMarket.vue'));
 
 
-type Project = components['schemas']['ProjectRead']
-type CardRead = components['schemas']['CardRead']
-type CardCreate = components['schemas']['CardCreate']
+ type Project = components['schemas']['ProjectRead']
+ type CardRead = components['schemas']['CardRead']
+ type CardCreate = components['schemas']['CardCreate']
 
-// Props
-const props = defineProps<{
-  initialProject: Project
-}>()
+ // Props
+ const props = defineProps<{
+   initialProject: Project
+ }>()
 
-// Store
-const cardStore = useCardStore()
-const { cardTree, activeCard } = storeToRefs(cardStore)
-const editorStore = useEditorStore()
-const { expandedKeys } = storeToRefs(editorStore)
+ // Store
+ const cardStore = useCardStore()
+ const { cardTree, activeCard } = storeToRefs(cardStore)
+ const editorStore = useEditorStore()
+ const { expandedKeys } = storeToRefs(editorStore)
+ const projectStore = useProjectStore()
 
-// --- 前端自动分组器 ---
-// 设计：当某节点的直接子卡片存在“某类型的数量 > 1”时，为该类型创建一个虚拟分组节点（只对数量>1的类型建组）
-// 例如：2 张「角色卡」+ 1 张「场景卡」=> 仅生成一个「角色卡」分组；「场景卡」保持原状
-// 该结构完全在前端进行，不影响后端数据
-interface TreeNode { id: number | string; title: string; children?: TreeNode[]; card_type?: { name: string }; __isGroup?: boolean; __groupType?: string }
+ // --- 前端自动分组器 ---
+ // 设计：当某节点的直接子卡片存在“某类型的数量 > 1”时，为该类型创建一个虚拟分组节点（只对数量>1的类型建组）
+ // 例如：2 张「角色卡」+ 1 张「场景卡」=> 仅生成一个「角色卡」分组；「场景卡」保持原状
+ // 该结构完全在前端进行，不影响后端数据
+ interface TreeNode { id: number | string; title: string; children?: TreeNode[]; card_type?: { name: string }; __isGroup?: boolean; __groupType?: string }
 
-function buildGroupedNodes(nodes: any[]): any[] {
-  return nodes.map(n => {
-    const node: TreeNode = { ...n }
-    if (Array.isArray(n.children) && n.children.length > 0) {
-      // 统计子节点类型数量
-      const byType: Record<string, any[]> = {}
-      n.children.forEach((c: any) => {
-        const typeName = c.card_type?.name || '未知类型'
-        if (!byType[typeName]) byType[typeName] = []
-        byType[typeName].push(c)
-      })
-      // 是否有多个类型，且某类型数量>1
-      const types = Object.keys(byType)
-      const hasMultipleTypes = types.length > 1
-      if (hasMultipleTypes) {
-        const grouped: any[] = []
-        types.forEach(t => {
-          const list = byType[t]
-          if (list.length > 1) {
-            // 创建虚拟分组节点（id 使用字符串避免冲突）
-            grouped.push({
-              id: `group:${n.id}:${t}`,
-              title: `${t}`,
-              __isGroup: true,
-              __groupType: t,
-              children: list.map(x => ({ ...x }))
-            })
-          } else {
-            grouped.push(list[0])
-          }
-        })
-        node.children = grouped.map(x => ({ ...x }))
-      } else {
-        // 只有一种类型，保持原样
-        node.children = n.children.map((c: any) => ({ ...c }))
-      }
-      // 递归对子树继续处理
-      node.children = buildGroupedNodes(node.children as any)
-    }
-    return node
-  })
-}
+ function buildGroupedNodes(nodes: any[]): any[] {
+   return nodes.map(n => {
+     const node: TreeNode = { ...n }
+     if (Array.isArray(n.children) && n.children.length > 0) {
+       // 统计子节点类型数量
+       const byType: Record<string, any[]> = {}
+       n.children.forEach((c: any) => {
+         const typeName = c.card_type?.name || '未知类型'
+         if (!byType[typeName]) byType[typeName] = []
+         byType[typeName].push(c)
+       })
+       // 是否有多个类型，且某类型数量>1
+       const types = Object.keys(byType)
+       const hasMultipleTypes = types.length > 1
+       if (hasMultipleTypes) {
+         const grouped: any[] = []
+         types.forEach(t => {
+           const list = byType[t]
+           if (list.length > 1) {
+             // 创建虚拟分组节点（id 使用字符串避免冲突）
+             grouped.push({
+               id: `group:${n.id}:${t}`,
+               title: `${t}`,
+               __isGroup: true,
+               __groupType: t,
+               children: list.map(x => ({ ...x }))
+             })
+           } else {
+             grouped.push(list[0])
+           }
+         })
+         node.children = grouped.map(x => ({ ...x }))
+       } else {
+         // 只有一种类型，保持原样
+         node.children = n.children.map((c: any) => ({ ...c }))
+       }
+       // 递归对子树继续处理
+       node.children = buildGroupedNodes(node.children as any)
+     }
+     return node
+   })
+ }
 
-// 基于原始 cardTree 计算带分组的树
-const groupedTree = computed(() => buildGroupedNodes(cardTree.value as unknown as any[]))
+ // 基于原始 cardTree 计算带分组的树
+ const groupedTree = computed(() => buildGroupedNodes(cardTree.value as unknown as any[]))
 
-// Local State
-const activeTab = ref('market')
-const isCreateCardDialogVisible = ref(false)
-const newCardForm = reactive<Partial<CardCreate>>({
-  title: '',
-  card_type_id: undefined,
-  parent_id: undefined
-})
+ // Local State
+ const activeTab = ref('market')
+ const isCreateCardDialogVisible = ref(false)
+ const newCardForm = reactive<Partial<CardCreate>>({
+   title: '',
+   card_type_id: undefined,
+   parent_id: undefined
+ })
 
-// Composables
-const { leftSidebarWidth, startResizing } = useSidebarResizer()
+ // Composables
+ const { leftSidebarWidth, startResizing } = useSidebarResizer()
 
-// --- Methods ---
+ // --- Methods ---
 
-// 点击行为对“分组节点”不做打开编辑，仅用于展开/折叠。对实际卡片才触发编辑。
-function handleNodeClick(data: any) {
-  if (data.__isGroup) return
-  cardStore.setActiveCard(data.id)
-  activeTab.value = 'editor'
-}
+ // 点击行为对“分组节点”不做打开编辑，仅用于展开/折叠。对实际卡片才触发编辑。
+ function handleNodeClick(data: any) {
+   if (data.__isGroup) return
+   // 若是章节正文，默认在专注窗打开
+   if (data?.card_type?.name === '章节正文' && projectStore.currentProject?.id) {
+     // @ts-ignore
+     window.api?.openChapterStudio?.(projectStore.currentProject.id, data.id)
+     return
+   }
+   cardStore.setActiveCard(data.id)
+   activeTab.value = 'editor'
+ }
 
-function onNodeExpand(_: any, node: any) {
-  editorStore.addExpandedKey(String(node.key))
-}
+ function onNodeExpand(_: any, node: any) {
+   editorStore.addExpandedKey(String(node.key))
+ }
 
-function onNodeCollapse(_: any, node: any) {
-  editorStore.removeExpandedKey(String(node.key))
-}
+ function onNodeCollapse(_: any, node: any) {
+   editorStore.removeExpandedKey(String(node.key))
+ }
 
-function handleEditCard(cardId: number) {
-  cardStore.setActiveCard(cardId);
-  activeTab.value = 'editor';
-}
+ function handleEditCard(cardId: number) {
+   cardStore.setActiveCard(cardId);
+   activeTab.value = 'editor';
+ }
 
-async function handleCreateCard() {
-  if (!newCardForm.title || !newCardForm.card_type_id) {
-    ElMessage.warning('请填写卡片标题和类型');
-    return;
-  }
-  await cardStore.addCard(newCardForm as CardCreate);
-  isCreateCardDialogVisible.value = false;
-  // Reset form
-  Object.assign(newCardForm, { title: '', card_type_id: undefined, parent_id: undefined });
-}
+ async function handleCreateCard() {
+   if (!newCardForm.title || !newCardForm.card_type_id) {
+     ElMessage.warning('请填写卡片标题和类型');
+     return;
+   }
+   await cardStore.addCard(newCardForm as CardCreate);
+   isCreateCardDialogVisible.value = false;
+   // Reset form
+   Object.assign(newCardForm, { title: '', card_type_id: undefined, parent_id: undefined });
+ }
 
-// 根据卡片类型返回图标组件
-function getIconByCardType(typeName?: string) {
-  // 约定：若后端默认类型名称变更，可在此映射中调整
-  switch (typeName) {
-    case '作品标签':
-      return CollectionTag
-    case '金手指':
-      return MagicStick
-    case '一句话梗概':
-      return ChatLineRound
-    case '故事大纲':
-      return List
-    case '世界观设定':
-      return Connection
-    case '核心蓝图':
-      return Tickets
-    case '分卷大纲':
-      return Notebook
-    case '章节大纲':
-      return Document
-    case '角色卡':
-      return User
-    case '场景卡':
-      return OfficeBuilding
-    default:
-      return Document // 通用默认图标
-  }
-}
+ // 根据卡片类型返回图标组件
+ function getIconByCardType(typeName?: string) {
+   // 约定：若后端默认类型名称变更，可在此映射中调整
+   switch (typeName) {
+     case '作品标签':
+       return CollectionTag
+     case '金手指':
+       return MagicStick
+     case '一句话梗概':
+       return ChatLineRound
+     case '故事大纲':
+       return List
+     case '世界观设定':
+       return Connection
+     case '核心蓝图':
+       return Tickets
+     case '分卷大纲':
+       return Notebook
+     case '章节大纲':
+       return Document
+     case '角色卡':
+       return User
+     case '场景卡':
+       return OfficeBuilding
+     default:
+       return Document // 通用默认图标
+   }
+ }
 
-// 右键菜单命令处理（新建子卡片、删除卡片）
-function handleContextCommand(command: string, data: any) {
-  if (command === 'create-child') {
-    openCreateChild(data.id)
-  } else if (command === 'delete') {
-    deleteNode(data.id, data.title)
-  }
-}
+ // 右键菜单命令处理（新建子卡片、删除卡片）
+ function handleContextCommand(command: string, data: any) {
+   if (command === 'create-child') {
+     openCreateChild(data.id)
+   } else if (command === 'delete') {
+     deleteNode(data.id, data.title)
+   }
+ }
 
-// 打开“新建卡片”对话框并预填父ID
-function openCreateChild(parentId: number) {
-  newCardForm.title = ''
-  newCardForm.card_type_id = undefined
-  newCardForm.parent_id = parentId
-  isCreateCardDialogVisible.value = true
-}
+ // 打开“新建卡片”对话框并预填父ID
+ function openCreateChild(parentId: number) {
+   newCardForm.title = ''
+   newCardForm.card_type_id = undefined
+   newCardForm.parent_id = parentId
+   isCreateCardDialogVisible.value = true
+ }
 
-// 删除卡片（确认）
-async function deleteNode(cardId: number, title: string) {
-  try {
-    await ElMessageBox.confirm(`确认删除卡片「${title}」？此操作不可恢复`, '删除确认', { type: 'warning' })
-    await cardStore.removeCard(cardId)
-  } catch (e) {
-    // 用户取消
-  }
-}
+ // 删除卡片（确认）
+ async function deleteNode(cardId: number, title: string) {
+   try {
+     await ElMessageBox.confirm(`确认删除卡片「${title}」？此操作不可恢复`, '删除确认', { type: 'warning' })
+     await cardStore.removeCard(cardId)
+   } catch (e) {
+     // 用户取消
+   }
+ }
 
-// --- Lifecycle ---
+ // --- Lifecycle ---
 
-onMounted(async () => {
-  // Fetch initial data for the card system (like types and models)
-  // Cards will be fetched automatically by the watcher in the card store
-  await cardStore.fetchInitialData()
-  window.addEventListener('nf:navigate', onNavigate as any)
-})
+ onMounted(async () => {
+   // Fetch initial data for the card system (like types and models)
+   // Cards will be fetched automatically by the watcher in the card store
+   await cardStore.fetchInitialData()
+   // 保险：进入编辑页时也刷新一次可用模型（处理应用在其他页新增模型的场景）
+   await cardStore.fetchAvailableModels()
+   window.addEventListener('nf:navigate', onNavigate as any)
+ })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('nf:navigate', onNavigate as any)
-})
+ onBeforeUnmount(() => {
+   window.removeEventListener('nf:navigate', onNavigate as any)
+ })
 
-function onNavigate(e: CustomEvent) {
-  if ((e as any).detail?.to === 'market') {
-    activeTab.value = 'market'
-  }
-}
+ function onNavigate(e: CustomEvent) {
+   if ((e as any).detail?.to === 'market') {
+     activeTab.value = 'market'
+   }
+ }
 </script>
 
 <style scoped>

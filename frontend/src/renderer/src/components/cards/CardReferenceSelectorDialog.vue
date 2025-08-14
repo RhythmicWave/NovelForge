@@ -33,7 +33,7 @@
           </el-scrollbar>
         </template>
 
-        <!-- 按类型模式：类型下拉 + index 表达式 -->
+        <!-- 按类型模式：类型选择 + 过滤方式（previous/sibling/first/last/index） + index 表达式 -->
         <template v-else-if="mode === 'type'">
           <div class="mt8">
             <el-select v-model="selectedTypeName" placeholder="选择卡片类型" style="width: 100%" @change="handleTypeChange">
@@ -41,34 +41,54 @@
             </el-select>
           </div>
           <div class="mt8">
-            <el-input v-model="indexExpr" placeholder="index= 的表达式，例如 last / 1 / $current.volumeNumber-1" />
+            <el-radio-group v-model="typeFilterMode" size="small">
+              <el-radio-button label="first" :title="filterTips.first">first</el-radio-button>
+              <el-radio-button label="last" :title="filterTips.last">last</el-radio-button>
+              <el-radio-button label="previous" :title="filterTips.previous">previous</el-radio-button>
+              <el-radio-button label="sibling" :title="filterTips.sibling" :disabled="!hasParent">sibling</el-radio-button>
+              <el-radio-button label="index" :title="filterTips.index">index</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="mt8" v-if="typeFilterMode === 'previous'">
+            <el-input v-model="previousCount" placeholder="可选：最近 n 个之前的同类型卡片（不含当前），留空=全部" />
+          </div>
+          <div class="mt8" v-if="typeFilterMode === 'index'">
+            <el-input v-model="indexExpr" placeholder="index= 的表达式，例如 1 / last / $current.volumeNumber-1 / $self.content.volume_number-1" />
           </div>
         </template>
 
-        <!-- 特殊模式：self / parent / stage:current / chapters:previous -->
+        <!-- 特殊模式：self / parent / stage:current -->
         <template v-else>
           <div class="mt8">
             <el-select v-model="specialKey" placeholder="选择特殊引用" style="width: 100%">
               <el-option label="self（当前卡片）" value="self" />
-              <el-option label="parent（父卡片）" value="parent" />
+              <el-option label="parent（父卡片）" value="parent" :disabled="!hasParent" />
               <el-option label="stage:current（当前阶段）" value="stage:current" />
-              <el-option label="chapters:previous（之前章节列表）" value="chapters:previous" />
             </el-select>
           </div>
-          <div class="mt8" v-if="specialKey === 'self' || specialKey === 'parent' || specialKey === 'stage:current'">
-            <el-input v-model="specialPath" placeholder="可选：在此输入字段路径，如 content.volume_outline.main_target" />
+          <div class="mt8" v-if="specialKey === 'self' || specialKey === 'stage:current'">
+            <el-input v-model="specialPath" placeholder="可选：在此输入字段路径，如 content.volume_number" />
           </div>
         </template>
       </div>
 
       <!-- 右列：字段树 -->
       <div class="column">
-        <h3>2. 选择字段（可选）</h3>
+        <div class="row-head">
+          <h3>2. 选择字段（可选）</h3>
+          <div class="right-tools">
+            <el-checkbox v-model="multiMode">多选字段</el-checkbox>
+          </div>
+        </div>
         <el-tree
           v-if="fieldPaths.length"
+          ref="treeRef"
           :data="fieldPaths"
           :props="{ label: 'label', children: 'children' }"
+          :show-checkbox="multiMode"
+          :check-strictly="true"
           @node-click="handleFieldSelect"
+          @check="handleTreeCheck"
           class="field-tree"
           highlight-current
         />
@@ -99,7 +119,7 @@
 import { ref, computed, watch } from 'vue'
 import type { CardRead } from '@renderer/api/cards'
 import { schemaService, type JSONSchema } from '@renderer/api/schema'
-import { ElDialog, ElInput, ElScrollbar, ElTree, ElButton, ElRadioGroup, ElRadioButton, ElSelect, ElOption } from 'element-plus'
+import { ElDialog, ElInput, ElScrollbar, ElTree, ElButton, ElRadioGroup, ElRadioButton, ElSelect, ElOption, ElCheckbox } from 'element-plus'
 
 interface FieldPath {
   label: string
@@ -107,11 +127,16 @@ interface FieldPath {
   children?: FieldPath[]
 }
 
-const props = defineProps<{ modelValue: boolean; cards: CardRead[] }>()
+const props = defineProps<{ modelValue: boolean; cards: CardRead[]; currentCardId?: number }>()
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 // --- 模式与选择 ---
 const mode = ref<'title' | 'type' | 'special'>('title')
+
+// 当前卡片与父卡片
+const currentCard = computed(() => props.cards.find(c => c.id === props.currentCardId))
+const parentCard = computed(() => props.cards.find(c => c.id === (currentCard.value?.parent_id || -1)))
+const hasParent = computed(() => !!parentCard.value)
 
 // 按标题
 const cardSearch = ref('')
@@ -119,14 +144,27 @@ const selectedKard = ref<CardRead | null>(null)
 
 // 按类型
 const selectedTypeName = ref<string | undefined>(undefined)
-const indexExpr = ref<string>('last')
+const typeFilterMode = ref<'previous' | 'sibling' | 'first' | 'last' | 'index'>('first')
+const indexExpr = ref<string>('1')
+const previousCount = ref<string>('')
+
+const filterTips = {
+  first: '全局稳定排序中的第一个同类型卡片',
+  last: '全局稳定排序中的最后一个同类型卡片',
+  previous: '全局树形先序顺序中，当前卡片之前的所有同类型卡片；可填写最近 n 个（不含当前）',
+  sibling: '与当前卡片同一父卡片下的同类型兄弟卡片（返回数组）',
+  index: '按表达式选择单个卡片：1、-1、$current.volumeNumber-1、$self.content.volume_number+1 等'
+}
 
 // 特殊
 const specialKey = ref<string | undefined>(undefined)
 const specialPath = ref<string>('')
 
 // 字段树
+const treeRef = ref()
 const selectedFieldPath = ref<string | null>(null)
+const selectedFieldPaths = ref<string[]>([])
+const multiMode = ref<boolean>(false)
 const fieldPaths = ref<FieldPath[]>([])
 
 // 过滤卡片（按标题）
@@ -135,27 +173,51 @@ const filteredCards = computed(() => props.cards.filter(card => card.title.toLow
 // 所有类型名
 const cardTypeNames = computed(() => Array.from(new Set(props.cards.map(c => c.card_type?.name).filter(Boolean) as string[])))
 
+function buildPathSpec(): string {
+  if (multiMode.value && selectedFieldPaths.value.length > 0) {
+    return ".{" + selectedFieldPaths.value.join(',') + "}"
+  }
+  if (selectedFieldPath.value) return `.${selectedFieldPath.value}`
+  return ''
+}
+
 // 预览字符串
 const selectionPreview = computed(() => {
+  const pathSpec = buildPathSpec()
   if (mode.value === 'title') {
     if (!selectedKard.value) return ''
-    let s = `@${selectedKard.value.title}`
-    if (selectedFieldPath.value) s += `.${selectedFieldPath.value}`
-    return s
+    // 标题模式：未选字段时默认 .content
+    if (!pathSpec) return `@${selectedKard.value.title}.content`
+    return `@${selectedKard.value.title}${pathSpec}`
   }
   if (mode.value === 'type') {
     if (!selectedTypeName.value) return ''
-    const idx = indexExpr.value?.trim() ? `[index=${indexExpr.value.trim()}]` : ''
-    let s = `@type:${selectedTypeName.value}${idx}`
-    if (selectedFieldPath.value) s += `.${selectedFieldPath.value}`
-    return s
+    let filter = ''
+    if (typeFilterMode.value === 'previous') {
+      const n = previousCount.value.trim()
+      filter = n ? `[previous:${n}]` : '[previous]'
+    } else if (typeFilterMode.value === 'sibling') filter = '[sibling]'
+    else if (typeFilterMode.value === 'first') filter = '[first]'
+    else if (typeFilterMode.value === 'last') filter = '[last]'
+    else if (typeFilterMode.value === 'index') filter = `[index=${indexExpr.value.trim()}]`
+    // 类型模式：未选字段时默认 .content
+    if (!pathSpec) return `@type:${selectedTypeName.value}${filter}.content`
+    return `@type:${selectedTypeName.value}${filter}${pathSpec}`
   }
   if (mode.value === 'special') {
     if (!specialKey.value) return ''
-    let s = `@${specialKey.value}`
-    if (specialPath.value && specialKey.value !== 'chapters:previous') {
-      s += `.${specialPath.value}`
+    if (multiMode.value && selectedFieldPaths.value.length > 0) {
+      return `@${specialKey.value}${pathSpec}`
     }
+    if (selectedFieldPath.value) {
+      return `@${specialKey.value}${pathSpec}`
+    }
+    // 特殊：parent/self 默认 .content；stage/chapters 按原规则
+    let s = `@${specialKey.value}`
+    if (specialKey.value === 'parent' || specialKey.value === 'self') {
+      s += `.content`
+    }
+    if (specialPath.value && specialKey.value !== 'chapters:previous') s += `.${specialPath.value}`
     return s
   }
   return ''
@@ -164,7 +226,7 @@ const selectionPreview = computed(() => {
 const canConfirm = computed(() => {
   if (mode.value === 'title') return !!selectedKard.value
   if (mode.value === 'type') return !!selectedTypeName.value
-  if (mode.value === 'special') return !!specialKey.value
+  if (mode.value === 'special') return !!specialKey.value && (specialKey.value !== 'parent' || hasParent.value)
   return false
 })
 
@@ -182,18 +244,94 @@ function reset() {
   selectedKard.value = null
   // 类型模式
   selectedTypeName.value = undefined
-  indexExpr.value = 'last'
+  typeFilterMode.value = 'first'
+  indexExpr.value = '1'
+  previousCount.value = ''
   // 特殊模式
   specialKey.value = undefined
   specialPath.value = ''
   // 字段树与路径
   selectedFieldPath.value = null
+  selectedFieldPaths.value = []
+  multiMode.value = false
   fieldPaths.value = []
 }
+
+// --- Stage:Current 支持 ---
+function unwrapVolumeOutline(content: any): any {
+  if (!content || typeof content !== 'object') return {}
+  for (const k of ['volume_outline','VolumeOutline','volumeOutline','volume_outline_response','VolumeOutlineResponse']) {
+    if (content[k] && typeof content[k] === 'object') return content[k]
+  }
+  return content
+}
+
+function findCurrentStage(cards: CardRead[], currentCardId?: number): { stage: any | null; volumeNumber?: number; chapterNumber?: number } {
+  const cur = cards.find(c => c.id === currentCardId)
+  if (!cur) return { stage: null }
+  const c = (cur.content || {}) as any
+  const vol = typeof c?.volume_number === 'number' ? c.volume_number : undefined
+  const chn = typeof c?.chapter_number === 'number' ? c.chapter_number : undefined
+  if (!vol || !chn) return { stage: null }
+  const volCard = cards.find(x => (x.card_type as any)?.output_model_name === 'VolumeOutline' || x.card_type?.name === '分卷大纲')
+  if (!volCard) return { stage: null, volumeNumber: vol, chapterNumber: chn }
+  const vo = unwrapVolumeOutline(volCard.content || {})
+  const stages = Array.isArray(vo?.stage_lines) ? vo.stage_lines : []
+  if (!stages.length) return { stage: null, volumeNumber: vol, chapterNumber: chn }
+  const match = stages.find((st: any) => {
+    const rc = st?.reference_chapter
+    if (!Array.isArray(rc) || rc.length < 2) return false
+    const [start, end] = rc
+    return typeof start === 'number' && typeof end === 'number' && chn >= start && chn <= end
+  })
+  return { stage: match || null, volumeNumber: vol, chapterNumber: chn }
+}
+
+const stageFound = ref<boolean>(false)
+const stageMeta = ref<{ volume?: number; chapter?: number; name?: string } | null>(null)
+
+// 当选择特殊引用为 parent 时，自动加载父卡片 schema 并渲染字段树
+watch(specialKey, async (key) => {
+  selectedFieldPath.value = null
+  selectedFieldPaths.value = []
+  fieldPaths.value = []
+  if (key === 'parent') {
+    if (!hasParent.value) { fieldPaths.value = []; return }
+    const modelName = (parentCard.value?.card_type as any)?.output_model_name as string | undefined
+    if (modelName) {
+      await schemaService.loadSchemas()
+      const schema = schemaService.getSchema(modelName)
+      fieldPaths.value = schema ? generateFieldPaths(schema) : []
+    } else {
+      fieldPaths.value = []
+    }
+  } else if (key === 'self') {
+    const modelName = (currentCard.value?.card_type as any)?.output_model_name as string | undefined
+    if (modelName) {
+      await schemaService.loadSchemas()
+      const schema = schemaService.getSchema(modelName)
+      fieldPaths.value = schema ? generateFieldPaths(schema) : []
+    } else {
+      fieldPaths.value = []
+    }
+  } else if (key === 'stage:current') {
+    // 自动定位当前章节所在阶段；若命中，则右侧展示 StageLine 字段
+    const { stage, volumeNumber, chapterNumber } = findCurrentStage(props.cards, props.currentCardId)
+    stageFound.value = !!stage
+    stageMeta.value = { volume: volumeNumber, chapter: chapterNumber, name: typeof stage?.stage_name === 'string' ? stage.stage_name : undefined }
+    await schemaService.loadSchemas()
+    const stageSchema = schemaService.getSchema('StageLine')
+    // 对于特殊对象，路径不加 'content.' 前缀，直接展示字段名
+    fieldPaths.value = stage ? (stageSchema ? generateFieldPaths(stageSchema, '') : []) : []
+  } else {
+    fieldPaths.value = []
+  }
+})
 
 async function handleCardSelect(card: CardRead) {
   selectedKard.value = card
   selectedFieldPath.value = null
+  selectedFieldPaths.value = []
   fieldPaths.value = []
   const modelName = (card.card_type as any).output_model_name as string | undefined
   if (modelName) {
@@ -206,6 +344,7 @@ async function handleCardSelect(card: CardRead) {
 async function handleTypeChange() {
   // 根据类型名选取任意同类型卡片以加载其 schema
   selectedFieldPath.value = null
+  selectedFieldPaths.value = []
   fieldPaths.value = []
   const sample = props.cards.find(c => c.card_type?.name === selectedTypeName.value)
   const modelName = (sample?.card_type as any)?.output_model_name as string | undefined
@@ -218,25 +357,56 @@ async function handleTypeChange() {
 
 function generateFieldPaths(schema: JSONSchema, prefix = 'content'): FieldPath[] {
   const paths: FieldPath[] = []
-  if (schema && (schema as any).properties) {
-    for (const [key, propSchema] of Object.entries((schema as any).properties)) {
-      const currentPath = `${prefix}.${key}`
-      const node: FieldPath = {
-        label: (propSchema as any).title || key,
-        path: currentPath,
-      }
-      if ((propSchema as any).type === 'object' && (propSchema as any).properties) {
+
+  const resolveRef = (refStr?: string): any | null => {
+    if (!refStr || typeof refStr !== 'string') return null
+    const name = refStr.split('/').pop() || ''
+    return schemaService.getSchema(name) || null
+  }
+
+  const walkObject = (objSchema: any, basePath: string) => {
+    const props = (objSchema && objSchema.properties) || {}
+    for (const [key, propSchema] of Object.entries(props)) {
+      const currentPath = basePath ? `${basePath}.${key}` : key
+      const node: FieldPath = { label: (propSchema as any).title || key, path: currentPath }
+
+      if ((propSchema as any).$ref) {
+        const refSchema = resolveRef((propSchema as any).$ref)
+        if (refSchema) node.children = generateFieldPaths(refSchema as any, currentPath)
+      } else if ((propSchema as any).type === 'object' && (propSchema as any).properties) {
         node.children = generateFieldPaths(propSchema as any, currentPath)
+      } else if ((propSchema as any).type === 'array') {
+        const items = (propSchema as any).items
+        if (items && (items.$ref || items.type === 'object')) {
+          const itemSchema = items.$ref ? resolveRef(items.$ref) : items
+          const arrayPath = `${currentPath}[]`
+          const arrayNode: FieldPath = { label: (propSchema as any).title || key, path: arrayPath, children: [] }
+          arrayNode.children = itemSchema ? generateFieldPaths(itemSchema as any, arrayPath) : []
+          node.children = node.children || []
+          node.children.push(arrayNode)
+        }
       }
+
       paths.push(node)
     }
   }
+
+  if (schema && (schema as any).properties) walkObject(schema as any, prefix)
   return paths
 }
 
 function handleFieldSelect(data: FieldPath) {
-  if (!data.children || data.children.length === 0) {
-    selectedFieldPath.value = data.path
+  if (multiMode.value) return // 多选模式下靠复选框
+  // 单选：允许非叶子节点
+  selectedFieldPath.value = data.path
+}
+
+function handleTreeCheck() {
+  try {
+    const nodes = (treeRef.value as any)?.getCheckedNodes?.(false) || []
+    selectedFieldPaths.value = nodes.map((n: any) => n.path)
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -263,4 +433,6 @@ function handleConfirm() {
 .footer-container { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 .selection-preview { font-size: 14px; color: var(--el-text-color-secondary); }
 .mt8 { margin-top: 8px; }
+.row-head { display: flex; align-items: center; justify-content: space-between; }
+.right-tools { display: flex; align-items: center; gap: 8px; }
 </style> 

@@ -153,6 +153,17 @@ async function loadSchemas() {
   }
 }
 
+// 新增：强制刷新（清空缓存并重新加载）
+async function refreshSchemas() {
+  try {
+    schemas.value = new Map()
+    isLoading.value = false
+    await loadSchemas()
+  } catch (e) {
+    console.error('Failed to refresh schemas:', e)
+  }
+}
+
 /**
  * 获取 schema 的名称。
  * @param name schema 的名称 (例如, 'VolumeOutline').
@@ -169,5 +180,6 @@ export const schemaService = {
   isLoading,
   error,
   loadSchemas,
+  refreshSchemas,
   getSchema
 } 
