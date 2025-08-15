@@ -65,7 +65,7 @@ class MemoryService:
         # 参考上下文（完全由前端决定）+ 现有角色动态信息
         ref_blocks: List[str] = []
         if extra_context:
-            ref_blocks.append(f"【大纲参考信息】\n{extra_context}")
+            ref_blocks.append(f"【大纲参考信息，不允许从中提取信息】\n{extra_context}")
         if project_id and participants:
             try:
                 # 查询“角色卡”类型
@@ -104,10 +104,10 @@ class MemoryService:
 
         user_prompt = (
             f"{ref_text}"
-            f"请为以下参与者抽取动态信息：\n"
-            f"{', '.join(participants or [])}\n\n"
             f"章节正文：\n"
             f"{text}"
+            f"请为以下参与者抽取动态信息：\n"
+            f"{', '.join(participants or [])}\n\n"
         )
 
         res = await agent_service.run_llm_agent(

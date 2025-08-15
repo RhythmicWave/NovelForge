@@ -65,16 +65,16 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@renderer/api/request'
 import type { components } from '@renderer/types/generated'
 import { getAIConfigOptions } from '@renderer/api/ai'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { schemaService } from '@renderer/api/schema'
+import { listCardTypes, createCardType, updateCardType, deleteCardType, type CardTypeRead as CTR, type CardTypeCreate as CTC, type CardTypeUpdate as CTU } from '@renderer/api/setting'
 
 // 后端 CardType 类型
-type CardTypeRead = components['schemas']['CardTypeRead']
-type CardTypeCreate = components['schemas']['CardTypeCreate']
-type CardTypeUpdate = components['schemas']['CardTypeUpdate']
+type CardTypeRead = CTR
+type CardTypeCreate = CTC
+type CardTypeUpdate = CTU
 
 // 依赖后端 built_in 字段
 function isBuiltInCardType(row: any): boolean {
@@ -89,7 +89,7 @@ const types = ref<CardTypeRead[]>([])
 const query = ref('')
 const outputModels = ref<string[]>([])
 
-async function fetchTypes() { loading.value = true; try { types.value = await request.get('/card-types') } finally { loading.value = false } }
+async function fetchTypes() { loading.value = true; try { types.value = await listCardTypes() } finally { loading.value = false } }
 async function fetchOutputModels() { const opts = await getAIConfigOptions(); outputModels.value = opts.response_models }
 
 // 监听输出模型更新事件
@@ -120,10 +120,10 @@ async function saveType(): Promise<void> {
   try {
     if (drawer.value.editing) {
       const id = drawer.value.id
-      await request.put(`/card-types/${id}`, payload)
+      await updateCardType(id, payload)
       ElMessage.success('已更新卡片类型')
     } else {
-      await request.post('/card-types', payload)
+      await createCardType(payload)
       ElMessage.success('已创建卡片类型')
     }
     drawer.value.visible = false
@@ -135,7 +135,7 @@ async function saveType(): Promise<void> {
   } catch (e:any) { ElMessage.error('保存失败：' + (e?.message || e)) }
 }
 
-async function removeType(row: CardTypeRead) { try { await request.delete(`/card-types/${row.id}`); ElMessage.success('已删除'); await fetchTypes() } catch (e:any) { ElMessage.error('删除失败：' + (e?.message || e)) } }
+async function removeType(row: CardTypeRead) { try { await deleteCardType(row.id as number); ElMessage.success('已删除'); await fetchTypes() } catch (e:any) { ElMessage.error('删除失败：' + (e?.message || e)) } }
 
 fetchTypes(); fetchOutputModels()
 </script>

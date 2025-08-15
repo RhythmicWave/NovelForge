@@ -22,7 +22,7 @@ class SpecialAbility(BaseModel):
 class Task0Response(BaseModel):
     """Task0: 根据tags设计金手指的请求模型"""
     special_abilities_thinking: str = Field(description="从标签到金手指的创作思考过程。",examples=["示例输出，仅供学习思考方式，不要被具体内容影响：根据标签“重生”和“无敌流”，我需要设计一个让主角能够不断尝试、不断变强，最终达到无敌状态的金手指。仅仅重生一次不足以支撑“无敌流”的长期发展，因此，将“重生”特性深化为“无限复活并回溯时间”的能力，每次复活都能保留经验和记忆，这既符合“重生”的特点，又能为主角的“无敌”之路提供逻辑支撑。同时，结合“异世大陆”和“文明推演”的背景，这种能力能够让主角在面对未知世界时，通过反复试错来积累知识和经验，从而实现降维打击，迅速崛起。这个金手指的设定，能够让读者对主角如何利用这种能力解决困境、颠覆旧秩序产生强烈的期待感。"])
-    special_abilities: Optional[List[SpecialAbility]] = Field(None, description="主要金手指信息")
+    special_abilities: Optional[List[SpecialAbility]] = Field(None, description="主要金手指信息。金手指可以是各种系统、模拟器等这种具体的，也可以是某种优势/天赋/体质等，例如主角重生或者穿越，那么ta的先知先觉也是一种金手指。")
 
 
 class Task1Response(BaseModel):
@@ -59,21 +59,19 @@ class SocialSystem(BaseModel):
     power_structure: str = Field(description="权力架构（如：封建王朝/资本联邦）")
     currency_system: List[str] = Field(default=["金币"], description="货币体系")
     major_power_camps: List[PowerCamp] = Field(description="主要势力阵营")
-    technology_level: str = Field(description="科技/文明发展水平")
+    civilization_level: Optional[str] = Field(description="科技/文明发展水平")
 
 class CoreSystem(BaseModel):
     system_type: str = Field(description="体系类型（力量/社会/科技/异能等）")
     name: str = Field(description="体系名称（如：斗气/资本规则/朝堂权谋）")
     levels: Optional[List[str]] = Field(None, description="等级/阶层划分（可选）")
     source: str = Field(description="能量/权力来源（如：灵气/资本/皇权）")
-    limitation: str = Field(description="核心限制规则（如：天道压制/法律约束/系统规则）")
 
 class WorldviewTemplate(BaseModel):
     """
     世界观模板，字段名和结构严格参考 primitive_models/WorldView.py
     """
     world_name: str = Field(min_length=2, description="世界名称")
-    era_name: str = Field(default="现代", description="时代名称")
     narrative_theme: str = Field(description="核心叙事主题（如：逆袭/复仇/救世）")
     core_conflict: str = Field(description="世界核心矛盾（如：资源争夺/种族仇恨）")
     social_system: SocialSystem = Field(description="社会体系")
@@ -96,9 +94,9 @@ class EntityInvolved(BaseModel):
 class BlueprintResponse(BaseModel):
     volume_count: int = Field(default=3, description="小说的卷数")
     character_thinking: str = Field(description="角色设计思考过程",examples=["示例输出，仅供学习思考方式，不要被具体内容影响：在设计角色时，我秉持着“多样性与互补性”的原则，确保每个核心角色都能在故事中发挥独特的作用，并与主角团形成紧密的联系。\n\n首先是主角王小明。他作为“穿越者”，必须具备现代人的思维和适应能力。我设定他是一名剑道高手，这既能让他快速融入异世界，又能与异世界的“剑术”体系相呼应。他的核心驱动力是“高额酬金”和“守护海雯”，这让他从一个旁观者逐渐转变为异世界的参与者和守护者。他的成长弧光将是“从现实世界的普通人到异世界的救世主”，这与“进化流”的标签紧密相连。\n\n女主角海雯是故事的引路人。她必须是异世界的核心人物，拥有强大的魔法天赋和独特的背景。我设定她是“天才魔法师”和“王族联姻的逃犯”，这为她提供了最初的困境和行动动机。她与主角的“闪婚”设定，迅速确立了他们的CP关系，也为后续的情感发展奠定了基础。她的核心驱动力是“逃避联姻”和“拯救世界”，这让她在个人命运与世界命运之间找到了平衡点。她的角色弧光是“从逃亡者到拯救世界的王宫魔法师”，展现了她的成长与担当。\n\n希斯作为主要反派，必须强大且神秘。我设定她是“海雯的姑姑”和“邪恶魔法师”，这种亲缘关系增加了故事的复杂性和情感张力。她的核心动机是“毁灭世界”，这与失落文明的诅咒紧密相关。她的角色弧光是“从天才魔法师到毁灭者，最终选择离开”，为故事的结局增添了悲剧色彩。\n\n林晓雪则作为连接现实世界的桥梁，她的“学霸”设定让她能够为异世界提供现代知识，体现“异界科学流”和“文明碰撞”的标签。\n\n通过这些角色的设计，我希望构建一个充满张力、情感丰富、并能共同推动宏大叙事的角色群像。"])
-    character_cards: List[CharacterCard] = Field(description="核心角色卡片列表")
+    character_cards: List[CharacterCard] = Field(description="核心角色卡片列表，仅在此生成长期的核心角色")
     scene_thinking: str = Field(description="场景设计思考过程",examples=["示例输出，仅供学习思考方式，不要被具体内容影响：在设计地图和场景时，我遵循了从局部到全局、从已知到未知、层层递进的原则，以确保故事的节奏感和世界观的逐步展开。我的核心思路是：每个场景不仅是故事发生的地点，更是推动剧情、展现角色成长、揭示世界观秘密的关键。\n\n**第一卷：初入异世与初步探索**\n我首先设置了蓝星（现实世界）作为故事的起点和主角的“已知世界”，这让读者有代入感。然后通过“墨兰塔”和“兰特王国(明月城)”引入异世界的核心地域，这里是魔法与剑并存的典型场景，也是初期冲突的爆发点。墨兰塔作为魔法师的圣地，既是海雯的背景，也为主角学习魔法提供了场所。明月城则代表了异世界的政治中心和战争前线。这些场景的作用是让主角初步适应异世界，展现其适应能力和初步实力提升，并引出主要势力。\n\n**第二卷：势力发展与联盟建立**\n随着剧情发展，我需要更广阔的舞台来展现主角团的势力扩张和宏大计划。因此，引入“兰特王国（惊鸿之城）”作为新的盟友基地，这里将成为公主复国和建立同盟的战略中心。同时，为了展现战争的全面性，我设计了“高栏联邦（临崖城/中部哨塔/日出山）”作为重要的战场和政治博弈地，通过这里的冲突来推动联盟的形成。解放“明月城”则是这一卷的高潮，标志着复国计划的关键一步。这些场景的作用是让主角团从被动应战转变为主动出击，展现其战略眼光和领导力，并促成同盟的建立。\n\n**第三卷：统一战争与古老秘密的揭示**\n进入第三卷，故事重心转向统一异世界大陆和揭示更深层次的秘密。因此，我将场景扩展到“日月国”和“圣瓦伦帝国（特西斯丁堡）”。日月国是联军推进的必经之地，通过这里的战役展现主角团的强大力量。圣瓦伦帝国首都“特西斯丁堡”是最终决战的地点，它的陷落标志着旧秩序的终结。这些场景的作用是完成统一大业，同时揭示世界观的深层秘密，为最终的危机埋下伏笔。\n\n**第四卷：末日危机与最终抉择**\n最后一卷，世界面临毁灭，场景设计围绕“拯救”和“终结”展开。“临崖城”和“惊鸿之城”再次出现，但这次它们承载的是收集王族之血和科技求生的希望。最终的“起源之地/燃烧的山巅”是决战的舞台，这里是诅咒的源头，也是解咒的关键。这些场景的作用是集中所有线索，完成最终的救赎，并让主角团做出关于归属的最终选择，为整个故事画上句号。"])
-    scene_cards: List[SceneCard] = Field(description="主要场景卡片列表")
+    scene_cards: List[SceneCard] = Field(description="主要场景卡片列表，仅在此生成长期的核心地图/场景")
 
 
 # === Step 4: Volume Outline Schemas (from primitive_models/tasks.py Task5Model) ===

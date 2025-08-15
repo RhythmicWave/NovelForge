@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Setting, Sunny, Moon, Collection } from '@element-plus/icons-vue'
 import { useAppStore } from '@renderer/stores/useAppStore'
-import KnowledgeManager from './KnowledgeManager.vue'
+import KnowledgeManager from '../setting/KnowledgeManager.vue'
 
 const appStore = useAppStore()
 const { currentView, isDarkMode } = storeToRefs(appStore)

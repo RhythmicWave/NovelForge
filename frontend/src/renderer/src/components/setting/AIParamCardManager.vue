@@ -93,7 +93,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAIConfigOptions } from '@renderer/api/ai'
-import { useAIParamCardStore, AIParamCard } from '../../stores/useAIParamCardStore'
+import { useAIParamCardStore, AIParamCard } from '@renderer/stores/useAIParamCardStore'
 
 const aiParamCardStore = useAIParamCardStore()
 

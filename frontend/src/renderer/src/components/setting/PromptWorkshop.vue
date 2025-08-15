@@ -89,8 +89,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import request from '@renderer/api/request'
-import { listKnowledge, type Knowledge } from '@renderer/api/setting'
+import { listKnowledge, type Knowledge, listPrompts, createPrompt, updatePrompt, deletePrompt } from '@renderer/api/setting'
 
 interface Prompt {
   id: number
@@ -155,7 +154,7 @@ function composeTemplate(s: { role: string; skills: string; goals: string; knowl
 async function fetchPrompts() {
   loading.value = true
   try {
-    prompts.value = await request.get<Prompt[]>('/prompts')
+    prompts.value = await listPrompts()
   } catch (error) {
     ElMessage.error('加载提示词列表失败')
   } finally {
@@ -238,7 +237,7 @@ async function tryParseStructured(tpl?: string) {
   }
 }
 
-async function handleEdit(prompt: Prompt) {
+async function handleEdit(prompt: any) {
   currentPrompt.value = { ...prompt }
   await fetchKnowledgeList()
   // 尝试解析为结构化表单，若失败则回退到原始模板模式
@@ -259,9 +258,9 @@ async function handleSave() {
           payload.template = composeTemplate(structured.value)
         }
         if (payload.id) {
-          await request.put(`/prompts/${payload.id}`, payload)
+          await updatePrompt(payload.id, payload)
         } else {
-          await request.post('/prompts', payload)
+          await createPrompt(payload)
         }
         ElMessage.success('保存成功')
         drawerVisible.value = false
@@ -282,7 +281,7 @@ async function handleDelete(id: number) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await request.delete(`/prompts/${id}`)
+    await deletePrompt(id)
     ElMessage.success('删除成功')
     fetchPrompts()
   } catch (error) {

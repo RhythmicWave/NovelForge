@@ -1090,7 +1090,7 @@ export interface components {
             name: string;
             /**
              * Dynamic Info
-             * @description 动态信息字典，键为 DynamicInfoType；值为带 id/weight 的信息项列表。‘心理想法/目标快照’为必选项。
+             * @description 动态信息字典，键为中文类别；值为带 id/weight 的信息项列表。
              */
             dynamic_info?: {
                 [key: string]: components["schemas"]["DynamicInfoItem"][];
@@ -1115,12 +1115,6 @@ export interface components {
              */
             weight: number;
         };
-        /**
-         * DynamicInfoType
-         * @description 角色动态信息大类。
-         * @enum {string}
-         */
-        DynamicInfoType: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "人脉/人情" | "心理想法/目标快照";
         /** ExtractOnlyRequest */
         ExtractOnlyRequest: {
             /** Project Id */
@@ -1438,8 +1432,12 @@ export interface components {
              * @description 角色名称。
              */
             name: string;
-            /** @description 动态信息类型。 */
-            dynamic_type: components["schemas"]["DynamicInfoType"];
+            /**
+             * Dynamic Type
+             * @description 动态信息类型。
+             * @enum {string}
+             */
+            dynamic_type: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "心理想法/目标快照";
             /**
              * Id
              * @description 要修改的动态类型信息的id
@@ -1610,7 +1608,7 @@ export interface components {
              * @description 关系类型（中文）
              * @enum {string}
              */
-            kind: "同盟" | "敌对" | "亲属" | "师徒" | "对手" | "隶属";
+            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "隶属" | "其他";
             /**
              * A To B Addressing
              * @description A 对 B 的称呼词，如：师兄、先生

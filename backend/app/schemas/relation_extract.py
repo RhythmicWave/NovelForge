@@ -4,23 +4,20 @@ from typing import List, Optional, Literal, Dict
 from pydantic import BaseModel, Field
 
 
-class Stance(BaseModel):
-    intimacy: float = Field(ge=-1.0, le=1.0, description="亲密度 [-1,1]")
-    dominance: float = Field(ge=-1.0, le=1.0, description="支配/顺从 [-1,1]")
-    trust: float = Field(ge=0.0, le=1.0, description="信任度 [0,1]")
-    hostility: float = Field(ge=0.0, le=1.0, description="敌意/冲突度 [0,1]")
 
-
-RelationKind = Literal['同盟','敌对','亲属','师徒','对手','隶属']
+RelationKind = Literal['同盟','队友','同门','敌对','亲属','师徒','对手','隶属','其他']
 
 # 统一提供中英映射（单一来源）
 CN_TO_EN_KIND: Dict[str, str] = {
     '同盟': 'ally',
+    '队友': 'team',
+    '同门': 'fellow',
     '敌对': 'enemy',
     '亲属': 'family',
     '师徒': 'mentor',
     '对手': 'rival',
     '隶属': 'member_of',
+    '其他': 'other',
 }
 EN_TO_CN_KIND: Dict[str, str] = {v: k for k, v in CN_TO_EN_KIND.items()}
 

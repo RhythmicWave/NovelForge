@@ -7,8 +7,9 @@ from sqlmodel import Session, select
 
 from app.db.models import Card, CardType
 from app.services.memory_service import MemoryService
-from app.services.consistency_provider import MemoryConsistencyProvider, DirectKGConsistencyProvider, ConsistencyProvider
 from app.schemas.context import FactsStructured
+from app.schemas.relation_extract import CN_TO_EN_KIND
+from app.services.kg_provider import get_provider
 
 # === 可热更新设置 ===
 @dataclass
@@ -44,9 +45,6 @@ def update_settings(patch: Dict[str, Any]) -> ContextSettings:
     _SETTINGS = ContextSettings(**data)
     return _SETTINGS
 
-# 保留 Graphiti 开关（仍读环境变量）
-USE_GRAPHITI = os.getenv("USE_GRAPHITI", "false").lower() == "true"
-
 
 @dataclass
 class ContextAssembleParams:
@@ -78,47 +76,8 @@ def _truncate(text: str, limit: int) -> str:
     return text[: max(0, limit - 200)] + "\n...[已截断]"
 
 
-
-
-
-
 def _compose_facts_subgraph_stub() -> str:
-    return "关键事实：暂无（Graphiti 未启用或未收集）。"
-
-
-def _format_subgraph_as_text(data: Dict[str, Any]) -> str:
-    nodes = data.get("nodes") or []
-    edges = data.get("edges") or []
-    summaries: List[str] = data.get("fact_summaries") or []
-    # 将边按类型分组，便于阅读
-    grouped: Dict[str, List[str]] = {}
-    for e in edges:
-        et = str(e.get("type") or "fact")
-        fv = str(e.get("fact") or "")
-        grouped.setdefault(et, []).append(fv)
-    parts: List[str] = []
-    # 事实摘要
-    if isinstance(summaries, list) and summaries:
-        parts.append("关键事实：")
-        for s in summaries[:30]:
-            parts.append(f"- {s}")
-    # 边分组作为补充
-    for et, facts in grouped.items():
-        parts.append(f"{et}:")
-        for f in facts[:30]:
-            parts.append(f"- {f}")
-    if not parts and nodes:
-        lbls = [str(n.get("label") or n.get("id")) for n in nodes[:10]]
-        parts.append("事实节点：" + "; ".join(lbls))
-    return "\n".join(parts)
-
-
-def _calc_total_size(parts: Dict[str, int]) -> int:
-    return sum(parts.values())
-
-
-
-
+    return "关键事实：暂无（尚未收集）。"
 
 
 
@@ -126,18 +85,16 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
     settings = get_settings()
     facts_quota = settings.quota_facts
 
-    # 仅做事实子图装配
-    # 严格使用请求传入的参与者，不再在服务端推断
     eff_participants: List[str] = list(params.participants or [])
+    participant_set = set(eff_participants)
 
     facts_text = _compose_facts_subgraph_stub()
     facts_structured: Optional[Dict[str, Any]] = None
     try:
-        from app.services.consistency_provider import DirectKGConsistencyProvider
-        provider: ConsistencyProvider = DirectKGConsistencyProvider()
+        provider = get_provider()
         edge_whitelist = ["has_alias", "participated_in", "addressed_as", "has_enemy", "resolved_in", "located_at", "event_summary", "stance"]
         est_top_k = max(5, min(100, facts_quota // 100))
-        sub_struct = provider.get_facts_structured(
+        sub_struct = provider.query_subgraph(
             project_id=params.project_id or -1,
             participants=eff_participants,
             radius=2,
@@ -145,11 +102,23 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
             top_k=est_top_k,
             max_chapter_id=None,
         )
-        raw = sub_struct.get("_raw") or {}
-        txt = _format_subgraph_as_text(raw if isinstance(raw, dict) else {})
-        if txt:
-            facts_text = txt
-        # 用模型实例化，避免手写字段名错误
+        raw_relation_items = [it for it in (sub_struct.get("relation_summaries") or []) if isinstance(it, dict)]
+        filtered_relation_items = [
+            it for it in raw_relation_items
+            if (str(it.get("a")) in participant_set and str(it.get("b")) in participant_set)
+        ]
+        if filtered_relation_items:
+            lines: List[str] = ["关键事实："]
+            for it in filtered_relation_items:
+                a = str(it.get("a")); b = str(it.get("b")); kind_cn = str(it.get("kind") or "其他")
+                pred_en = CN_TO_EN_KIND.get(kind_cn, kind_cn)
+                lines.append(f"- {a} {pred_en} {b}")
+            facts_text = "\n".join(lines)
+        else:
+            raw = sub_struct
+            txt = "\n".join([f"- {f}" for f in (raw.get("fact_summaries") or [])])
+            if txt:
+                facts_text = "关键事实：\n" + txt
         try:
             from app.schemas.context import FactsStructured as _FactsStructured
             fs_model = _FactsStructured(
@@ -164,15 +133,14 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
                         "recent_dialogues": it.get("recent_dialogues") or [],
                         "recent_event_summaries": it.get("recent_event_summaries") or [],
                     }
-                    for it in (sub_struct.get("relation_summaries") or [])
-                    if isinstance(it, dict)
+                    for it in filtered_relation_items
                 ],
             )
             facts_structured = fs_model.model_dump()
         except Exception:
             facts_structured = {
                 "fact_summaries": sub_struct.get("fact_summaries") or [],
-                "relation_summaries": sub_struct.get("relation_summaries") or [],
+                "relation_summaries": filtered_relation_items,
             }
     except Exception:
         pass
@@ -184,7 +152,7 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
         "older_chapters_summary": 0,
         "facts_subgraph": len(facts),
     }
-    total_size = _calc_total_size(parts_sizes)
+    total_size = sum(parts_sizes.values())
 
     return AssembledContext(
         facts_subgraph=facts,

@@ -57,18 +57,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@renderer/api/request'
 import OutputModelBuilder from './OutputModelBuilder.vue'
 import { type BuilderField, schemaToBuilder as utilSchemaToBuilder, builderToSchema as utilBuilderToSchema } from '@renderer/utils/outputModelSchemaUtils'
+import { listOutputModels, createOutputModel, updateOutputModel, deleteOutputModel, type OutputModel as OM } from '@renderer/api/setting'
 
-interface OutputModel {
-  id?: number
-  name: string
-  description?: string | null
-  json_schema?: any
-  built_in?: boolean
-  version?: number
-}
+interface OutputModel extends OM {}
 
 const loading = ref(false)
 const models = ref<OutputModel[]>([])
@@ -86,7 +79,7 @@ const builderFields = ref<BuilderField[]>([])
 
 async function fetchModels() {
   loading.value = true
-  try { models.value = await request.get('/output-models/') } finally { loading.value = false }
+  try { models.value = await listOutputModels() } finally { loading.value = false }
 }
 
 function openEditor(row?: OutputModel) {
@@ -115,10 +108,10 @@ async function save() {
     const json = advancedMode.value ? (schemaText.value ? JSON.parse(schemaText.value) : undefined) : builderToSchema(builderFields.value)
     const payload = { ...editor.form, json_schema: json }
     if (editor.editing && editor.form.id) {
-      await request.put(`/output-models/${editor.form.id}`, payload)
+      await updateOutputModel(editor.form.id, payload)
       ElMessage.success('已更新输出模型')
     } else {
-      await request.post('/output-models', payload)
+      await createOutputModel(payload)
       ElMessage.success('已创建输出模型')
     }
     editor.visible = false
@@ -132,7 +125,7 @@ async function save() {
 
 async function remove(row: OutputModel) {
   try {
-    await request.delete(`/output-models/${row.id}`)
+    await deleteOutputModel(row.id as number)
     ElMessage.success('已删除')
     window.dispatchEvent(new CustomEvent('nf:output-models-updated'))
     await fetchModels()

@@ -6,6 +6,5 @@ loguru
 pydantic
 pydantic_ai
 openai>=1.0.0
-graphiti-core
 neo4j
 python-dotenv

@@ -7,27 +7,46 @@ from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
 import logging
 # 新增：引入动态信息模型
-from app.schemas.entity import UpdateDynamicInfo, DynamicInfoType, CharacterCard, DynamicInfoItem
+from app.schemas.entity import UpdateDynamicInfo, CharacterCard, DynamicInfoItem
+from sqlalchemy import update as sa_update
 
 logger = logging.getLogger(__name__)
 
 # 每类动态信息的建议上限（超过则保留更重要/较新者）。可按需调整。
-MAX_ITEMS_BY_TYPE: dict[DynamicInfoType, int] = {
-    DynamicInfoType.MENTAL_STATE: 3,
-    DynamicInfoType.LEVEL: 4,
-    DynamicInfoType.SKILL: 6,
-    DynamicInfoType.EQUIPMENT: 4,
-    DynamicInfoType.KNOWLEDGE: 4,
-    DynamicInfoType.ASSET: 4,
-    DynamicInfoType.BLOODLINE: 4,
-    DynamicInfoType.CONNECTION: 5,
+MAX_ITEMS_BY_TYPE: dict[str, int] = {
+    "心理想法/目标快照": 3,
+    "等级/修为境界": 4,
+    "功法/技能": 6,
+    "装备/法宝": 4,
+    "知识/情报": 4,
+    "资产/领地": 4,
+    "血脉/体质": 4,
+    # DynamicInfoType.CONNECTION: 5,
 }
+
+# 全局权重阈值（默认 0.45，可通过环境变量覆盖）
+WEIGHT_THRESHOLD =0.45
 
 def _next_item_id(items: List[DynamicInfoItem]) -> int:
     try:
         return (max([it.id for it in items if isinstance(it.id, int) and it.id >= 1] or [0]) + 1)
     except Exception:
         return 1
+
+# 统一键名：对象/其它类型 -> 中文字符串键
+# 由于 DynamicInfoType 已改为 Literal，正常情况下这里直接返回字符串
+# 仍保留容错：若传入对象且具有 value 字段且为字符串，则取其 value
+
+def _normalize_dynamic_type_key(key_obj: object) -> str:
+    try:
+        if isinstance(key_obj, str):
+            return key_obj
+        value_attr = getattr(key_obj, 'value', None)
+        if isinstance(value_attr, str):
+            return value_attr
+    except Exception:
+        pass
+    return str(key_obj)
 
 # 默认映射：卡片类型名称 -> AI参数卡“键”（允许为名称或ID）。
 # 前端 store 的 findByKey 会同时按 id 与 name 查找，因此这里写名称即可。
@@ -212,66 +231,93 @@ class CardService:
 
             try:
                 card_content = target_card.content or {}
-                # 兼容旧数据，避免模型验证报错
-                card_content = _normalize_character_card_content(card_content, fallback_name=target_card.title)
-                char_model = CharacterCard.model_validate(card_content)
-                existing_di = char_model.dynamic_info or {}
+                # 容错读取：只处理 dynamic_info，避免整卡模型校验失败
+                existing_di = dict(card_content.get("dynamic_info") or {})
 
                 # 合并新增
                 for info_type, new_items in (info_update.dynamic_info or {}).items():
                     if not isinstance(new_items, list):
                         continue
-                    current_items: List[DynamicInfoItem] = list(existing_di.get(info_type, []) or [])
+                    # 统一将键转为字符串（中文值），与前端 schema 的 properties 对齐
+                    key = _normalize_dynamic_type_key(info_type)
+                    current_items_raw = list(existing_di.get(key, []) or [])
+                    # 将 dict -> DynamicInfoItem（容错）
+                    current_items: List[DynamicInfoItem] = []
+                    for it in current_items_raw:
+                        if isinstance(it, DynamicInfoItem):
+                            current_items.append(it)
+                        elif isinstance(it, dict):
+                            try:
+                                current_items.append(DynamicInfoItem(**it))
+                            except Exception:
+                                continue
                     next_id = _next_item_id(current_items)
 
                     # 去重依据：info 文本
                     seen_info = { (it.info or '').strip(): it for it in current_items }
-                    appended: List[DynamicInfoItem] = []
                     for it in new_items:
+                        # 支持 dict 与对象两种形式
+                        if isinstance(it, dict):
+                            info_text_raw = it.get('info')
+                            weight_raw = it.get('weight', 0.0)
+                            item_id_raw = it.get('id', -1)
+                        else:
+                            info_text_raw = getattr(it, 'info', None)
+                            weight_raw = getattr(it, 'weight', 0.0)
+                            item_id_raw = getattr(it, 'id', -1)
                         try:
-                            info_text = (getattr(it, 'info', None) or '').strip()
-                            weight_val = float(getattr(it, 'weight', 0.0) or 0.0)
+                            info_text = (info_text_raw or '').strip()
+                            weight_val = float(weight_raw or 0.0)
                         except Exception:
                             info_text = ''
                             weight_val = 0.0
                         if not info_text:
                             continue
+                        # 权重阈值过滤
+                        if weight_val < WEIGHT_THRESHOLD:
+                            continue
                         if info_text in seen_info:
-                            # 若已存在且新权重大，则更新权重为较大者
                             exist = seen_info[info_text]
                             if weight_val > (exist.weight or 0.0):
                                 exist.weight = weight_val
                             continue
                         # 分配 id（若未指定或为-1）
-                        item_id = getattr(it, 'id', -1)
-                        if not isinstance(item_id, int) or item_id < 1:
+                        item_id = item_id_raw if isinstance(item_id_raw, int) else -1
+                        if item_id < 1:
                             item_id = next_id
                             next_id += 1
                         appended_item = DynamicInfoItem(id=item_id, info=info_text, weight=weight_val)
                         current_items.append(appended_item)
-                        appended.append(appended_item)
                         seen_info[info_text] = appended_item
 
                     # 应用上限：按权重降序、同权重按出现顺序保留
-                    per_limit = MAX_ITEMS_BY_TYPE.get(info_type, queue_size)
+                    per_limit = MAX_ITEMS_BY_TYPE.get(_normalize_dynamic_type_key(info_type), queue_size)  # 字符串键
                     if per_limit and len(current_items) > per_limit:
-                        # 稳定排序：先按加入顺序标序（通过 id 近似代表先后），再按权重排序
                         current_items.sort(key=lambda x: (-(x.weight or 0.0), x.id))
                         current_items = current_items[:per_limit]
-                        # 仍按 id 升序存储，便于阅读
                         current_items.sort(key=lambda x: x.id)
 
-                    existing_di[info_type] = current_items
+                    existing_di[key] = [ci.model_dump() if hasattr(ci, 'model_dump') else ci for ci in current_items]
 
                 # 应用 modify_info_list 权重修正
                 if getattr(update_data, 'modify_info_list', None):
                     for mod in (update_data.modify_info_list or []):
                         if not mod or str(getattr(mod, 'name', '')) != char_name:
                             continue
-                        t = getattr(mod, 'dynamic_type', None)
-                        lst = existing_di.get(t)
-                        if not lst:
+                        t_key = _normalize_dynamic_type_key(getattr(mod, 'dynamic_type', None))
+                        lst_raw = existing_di.get(t_key)
+                        if not lst_raw:
                             continue
+                        # 统一为对象列表
+                        lst: List[DynamicInfoItem] = []
+                        for it in lst_raw:
+                            if isinstance(it, DynamicInfoItem):
+                                lst.append(it)
+                            elif isinstance(it, dict):
+                                try:
+                                    lst.append(DynamicInfoItem(**it))
+                                except Exception:
+                                    continue
                         for it in lst:
                             if it.id == getattr(mod, 'id', None):
                                 try:
@@ -280,11 +326,21 @@ class CardService:
                                     w = it.weight
                                 it.weight = max(0.0, min(1.0, w))
                                 break
+                        existing_di[t_key] = [ci.model_dump() if hasattr(ci, 'model_dump') else ci for ci in lst]
 
-                # 写回
-                char_model.dynamic_info = existing_di
-                target_card.content = char_model.model_dump(by_alias=True, exclude_unset=True)
-                self.db.add(target_card)
+                # 写回（只更新 dynamic_info 字段，其它原样保留）
+                card_content["dynamic_info"] = existing_di
+                target_card.content = card_content
+                # 显式 UPDATE，确保 JSON 写入
+                try:
+                    self.db.exec(
+                        sa_update(Card)
+                        .where(Card.id == target_card.id)
+                        .values(content=card_content)
+                    )
+                except Exception:
+                    # 回退到 ORM 方式
+                    self.db.add(target_card)
                 updated_cards.append(target_card)
 
             except Exception as e:
@@ -320,8 +376,7 @@ class CardTypeService:
         card_type = self.get_by_id(card_type_id)
         if not card_type:
             return None
-        update_data = card_type_update.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
+        for key, value in card_type_update.model_dump(exclude_unset=True).items():
             setattr(card_type, key, value)
         self.db.add(card_type)
         self.db.commit()

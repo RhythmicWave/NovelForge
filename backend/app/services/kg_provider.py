@@ -37,31 +37,7 @@ class KnowledgeGraphProvider(Protocol):
     ) -> Dict[str, Any]: ...
 
 
-# === Graphiti 实现（包装现有 GraphitiClient） ===
-class GraphitiKGProvider:
-    def __init__(self) -> None:
-        from app.services.graphiti_client import GraphitiClient  # 延迟导入，避免强耦合
-        self._client = GraphitiClient()
-
-    def ingest_aliases(self, project_id: int, mapping: Dict[str, List[str]]) -> None:
-        self._client.ingest_aliases(project_id, mapping)
-
-    def ingest_triples_with_attributes(self, project_id: int, triples: List[Tuple[str, str, str, Dict[str, Any]]]) -> None:
-        self._client.ingest_triples_with_attributes(project_id, triples)
-
-    def query_subgraph(
-        self,
-        project_id: int,
-        participants: Optional[List[str]] = None,
-        radius: int = 2,
-        edge_type_whitelist: Optional[List[str]] = None,
-        top_k: int = 50,
-        max_chapter_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        return self._client.query_subgraph(project_id, participants, radius, edge_type_whitelist, top_k, max_chapter_id)
-
-
-# === Neo4j 官方驱动实现 ===
+# === Neo4j 官方驱动实现（唯一实现） ===
 class Neo4jKGProvider:
     """用 Neo4j 官方驱动复现最小能力（命名空间隔离、别名与关系写入、子图检索）。"""
     def __init__(self) -> None:
@@ -168,10 +144,18 @@ class Neo4jKGProvider:
         if not parts:
             return {"nodes": [], "edges": [], "alias_table": {}, "fact_summaries": [], "relation_summaries": []}
         # 查询时匹配 :HAS_ALIAS 和 :RELATES_TO
-        cypher = (
-            "MATCH (a:Entity {group_id:$group})-[r]->(b:Entity {group_id:$group}) "
-            "WHERE a.name IN $parts OR b.name IN $parts "
-            "RETURN a.name AS a, type(r) AS t, b.name AS b, r {.*} as props "
+        # 别名：只要一端在参与者即可收集，以便展示别名表
+        alias_cypher = (
+            "MATCH (a:Entity {group_id:$group})-[r:HAS_ALIAS]->(b:Entity {group_id:$group}) "
+            "WHERE a.name IN $parts "
+            "RETURN a.name AS a, 'HAS_ALIAS' AS t, b.name AS b, r {.*} as props "
+            "LIMIT $limit"
+        )
+        # 关系：要求两端都在参与者列表中，避免引入无关实体
+        rel_cypher = (
+            "MATCH (a:Entity {group_id:$group})-[r:RELATES_TO]->(b:Entity {group_id:$group}) "
+            "WHERE a.name IN $parts AND b.name IN $parts "
+            "RETURN a.name AS a, 'RELATES_TO' AS t, b.name AS b, r {.*} as props "
             "LIMIT $limit"
         )
         alias_table: Dict[str, List[str]] = {}
@@ -179,33 +163,41 @@ class Neo4jKGProvider:
         rel_items: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         edges: List[Dict[str, Any]] = []
         with self._driver.session() as sess:
-            results = sess.run(cypher, group=group, parts=parts, limit=max(1, int(top_k)))
+            # 别名
+            results = sess.run(alias_cypher, group=group, parts=parts, limit=max(1, int(top_k)))
+            for rec in results:
+                a = rec["a"]; b = rec["b"]; t = rec["t"]; props = rec["props"] or {}
+                fact = props.get("fact") or f"{a} has_alias {b}"
+                alias_table.setdefault(a, []).append(b)
+                if len(fact_summaries) < top_k:
+                    fact_summaries.append(fact)
+                if len(edges) < top_k:
+                    edges.append({"source": a, "target": b, "type": "has_alias", "fact": fact})
+            # 关系（双端参与者）
+            results = sess.run(rel_cypher, group=group, parts=parts, limit=max(1, int(top_k)))
             for rec in results:
                 a = rec["a"]; b = rec["b"]; t = rec["t"]; props = rec["props"] or {}
                 fact = props.get("fact") or f"{a} {props.get('kind', t)} {b}"
-
-                if t == "HAS_ALIAS":
-                    alias_table.setdefault(a, []).append(b)
-                elif t == "RELATES_TO":
-                    pred_en = props.get("kind")
-                    if not pred_en: continue
-                    kind_cn = EN_TO_CN_KIND.get(pred_en, "同盟")
-                    key = (a, b, pred_en)
-                    if key not in rel_items:
-                        rel_items[key] = { "a": a, "b": b, "kind": kind_cn }
-                    # 解析属性
-                    try:
-                        ev = json.loads(props.get("recent_event_summaries_json") or "[]")
-                    except Exception: ev = []
-                    try:
-                        s = json.loads(props.get("stance_json") or "null")
-                    except Exception: s = None
-                    if props.get("a_to_b_addressing"): rel_items[key]["a_to_b_addressing"] = props.get("a_to_b_addressing")
-                    if props.get("b_to_a_addressing"): rel_items[key]["b_to_a_addressing"] = props.get("b_to_a_addressing")
-                    if props.get("recent_dialogues"): rel_items[key]["recent_dialogues"] = props.get("recent_dialogues")
-                    if ev: rel_items[key]["recent_event_summaries"] = ev
-                    if s is not None: rel_items[key]["stance"] = s
-                # edges/facts 回显
+                pred_en = props.get("kind")
+                if not pred_en: 
+                    continue
+                kind_cn = EN_TO_CN_KIND.get(pred_en, "同盟")
+                key = (a, b, pred_en)
+                if key not in rel_items:
+                    rel_items[key] = { "a": a, "b": b, "kind": kind_cn }
+                # 解析属性
+                try:
+                    ev = json.loads(props.get("recent_event_summaries_json") or "[]")
+                except Exception: ev = []
+                try:
+                    s = json.loads(props.get("stance_json") or "null")
+                except Exception: s = None
+                if props.get("a_to_b_addressing"): rel_items[key]["a_to_b_addressing"] = props.get("a_to_b_addressing")
+                if props.get("b_to_a_addressing"): rel_items[key]["b_to_a_addressing"] = props.get("b_to_a_addressing")
+                if props.get("recent_dialogues"): rel_items[key]["recent_dialogues"] = props.get("recent_dialogues")
+                if ev: rel_items[key]["recent_event_summaries"] = ev
+                if s is not None: rel_items[key]["stance"] = s
+                # 回显
                 if len(fact_summaries) < top_k:
                     fact_summaries.append(fact)
                 if len(edges) < top_k:
@@ -221,15 +213,5 @@ class Neo4jKGProvider:
 
 
 def get_provider() -> KnowledgeGraphProvider:
-    # 优先新变量；兼容旧 USE_GRAPHITI
-    provider_name = os.getenv("KNOWLEDGE_GRAPH_PROVIDER")
-    if not provider_name:
-        use_graphiti = os.getenv("USE_GRAPHITI", "false").lower() == "true"
-        provider_name = "graphiti" if use_graphiti else "neo4j"
-    name = provider_name.strip().lower()
-    if name == "graphiti":
-        return GraphitiKGProvider()
-    elif name == "neo4j":
-        return Neo4jKGProvider()
-    else:
-        raise KnowledgeGraphUnavailableError(f"未知的知识图谱提供方: {provider_name}") 
+    # 仅使用 Neo4j 提供方
+    return Neo4jKGProvider() 

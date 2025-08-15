@@ -32,9 +32,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@renderer/api/request'
 import LLMConfigForm from './LLMConfigForm.vue'
 import type { components } from '@renderer/types/generated'
+import { listLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig } from '@renderer/api/setting'
 
 type LLMConfig = components['schemas']['LLMConfigRead']
 
@@ -44,8 +44,7 @@ const editConfig = ref<LLMConfig | null>(null)
 
 async function loadLLMConfigs() {
   try {
-    const response = await request.get<LLMConfig[]>('/llm-configs/')
-    llmConfigs.value = response || []
+    llmConfigs.value = await listLLMConfigs()
   } catch (error) {
     console.error('Failed to load LLM configs:', error)
     ElMessage.error('加载LLM配置失败')
@@ -66,12 +65,10 @@ function openEditDialog(config?: LLMConfig) {
 async function handleSave(data: any) {
   try {
     if (data.id) {
-      // 更新现有配置
-      await request.put(`/llm-configs/${data.id}`, data)
+      await updateLLMConfig(data.id, data)
       ElMessage.success('LLM配置更新成功！')
     } else {
-      // 创建新配置
-      await request.post('/llm-configs/', data)
+      await createLLMConfig(data)
       ElMessage.success('LLM配置创建成功！')
     }
     editDialogVisible.value = false
@@ -88,8 +85,7 @@ async function deleteConfig(id: number) {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    
-    await request.delete(`/llm-configs/${id}`)
+    await deleteLLMConfig(id)
     ElMessage.success('删除成功')
     await loadLLMConfigs() // 重新加载列表
   } catch (error) {

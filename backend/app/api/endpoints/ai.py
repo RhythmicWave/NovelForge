@@ -23,7 +23,7 @@ from copy import deepcopy
 # 新增：引入知识库
 from app.services.knowledge_service import KnowledgeService
 import re
-from app.schemas.entity import DynamicInfoType
+from app.schemas.entity import DYNAMIC_INFO_TYPES
 from app.schemas import entity as entity_schemas
 
 router = APIRouter()
@@ -261,14 +261,14 @@ def get_all_schemas(session: Session = Depends(get_session)):
                     },
                     "required": ["id", "info", "weight"]
                 }
-                enum_values = [t.value for t in DynamicInfoType]
+                enum_values = DYNAMIC_INFO_TYPES
                 props['dynamic_info'] = {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         ev: {"type": "array", "items": item_schema} for ev in enum_values
                     },
-                    "description": "角色动态信息，按类别分组的数组（键为枚举中文值）"
+                    "description": "角色动态信息，按类别分组的数组（键为中文枚举值）"
                 }
                 cc['properties'] = props
                 all_definitions['CharacterCard'] = cc
@@ -289,7 +289,7 @@ def get_all_schemas(session: Session = Depends(get_session)):
             entity_schemas.DynamicInfo,
             entity_schemas.ModifyDynamicInfo,
             entity_schemas.UpdateDynamicInfo,
-            entity_schemas.DynamicInfoType,
+
         ]
         for mdl in entity_models:
             sch = mdl.model_json_schema(ref_template="#/$defs/{model}")

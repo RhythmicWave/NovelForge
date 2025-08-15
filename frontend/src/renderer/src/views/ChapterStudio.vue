@@ -263,7 +263,7 @@ async function onTriggerExtract() {
 <style scoped>
 .studio-layout { display: flex; flex-direction: column; height: 100vh; }
 .studio-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color); }
-.studio-body { flex: 1; display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 48px); }
+.studio-body { flex: 1; display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 75px); }
 .editor-pane { overflow: hidden; }
 .right-pane { border-left: 1px solid var(--el-border-color-light); overflow: hidden; }
 .right-tabs { height: 100%; display: flex; flex-direction: column; }

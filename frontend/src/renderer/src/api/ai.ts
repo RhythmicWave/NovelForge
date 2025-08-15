@@ -104,14 +104,6 @@ export function generateContinuationStreaming(
   }
 }
 
-// 一致性校验
-export interface ConsistencyIssue { type: string; message: string; position?: number[] | null }
-export interface ConsistencyFix { range?: number[] | null; replacement: string }
-export interface ConsistencyResponse { issues: ConsistencyIssue[]; suggested_fixes: ConsistencyFix[] }
-export function checkConsistency(body: { text: string; facts_structured?: Record<string, any> }): Promise<ConsistencyResponse> {
-  return aiHttpClient.post<ConsistencyResponse>('/consistency/check', body)
-}
-
 // 伏笔建议（占位）
 export interface ForeshadowResponse { goals: string[]; items: string[]; persons: string[] }
 export function foreshadowSuggest(text: string): Promise<ForeshadowResponse> {

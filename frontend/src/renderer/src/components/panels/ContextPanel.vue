@@ -13,7 +13,7 @@
         </el-select>
       </el-form-item>
       <div class="actions">
-        <el-button size="small" type="primary" :loading="assembling" @click="assemble">组装上下文</el-button>
+        <el-button size="small" type="primary" :loading="assembling" @click="assemble">注入知识图谱</el-button>
       </div>
     </el-form>
 

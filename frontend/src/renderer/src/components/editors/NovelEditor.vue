@@ -87,6 +87,11 @@
 									<el-input-number v-model="row.weight" :min="0" :max="1" :step="0.1" />
 								</template>
 							</el-table-column>
+							<el-table-column label="操作" width="90">
+								<template #default="scope">
+									<el-button type="danger" text size="small" @click="removePreviewItem(role.name, String(catKey), scope.$index)">删除</el-button>
+								</template>
+							</el-table-column>
 						</el-table>
 					</div>
 				</div>
@@ -695,6 +700,8 @@ async function confirmApplyUpdates() {
 		const resp = await updateDynamicInfoOnly({ project_id: projectId, data: payload as any, queue_size: 5 })
 		if (resp?.success) {
 			ElMessage.success(`动态信息已更新：${resp.updated_card_count} 个角色卡`)
+			// 刷新卡片数据，确保主界面展示最新结果
+			try { await cardStore.fetchCards(projectId) } catch {}
 		} else {
 			ElMessage.warning('未检测到需要更新的动态信息')
 		}
@@ -739,6 +746,23 @@ async function confirmIngestRelationsFromPreview() {
 	} finally {
 		relationsPreviewVisible.value = false
 		relationsPreview.value = null
+	}
+}
+
+function removePreviewItem(roleName: string, catKey: string, index: number) {
+	if (!previewData.value) return
+	const role = previewData.value.info_list.find(r => r.name === roleName)
+	if (role) {
+		const catItems = role.dynamic_info[catKey] || []
+		if (catItems.length > index) {
+			catItems.splice(index, 1)
+			if (catItems.length === 0) {
+				delete role.dynamic_info[catKey]
+				if (Object.keys(role.dynamic_info).length === 0) {
+					delete role.dynamic_info
+				}
+			}
+		}
 	}
 }
 

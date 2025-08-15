@@ -30,16 +30,10 @@
           </div>
         </div>
         <div v-if="Array.isArray(outline.character_snapshot) && outline.character_snapshot.length" class="section">
-          <div class="sec-title">🧭 期末快照</div>
+          <div class="sec-title">🧭 卷末快照</div>
           <ul class="list">
             <li v-for="(s, i) in outline.character_snapshot" :key="i">{{ s }}</li>
           </ul>
-        </div>
-        <div v-if="showDebugJson" class="section">
-          <div class="sec-title">调试：分卷大纲原始结构</div>
-          <div class="debug-box">
-            <pre class="debug-pre">{{ jsonPretty }}</pre>
-          </div>
         </div>
       </template>
       <template v-else>
@@ -56,15 +50,7 @@ const props = defineProps<{ outline?: any | null }>()
 
 const hasOutline = computed(() => !!props.outline && typeof props.outline === 'object')
 const outline = computed(() => props.outline || {})
-const showDebugJson = computed(() => {
-  const o: any = outline.value || {}
-  const hasThinking = !!o.thinking
-  const hasMain = !!o.main_target
-  const hasStages = Array.isArray(o.stage_lines) && o.stage_lines.length > 0
-  const hasSnapshot = Array.isArray(o.character_snapshot) && o.character_snapshot.length > 0
-  return hasOutline.value && !(hasThinking || hasMain || hasStages || hasSnapshot)
-})
-const jsonPretty = computed(() => JSON.stringify(outline.value, null, 2))
+
 </script>
 
 <style scoped>
