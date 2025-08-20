@@ -71,6 +71,8 @@ cd NovelForge/backend
 # 安装依赖
 pip install -r requirements.txt
 
+将backend/.env.example文件修改为.env
+
 # 运行后端服务
 python main.py
 ```
@@ -94,7 +96,7 @@ npm run dev
 1.  前往项目的 **Releases** 页面下载最新的便携版压缩包 (`.zip` 或 `.7z`)。
 2.  解压到任意位置。
 3.  **（重要）** 运行前，请先确保 Neo4j Desktop 中的数据库实例已启动。
-4.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接或其他 AI 参数。
+4.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接。
 5.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
 6.  返回上一级，运行 `NovelForge.exe` 启动主程序。
 
