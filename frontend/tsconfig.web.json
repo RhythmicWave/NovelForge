@@ -16,6 +16,8 @@
     },
     "types": [
       "vue-router"
-    ]
+    ],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   }
 }

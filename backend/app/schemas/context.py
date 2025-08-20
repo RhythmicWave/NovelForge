@@ -16,13 +16,13 @@ class AssembleContextRequest(BaseModel):
 
 
 class FactsStructured(BaseModel):
-	# 精简：只保留当前确实使用的字段
+	# 只保留当前确实使用的字段
 	fact_summaries: List[str] = Field(default_factory=list, description="关键事实摘要")
 	relation_summaries: List[RelationItem] = Field(default_factory=list, description="关系摘要（含近期对话/事件）")
 
 
 class AssembleContextResponse(BaseModel):
-	# 精简：仅保留事实子图及预算信息
+	# 仅保留事实子图及预算信息
 	facts_subgraph: str = Field(default="", description="事实子图的文本回显（可选，仅回显）")
 	budget_stats: Dict[str, Any] = Field(default_factory=dict, description="上下文字数预算统计（可能包含嵌套 parts dict）")
 	facts_structured: Optional[FactsStructured] = Field(default=None, description="结构化事实子图")

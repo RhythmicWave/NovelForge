@@ -11,39 +11,6 @@ from app.schemas.context import FactsStructured
 from app.schemas.relation_extract import CN_TO_EN_KIND
 from app.services.kg_provider import get_provider
 
-# === 可热更新设置 ===
-@dataclass
-class ContextSettings:
-    recent_chapters_window: int
-    total_context_budget_chars: int
-    soft_budget_chars: int
-    quota_recent: int
-    quota_older_summary: int
-    quota_facts: int
-
-# 初始化默认设置（来自环境变量或默认值）
-_SETTINGS = ContextSettings(
-    recent_chapters_window=int(os.getenv("RECENT_CHAPTERS_WINDOW", "3")),
-    total_context_budget_chars=int(os.getenv("TOTAL_CONTEXT_BUDGET_CHARS", "50000")),
-    soft_budget_chars=int(os.getenv("SOFT_BUDGET_CHARS", "48000")),
-    quota_recent=int(os.getenv("CTX_QUOTA_RECENT", "28000")),
-    quota_older_summary=int(os.getenv("CTX_QUOTA_OLDER", "10000")),
-    quota_facts=int(os.getenv("CTX_QUOTA_FACTS", "5000")),
-)
-
-
-def get_settings() -> ContextSettings:
-    return _SETTINGS
-
-
-def update_settings(patch: Dict[str, Any]) -> ContextSettings:
-    global _SETTINGS
-    data = _SETTINGS.__dict__.copy()
-    for k, v in (patch or {}).items():
-        if k in data and isinstance(v, int):
-            data[k] = v
-    _SETTINGS = ContextSettings(**data)
-    return _SETTINGS
 
 
 @dataclass
@@ -82,8 +49,7 @@ def _compose_facts_subgraph_stub() -> str:
 
 
 def assemble_context(session: Session, params: ContextAssembleParams) -> AssembledContext:
-    settings = get_settings()
-    facts_quota = settings.quota_facts
+    facts_quota = 5000
 
     eff_participants: List[str] = list(params.participants or [])
     participant_set = set(eff_participants)
@@ -92,7 +58,8 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
     facts_structured: Optional[Dict[str, Any]] = None
     try:
         provider = get_provider()
-        edge_whitelist = ["has_alias", "participated_in", "addressed_as", "has_enemy", "resolved_in", "located_at", "event_summary", "stance"]
+        # 放宽：边类型允许任意（排除 HAS_ALIAS），以兼容旧图/新图
+        edge_whitelist = None
         est_top_k = max(5, min(100, facts_quota // 100))
         sub_struct = provider.query_subgraph(
             project_id=params.project_id or -1,
@@ -128,10 +95,12 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
                         "a": it.get("a"),
                         "b": it.get("b"),
                         "kind": it.get("kind"),
+                        "description": it.get("description"),
                         "a_to_b_addressing": it.get("a_to_b_addressing"),
                         "b_to_a_addressing": it.get("b_to_a_addressing"),
                         "recent_dialogues": it.get("recent_dialogues") or [],
                         "recent_event_summaries": it.get("recent_event_summaries") or [],
+                        "stance": it.get("stance"),
                     }
                     for it in filtered_relation_items
                 ],
@@ -147,21 +116,9 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
 
     facts = _truncate(facts_text, facts_quota)
 
-    parts_sizes = {
-        "recent_chapters_text": 0,
-        "older_chapters_summary": 0,
-        "facts_subgraph": len(facts),
-    }
-    total_size = sum(parts_sizes.values())
 
     return AssembledContext(
         facts_subgraph=facts,
-        budget_stats={
-            "parts": parts_sizes,
-            "total": total_size,
-            "soft_budget": settings.soft_budget_chars,
-            "hard_budget": settings.total_context_budget_chars,
-            "recent_window_used": settings.recent_chapters_window,
-        },
+        budget_stats={},
         facts_structured=facts_structured,
     ) 

@@ -1,90 +1,43 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref } from 'vue'
 import { generateAIContent } from '@renderer/api/ai'
-import type { AIParamCard } from './useAIParamCardStore'
+import { useCardStore } from './useCardStore'
 
 export const useAIStore = defineStore('ai', () => {
-  // AI生成状态
   const isGenerating = ref(false)
-  const currentTask = ref<string>('')
-  
-  // AI配置对话框状态
-  const aiConfigDialog = reactive({
-    visible: false,
-    task: '',
-    input: {} as any
-  })
+  const lastResult = ref<any>(null)
 
-  // Actions
-  function setGenerating(generating: boolean) {
-    isGenerating.value = generating
-  }
-
-  function setCurrentTask(task: string) {
-    currentTask.value = task
-  }
-
-  function showAIConfigDialog(task: string, input: any) {
-    aiConfigDialog.task = task
-    aiConfigDialog.input = input
-    aiConfigDialog.visible = true
-  }
-
-  function hideAIConfigDialog() {
-    aiConfigDialog.visible = false
-  }
-
-  async function generateContent(
-    response_model_name: string,
-    input_text: string, 
-    llm_config_id: number,
-    prompt_name?: string | null,
-  ) {
-    setGenerating(true)
-    // Task name is now derived from the response model name for clarity in UI
-    setCurrentTask(response_model_name) 
-    
+  async function generateContent(responseModelName: string, inputText: string, llmConfigId: number, promptName?: string) {
+    if (isGenerating.value) return null
+    isGenerating.value = true
     try {
-      const result = await generateAIContent({
-        // task is no longer needed by the backend
-        input: { input_text: input_text },
-        llm_config_id,
-        prompt_name,
-        response_model_name
-      } as any) // Use 'as any' to bypass strict type checking if generated types are lagging
-      
-      ElMessage.success('AI生成成功！')
-      return result
-    } catch (error) {
-      ElMessage.error('AI生成失败: ' + error)
-      throw error
+      // 收集实体名称：仅继承自 Entity 的卡片（通过 output_model_name 判断）
+      const cardStore = useCardStore()
+      const allowed = new Set(['CharacterCard','SceneCard','OrganizationCard','ItemCard','ConceptCard'])
+      const typeIdToModel = new Map<number, string>()
+      ;(cardStore.cardTypes || []).forEach((t:any) => { if (t?.id) typeIdToModel.set(t.id, (t as any).output_model_name || '') })
+      const names = Array.from(new Set((cardStore.cards || []).map((c:any) => {
+        const om = typeIdToModel.get(c.card_type_id) || ''
+        if (!allowed.has(om)) return null
+        const nm = (c?.content?.name || '').trim()
+        return nm || null
+      }).filter(Boolean))) as string[]
+      const deps = JSON.stringify({ all_entity_names: names })
+
+      const payload: any = {
+        input: { input_text: inputText },
+        llm_config_id: llmConfigId,
+        prompt_name: promptName,
+        response_model_name: responseModelName,
+        deps,
+      }
+      const res = await generateAIContent(payload)
+      lastResult.value = (res as any)?.data ?? res
+      return lastResult.value
     } finally {
-      setGenerating(false)
-      setCurrentTask('')
+      isGenerating.value = false
     }
   }
 
-  function reset() {
-    isGenerating.value = false
-    currentTask.value = ''
-    aiConfigDialog.visible = false
-    aiConfigDialog.task = ''
-    aiConfigDialog.input = {}
-  }
-
-  return {
-    // State
-    isGenerating,
-    currentTask,
-    aiConfigDialog,
-    
-    // Actions
-    setGenerating,
-    setCurrentTask,
-    showAIConfigDialog,
-    hideAIConfigDialog,
-    generateContent,
-    reset
-  }
+  return { isGenerating, lastResult, generateContent }
 }) 

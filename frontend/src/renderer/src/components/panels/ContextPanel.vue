@@ -4,12 +4,17 @@
       <el-form-item label="卷号">
         <el-input-number v-model="localVolumeNumber" :min="0" :max="999" @change="emitVolume" />
       </el-form-item>
+      <el-form-item label="阶段号">
+        <el-input-number v-model="localStageNumber" :min="1" :max="999" @change="emitStage" />
+      </el-form-item>
       <el-form-item label="章节号">
         <el-input-number v-model="localChapterNumber" :min="1" :max="9999" @change="emitChapter" />
       </el-form-item>
       <el-form-item label="参与者">
-        <el-select v-model="localParticipants" multiple filterable allow-create default-first-option placeholder="输入或选择参与者" @change="emitParticipants">
-          <el-option v-for="p in participantOptions" :key="p" :label="p" :value="p" />
+        <el-select v-model="localParticipants" multiple filterable allow-create default-first-option placeholder="输入或选择参与者" @change="onParticipantsChange">
+          <el-option-group v-for="g in participantGroups" :key="g.label" :label="g.label">
+            <el-option v-for="p in g.values" :key="p" :label="p" :value="p" />
+          </el-option-group>
         </el-select>
       </el-form-item>
       <div class="actions">
@@ -27,7 +32,10 @@
         <div class="facts-title" v-if="Array.isArray((assembled.facts_structured as any)?.relation_summaries) && ((assembled.facts_structured as any)?.relation_summaries?.length > 0)">关系摘要</div>
         <ul class="list" v-if="Array.isArray((assembled.facts_structured as any)?.relation_summaries) && ((assembled.facts_structured as any)?.relation_summaries?.length > 0)">
           <li v-for="(r, idx) in ((assembled.facts_structured as any)?.relation_summaries as any[] || [])" :key="idx" class="relation-item">
-            <div class="relation-head">{{ (r as any).a }} ↔ {{ (r as any).b }}（{{ (r as any).kind }}）</div>
+            <div class="relation-head">{{ (r as any).a }} ↔ {{ (r as any).b }}（{{ (r as any).kind }}）
+              <el-tag v-if="(r as any).stance" size="small" style="margin-left:6px;">{{ (r as any).stance }}</el-tag>
+            </div>
+            <div v-if="(r as any).description" class="muted" style="margin: 2px 0;">{{ (r as any).description }}</div>
             <div v-if="(r as any).a_to_b_addressing || (r as any).b_to_a_addressing" class="muted addressing">
               <span v-if="(r as any).a_to_b_addressing">A称B：{{ (r as any).a_to_b_addressing }}</span>
               <span v-if="(r as any).b_to_a_addressing" style="margin-left:12px;">B称A：{{ (r as any).b_to_a_addressing }}</span>
@@ -52,14 +60,10 @@
             </div>
           </li>
         </ul>
-        <div class="raw-toggle">
-          <el-button text type="primary" size="small" @click="showRaw = !showRaw">{{ showRaw ? '隐藏文本回显' : '查看文本回显' }}</el-button>
-        </div>
+        
       </div>
-      <pre class="pre" v-if="!assembled.facts_structured || showRaw">{{ assembled.facts_subgraph }}</pre>
-      <div class="budget" v-if="assembled.budget_stats">
-        <span>总长：{{ assembled.budget_stats.total }} / 软阈 {{ assembled.budget_stats.soft_budget }} / 硬上限 {{ assembled.budget_stats.hard_budget }}</span>
-      </div>
+      <pre class="pre" v-if="!assembled.facts_structured && assembled.facts_subgraph">{{ assembled.facts_subgraph }}</pre>
+      <div v-if="!assembled.facts_structured && !assembled.facts_subgraph">关键事实：暂无（相关实体之间信息尚未收集）。</div>
     </div>
   </div>
 </template>
@@ -70,39 +74,94 @@ import { assembleContext, type AssembleContextResponse } from '@renderer/api/ai'
 import { ElMessage } from 'element-plus'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 
-const props = defineProps<{ projectId?: number; participants?: string[]; volumeNumber?: number | null; chapterNumber?: number | null; draftTail?: string; prefetched?: AssembleContextResponse | null }>()
-const emit = defineEmits<{ (e:'update:participants', v: string[]): void; (e:'update:volumeNumber', v: number | null): void; (e:'update:chapterNumber', v: number | null): void }>()
+const props = defineProps<{ projectId?: number; participants?: string[]; volumeNumber?: number | null; stageNumber?: number | null; chapterNumber?: number | null; draftTail?: string; prefetched?: AssembleContextResponse | null }>()
+const emit = defineEmits<{ (e:'update:participants', v: string[]): void; (e:'update:volumeNumber', v: number | null): void; (e:'update:stageNumber', v: number | null): void; (e:'update:chapterNumber', v: number | null): void }>()
 
 const assembling = ref(false)
 const assembled = ref<AssembleContextResponse | null>(null)
-const showRaw = ref(false)
+// 回显入口已移除
 
-const participantOptions = ref<string[]>([])
+type Group = { label: string; values: string[] }
+const participantGroups = ref<Group[]>([])
 const localParticipants = ref<string[]>(props.participants || [])
 const localVolumeNumber = ref<number | null>(props.volumeNumber ?? null)
+const localStageNumber = ref<number | null>(props.stageNumber ?? null)
 const localChapterNumber = ref<number | null>(props.chapterNumber ?? null)
+
+// 缓存：名称 -> 分组标签（通过项目卡片匹配）
+const nameToGroup = ref<Record<string, string>>({})
 
 watch(() => props.participants, (v) => { localParticipants.value = [...(v || [])] })
 watch(() => props.volumeNumber, (v) => { localVolumeNumber.value = v ?? null })
+watch(() => props.stageNumber, (v) => { localStageNumber.value = v ?? null })
 watch(() => props.chapterNumber, (v) => { localChapterNumber.value = v ?? null })
 watch(() => props.prefetched, (v) => { if (v) assembled.value = v })
+watch(() => props.projectId, async () => { await buildNameGroupCache(); await buildAllGroups() })
 
 function emitParticipants() { emit('update:participants', [...localParticipants.value]) }
 function emitVolume() { emit('update:volumeNumber', localVolumeNumber.value ?? null) }
+function emitStage() { emit('update:stageNumber', localStageNumber.value ?? null) }
 function emitChapter() { emit('update:chapterNumber', localChapterNumber.value ?? null) }
 
-async function loadParticipantOptions() {
-  if (!props.projectId) { participantOptions.value = []; return }
+function detectTypeGroupByCard(c: CardRead): string {
+  // 1) 优先使用内容中的实体类型标记（后端新增）
+  const et = (c.content as any)?.entity_type
+  if (et === 'character') return '角色'
+  if (et === 'scene') return '场景'
+  if (et === 'organization') return '组织'
+  if (et === 'item') return '物品'
+  if (et === 'concept') return '概念'
+
+  // 2) 其次使用输出模型名精确匹配
+  const om = (c.card_type?.output_model_name || '').toLowerCase()
+  if (om === 'charactercard') return '角色'
+  if (om === 'scenecard') return '场景'
+  if (om === 'organizationcard') return '组织'
+  if (om === 'itemcard') return '物品'
+  if (om === 'conceptcard') return '概念'
+
+  return '其他'
+}
+
+async function buildNameGroupCache() {
+  nameToGroup.value = {}
+  if (!props.projectId) return
   try {
     const cards: CardRead[] = await getCardsForProject(props.projectId)
-    const roleNames = cards.filter(c => c.card_type?.name === '角色卡').map(c => c.title?.trim()).filter(Boolean) as string[]
-    participantOptions.value = Array.from(new Set(roleNames)).slice(0, 500)
+    for (const c of cards) {
+      const nm = (c.title || '').trim()
+      if (!nm) continue
+      nameToGroup.value[nm] = detectTypeGroupByCard(c)
+    }
+  } catch {}
+}
+
+async function buildAllGroups() {
+  if (!props.projectId) { participantGroups.value = []; return }
+  try {
+    const cards: CardRead[] = await getCardsForProject(props.projectId)
+    const order = ['角色','场景','组织','物品','概念','其他']
+    const buckets = new Map<string, Set<string>>()
+    order.forEach(t => buckets.set(t, new Set<string>()))
+    for (const c of cards) {
+      const t = detectTypeGroupByCard(c)
+      const title = (c.title || '').trim()
+      if (!title) continue
+      buckets.get(t)!.add(title)
+    }
+    participantGroups.value = order
+      .map(label => ({ label, values: Array.from(buckets.get(label) || []).sort((a,b)=>a.localeCompare(b)) }))
+      .filter(g => g.values.length > 0)
   } catch {
-    participantOptions.value = []
+    participantGroups.value = []
   }
 }
 
-onMounted(() => { loadParticipantOptions(); if (props.prefetched) assembled.value = props.prefetched })
+function onParticipantsChange() {
+  emitParticipants();
+}
+
+onMounted(async () => { await buildNameGroupCache(); await buildAllGroups(); if (props.prefetched) assembled.value = props.prefetched })
 
 async function assemble() {
   try {
@@ -116,7 +175,7 @@ async function assemble() {
     })
     assembled.value = res
     // 将最新本地值回写父层，确保保存时同步
-    emitParticipants(); emitVolume(); emitChapter();
+    emitParticipants(); emitVolume(); emitStage(); emitChapter();
     ElMessage.success('上下文已装配')
   } catch (e:any) {
     ElMessage.error('装配失败')
@@ -132,7 +191,6 @@ async function assemble() {
 .actions { display: flex; gap: 8px; }
 .assembled { padding: 8px; overflow: auto; color: var(--el-text-color-primary); font-size: 14px; line-height: 1.8; }
 .pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 13px; color: var(--el-text-color-primary); }
-.budget { display: flex; gap: 12px; color: var(--el-text-color-regular); margin-top: 6px; font-size: 12px; }
 .facts-structured { margin-bottom: 8px; }
 .facts-title { font-weight: 600; margin: 6px 0; color: var(--el-text-color-primary); }
 .list { margin: 0; padding-left: 16px; }

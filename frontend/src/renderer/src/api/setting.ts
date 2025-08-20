@@ -5,24 +5,24 @@ export type Knowledge = components['schemas']['KnowledgeRead']
 export type KnowledgeCreate = components['schemas']['KnowledgeCreate']
 export type KnowledgeUpdate = components['schemas']['KnowledgeUpdate']
 
-// 知识库 API（返回已解包的数据）
+// 知识库 API（request 已解包 ApiResponse<T>，此处直接返回 T）
 export async function listKnowledge(): Promise<Knowledge[]> {
-  const resp = await request.get<components['schemas']['ApiResponse_List_KnowledgeRead__']>('/knowledge')
-  return (resp?.data || []) as Knowledge[]
+  const resp = await request.get<Knowledge[]>('/knowledge')
+  return resp
 }
 
 export async function createKnowledge(body: KnowledgeCreate): Promise<Knowledge> {
-  const resp = await request.post<components['schemas']['ApiResponse_KnowledgeRead_']>('/knowledge', body)
-  return (resp?.data as Knowledge)
+  const resp = await request.post<Knowledge>('/knowledge', body)
+  return resp
 }
 
 export async function updateKnowledge(id: number, body: KnowledgeUpdate): Promise<Knowledge> {
-  const resp = await request.put<components['schemas']['ApiResponse_KnowledgeRead_']>(`/knowledge/${id}`, body)
-  return (resp?.data as Knowledge)
+  const resp = await request.put<Knowledge>(`/knowledge/${id}`, body)
+  return resp
 }
 
 export async function deleteKnowledge(id: number): Promise<{ message: string }> {
-  const resp = await request.delete<components['schemas']['ApiResponse']>(`/knowledge/${id}`)
+  const resp = await request.delete<{ message?: string }>(`/knowledge/${id}`)
   return { message: resp?.message || 'OK' } as any
 }
 

@@ -377,7 +377,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 装配写作上下文（更早摘要 + 事实子图 + 最近原文） */
+        /** 装配写作上下文（事实子图） */
         post: operations["assemble_api_context_assemble_post"];
         delete?: never;
         options?: never;
@@ -397,23 +397,6 @@ export interface paths {
         put?: never;
         /** 更新上下文装配设置（部分字段） */
         post: operations["update_context_settings_api_context_settings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/memory/ingest-card-text": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Ingest Card Text */
-        post: operations["ingest_card_text_api_memory_ingest_card_text_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -514,25 +497,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 仅更新动态信息到角色卡 */
-        post: operations["update_dynamic_info_only_api_memory_update_dynamic_info_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/consistency/check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** 一致性校验（精简版：基于结构化事实） */
-        post: operations["check_api_consistency_check_post"];
+        /**
+         * Update Dynamic Info
+         * @description 接收前端预览并确认后的动态信息，执行更新。
+         *     现在调用新的、更完整的服务函数。
+         */
+        post: operations["update_dynamic_info_api_memory_update_dynamic_info_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -994,28 +964,6 @@ export interface components {
             /** Selected Ai Param Card Id */
             selected_ai_param_card_id?: string | null;
         };
-        /** CheckRequest */
-        CheckRequest: {
-            /**
-             * Text
-             * @description 待校验文本
-             */
-            text: string;
-            /**
-             * Facts Structured
-             * @description 结构化事实子图（relation_summaries等）
-             */
-            facts_structured?: {
-                [key: string]: unknown;
-            } | null;
-        };
-        /** CheckResponse */
-        CheckResponse: {
-            /** Issues */
-            issues: components["schemas"]["Issue"][];
-            /** Suggested Fixes */
-            suggested_fixes: components["schemas"]["FixSuggestion"][];
-        };
         /** ContextSettingsModel */
         ContextSettingsModel: {
             /** Recent Chapters Window */
@@ -1081,6 +1029,25 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** DeletionInfo */
+        DeletionInfo: {
+            /**
+             * Name
+             * @description 角色名称。
+             */
+            name: string;
+            /**
+             * Dynamic Type
+             * @description 动态信息类型。
+             * @enum {string}
+             */
+            dynamic_type: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "心理想法/目标快照";
+            /**
+             * Id
+             * @description 要删除的动态信息的ID (不能为-1)
+             */
+            id: number;
+        };
         /** DynamicInfo */
         DynamicInfo: {
             /**
@@ -1090,7 +1057,7 @@ export interface components {
             name: string;
             /**
              * Dynamic Info
-             * @description 动态信息字典，键为中文类别；值为带 id/weight 的信息项列表。
+             * @description 动态信息字典，键为中文类别；值为信息项列表。
              */
             dynamic_info?: {
                 [key: string]: components["schemas"]["DynamicInfoItem"][];
@@ -1109,11 +1076,6 @@ export interface components {
              * @description 简要描述具体动态信息。
              */
             info: string;
-            /**
-             * Weight
-             * @description 该信息的重要性权重，范围0~1，越大越重要
-             */
-            weight: number;
         };
         /** ExtractOnlyRequest */
         ExtractOnlyRequest: {
@@ -1122,7 +1084,7 @@ export interface components {
             /** Text */
             text: string;
             /** Participants */
-            participants?: string[] | null;
+            participants?: components["schemas"]["ParticipantTyped"][] | null;
             /**
              * Llm Config Id
              * @default 1
@@ -1138,7 +1100,7 @@ export interface components {
             /** Text */
             text: string;
             /** Participants */
-            participants?: string[] | null;
+            participants?: components["schemas"]["ParticipantTyped"][] | null;
             /**
              * Llm Config Id
              * @default 1
@@ -1163,13 +1125,6 @@ export interface components {
              * @description 关系摘要（含近期对话/事件）
              */
             relation_summaries?: components["schemas"]["RelationItem"][];
-        };
-        /** FixSuggestion */
-        FixSuggestion: {
-            /** Range */
-            range?: number[] | null;
-            /** Replacement */
-            replacement: string;
         };
         /** ForeshadowDeleteRequest */
         ForeshadowDeleteRequest: {
@@ -1271,24 +1226,16 @@ export interface components {
              * @description 生成超时(秒)，留空使用默认
              */
             timeout?: number | null;
+            /**
+             * Deps
+             * @description 依赖注入数据(JSON字符串)，例如实体名称列表等
+             */
+            deps?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** IngestCardTextRequest */
-        IngestCardTextRequest: {
-            /**
-             * Project Id
-             * @description 项目ID
-             */
-            project_id: number;
-            /**
-             * Card Id
-             * @description 卡片ID（章节正文卡）
-             */
-            card_id: number;
         };
         /** IngestRelationsFromPreviewRequest */
         IngestRelationsFromPreviewRequest: {
@@ -1312,7 +1259,7 @@ export interface components {
             /** Text */
             text: string;
             /** Participants */
-            participants?: string[] | null;
+            participants?: components["schemas"]["ParticipantTyped"][] | null;
             /**
              * Llm Config Id
              * @default 1
@@ -1329,15 +1276,6 @@ export interface components {
         IngestRelationsLLMResponse: {
             /** Written */
             written: number;
-        };
-        /** Issue */
-        Issue: {
-            /** Type */
-            type: string;
-            /** Message */
-            message: string;
-            /** Position */
-            position?: number[] | null;
         };
         /** KnowledgeCreate */
         KnowledgeCreate: {
@@ -1425,30 +1363,6 @@ export interface components {
             /** Api Key */
             api_key: string;
         };
-        /** ModifyDynamicInfo */
-        ModifyDynamicInfo: {
-            /**
-             * Name
-             * @description 角色名称。
-             */
-            name: string;
-            /**
-             * Dynamic Type
-             * @description 动态信息类型。
-             * @enum {string}
-             */
-            dynamic_type: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "心理想法/目标快照";
-            /**
-             * Id
-             * @description 要修改的动态类型信息的id
-             */
-            id: number;
-            /**
-             * Weight
-             * @description 修改后该信息的权重，范围0~1，表示重要性
-             */
-            weight: number;
-        };
         /** OutputModel */
         OutputModel: {
             /** Id */
@@ -1476,6 +1390,13 @@ export interface components {
              * Format: date-time
              */
             updated_at?: string;
+        };
+        /** ParticipantTyped */
+        ParticipantTyped: {
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -1608,27 +1529,37 @@ export interface components {
              * @description 关系类型（中文）
              * @enum {string}
              */
-            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "隶属" | "其他";
+            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            /**
+             * Description
+             * @description 对该关系的简要文字说明（可选）
+             */
+            description?: string | null;
             /**
              * A To B Addressing
-             * @description A 对 B 的称呼词，如：师兄、先生
+             * @description A 对 B 的称呼词，如：师兄、先生。仅当 A, B 均为角色时提取。
              */
             a_to_b_addressing?: string | null;
             /**
              * B To A Addressing
-             * @description B 对 A 的称呼词
+             * @description B 对 A 的称呼词。仅当 A, B 均为角色时提取。
              */
             b_to_a_addressing?: string | null;
             /**
              * Recent Dialogues
-             * @description 近期对话片段（建议包含双方各至少一句，可用 A:“…”, B:“…” 合并片段；长度≥20字）
+             * @description 近期对话片段（建议包含双方各至少一句，可用 A:“…”, B:“…” 合并片段；长度≥20字）。仅当 A, B 均为角色时提取。
              */
             recent_dialogues?: string[];
             /**
              * Recent Event Summaries
-             * @description 近期 A、B 之间发生事件（本次提取建议融合为一条）
+             * @description 近期 A 与 B 直接发生在彼此之间的事件；若同一事实涉及三方或以上，仅在最直接的一对上记录一次。优先记录角色-角色的配对；当事件主体确系 A 与 B 为角色-组织/组织-组织时再记录相应关系，避免将组织背景误当作双边事件。
              */
             recent_event_summaries?: components["schemas"]["RecentEventSummary"][];
+            /**
+             * Stance
+             * @description A 对 B 的总体立场（可选）
+             */
+            stance?: ("友好" | "中立" | "敌意") | null;
         };
         /** SuggestRequest */
         SuggestRequest: {
@@ -1649,7 +1580,7 @@ export interface components {
         };
         /**
          * Tags
-         * @description 统一的标签模型，严格参考 primitive_models/Step1Model.py 中的 Tags 定义。
+         * @description 统一的标签模型。
          */
         Tags: {
             /**
@@ -1697,10 +1628,10 @@ export interface components {
              */
             info_list: components["schemas"]["DynamicInfo"][];
             /**
-             * Modify Info List
-             * @description （可选）对已有信息的权重修正列表
+             * Delete Info List
+             * @description （可选）为新增信息腾出空间而要删除的旧信息列表
              */
-            modify_info_list?: components["schemas"]["ModifyDynamicInfo"][] | null;
+            delete_info_list?: components["schemas"]["DeletionInfo"][] | null;
         };
         /** UpdateDynamicInfo */
         "UpdateDynamicInfo-Output": {
@@ -1710,10 +1641,10 @@ export interface components {
              */
             info_list: components["schemas"]["DynamicInfo"][];
             /**
-             * Modify Info List
-             * @description （可选）对已有信息的权重修正列表
+             * Delete Info List
+             * @description （可选）为新增信息腾出空间而要删除的旧信息列表
              */
-            modify_info_list?: components["schemas"]["ModifyDynamicInfo"][] | null;
+            delete_info_list?: components["schemas"]["DeletionInfo"][] | null;
         };
         /** UpdateDynamicInfoRequest */
         UpdateDynamicInfoRequest: {
@@ -2878,39 +2809,6 @@ export interface operations {
             };
         };
     };
-    ingest_card_text_api_memory_ingest_card_text_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IngestCardTextRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     query_api_memory_query_post: {
         parameters: {
             query?: never;
@@ -3076,7 +2974,7 @@ export interface operations {
             };
         };
     };
-    update_dynamic_info_only_api_memory_update_dynamic_info_post: {
+    update_dynamic_info_api_memory_update_dynamic_info_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3096,39 +2994,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateDynamicInfoResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    check_api_consistency_check_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CheckRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CheckResponse"];
                 };
             };
             /** @description Validation Error */

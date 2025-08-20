@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any, AsyncGenerator
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from app.db.models import OutputModel
-from app.api.endpoints.ai import RESPONSE_MODEL_MAP
+from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from app.services import agent_service, prompt_service
 import json
 from loguru import logger

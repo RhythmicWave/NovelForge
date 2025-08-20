@@ -1,3 +1,23 @@
+import os, sys
+from dotenv import load_dotenv
+
+def _load_env_from_nearby():
+    candidates = []
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, ".env"))
+    backend_dir = os.path.abspath(os.path.dirname(__file__))
+    candidates.append(os.path.join(backend_dir, ".env"))
+    candidates.append(os.path.join(os.getcwd(), ".env"))
+    for p in candidates:
+        try:
+            if os.path.isfile(p):
+                load_dotenv(p, override=False)
+        except Exception:
+            pass
+
+_load_env_from_nearby()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Session, select
@@ -6,7 +26,7 @@ from app.api.router import api_router
 from app.db.session import engine
 from app.db import models
 from app.bootstrap.init_app import init_prompts, create_default_card_types, init_output_models
-# 新增：知识库初始化
+# 知识库初始化
 from app.bootstrap.init_app import init_knowledge
 
 def init_db():
@@ -55,16 +75,6 @@ app.add_middleware(
 # 包含API路由
 app.include_router(api_router, prefix="/api")
 
-# @app.on_event("startup")
-# def on_startup():
-#     # 数据库表的创建和迁移应完全由Alembic管理
-#     # init_db() 
-#     
-#     # 初始化默认提示词、输出模型、默认卡片类型
-#     with Session(engine) as session:
-#         init_prompts(session)
-#         init_output_models(session)
-#         create_default_card_types(session)
 
 @app.get("/")
 def read_root():

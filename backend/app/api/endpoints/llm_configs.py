@@ -11,7 +11,6 @@ router = APIRouter()
 
 @router.post("/", response_model=ApiResponse[LLMConfigRead])
 def create_llm_config_endpoint(config_in: LLMConfigCreate, session: Session = Depends(get_session)):
-    # API Key is now handled and stored by the backend.
     if config_in.display_name is None or config_in.display_name == "":
         config_in.display_name = config_in.model_name
     config = llm_config_service.create_llm_config(session=session, config_in=config_in)
@@ -38,7 +37,5 @@ def delete_llm_config_endpoint(config_id: int, session: Session = Depends(get_se
 
 @router.post("/test", response_model=ApiResponse)
 def test_llm_connection_endpoint(connection_data: LLMConnectionTest):
-    # Here you would typically use a service to try and connect to the LLM
-    # For now, we'll just simulate a success response
     print(f"Testing connection for {connection_data.model_name} with key: ...{connection_data.api_key[-4:]}")
     return ApiResponse(message="Connection successful (simulated)") 

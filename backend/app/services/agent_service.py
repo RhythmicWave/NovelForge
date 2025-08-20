@@ -14,9 +14,12 @@ from loguru import logger
 from app.schemas.ai import ContinuationRequest
 from app.services import prompt_service
 import asyncio
+import json
 
-# 新增：上下文装配
+# 上下文装配
 from app.services.context_service import assemble_context, ContextAssembleParams
+# 导入需要校验的模型
+from app.schemas.wizard import StageLine, ChapterOutline, Chapter
 
 
 def _get_agent(
@@ -69,10 +72,18 @@ def _get_agent(
         extra_body=None,
     )
 
-    agent = Agent(model, system_prompt=system_prompt, model_settings=settings)
+    agent = Agent(model, system_prompt=system_prompt, model_settings=settings,deps_type=str)
     agent.output_type = Union[output_type, str]
     agent.output_validator(create_validator(output_type))
     return agent
+
+async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
+    """
+    使用 agent.iter() 和 node.stream() 迭代获取每个流式响应块内容，
+    然后返回最终的完整结果。避免直接返回结果时出现网络波动导致生成失败
+    """
+    async with agent.run_stream(*args, **kwargs) as stream:
+        return await stream.get_output()
 
 async def run_llm_agent(
     session: Session,
@@ -80,6 +91,7 @@ async def run_llm_agent(
     user_prompt: str,
     output_type: Type[BaseModel],
     system_prompt: Optional[str] = None,
+    deps: str = "",
     max_tokens: Optional[int] = None,
     max_retries: int = 3,
     temperature: Optional[float] = None,
@@ -98,16 +110,18 @@ async def run_llm_agent(
         max_tokens=max_tokens,
         timeout=timeout,
     )
-  
+    logger.info(f"system_prompt\n {system_prompt}")
     last_exception = None
     for attempt in range(max_retries):
         try:
             logger.debug(f"Running agent with prompt (Attempt {attempt + 1}/{max_retries}): {user_prompt}")
             logger.info(f"llm_config_id: {llm_config_id}")
             # max_tokens 已在 ModelSettings 中设置
-            result = await agent.run(user_prompt)
+            # response = (await agent.run(user_prompt,deps=deps)).output
+            logger.info(f"system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}")
+            response = await run_agent_with_streaming(agent, user_prompt, deps=deps) #为避免生成内容过长时容易出现网络中断问题，这里都用流式结果，只不过run_agent_with_streaming会将流式输出结果全部接收完成后整合起来返回
             
-            return result.output
+            return response
         except asyncio.CancelledError:
             logger.info("LLM 调用被取消（CancelledError），立即中止，不再重试。")
             raise
@@ -180,6 +194,8 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
 
     logger.info(f"user_prompt: {user_prompt}")
     
+    logger.info(f"===========system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}=============")
+    
     agent = _get_agent(
         session,
         request.llm_config_id,
@@ -214,6 +230,9 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
     except asyncio.CancelledError:
         logger.info("流式 LLM 调用被取消（CancelledError），停止推送。")
         return
+    except Exception as e:
+        logger.error(f"流式 LLM 调用失败: {e}")
+        raise
 
 
 def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaitable[BaseModel]]:
@@ -232,12 +251,14 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
         except Exception:
             return result
 
+        # 尝试解析为目标模型
+        parsed: BaseModel
         if isinstance(result, model_type):
-            return result
+            parsed = result
         else:
             try:
                 print(f"result: {result}")
-                return model_type.model_validate_json(repair_json(result))
+                parsed = model_type.model_validate_json(repair_json(result))
             except ValidationError as e:
                 err_msg = e.json(include_url=False)
                 print(f"Invalid {err_msg}")
@@ -245,5 +266,49 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
             except Exception as e:
                 print("Exception:", e)
                 raise ModelRetry(f'Invalid {e}') from e
+
+        # === 针对 StageLine/ChapterOutline/Chapter 的实体存在性校验 ===
+        try:
+            # 解析 deps 中的实体名称集合
+            all_names: set[str] = set()
+            try:
+                deps_obj = json.loads(getattr(ctx, 'deps', '') or '{}')
+                for nm in (deps_obj.get('all_entity_names') or []):
+                    if isinstance(nm, str) and nm.strip():
+                        all_names.add(nm.strip())
+            except Exception:
+                all_names = set()
+                
+            
+
+            def _check_entity_list(obj: Any) -> list[str]:
+                bad: list[str] = []
+                try:
+                    items = getattr(obj, 'entity_list', None)
+                    if isinstance(items, list):
+                        for it in items:
+                            nm = getattr(it, 'name', None)
+                            if isinstance(nm, str) and nm.strip():
+                                if all_names and nm.strip() not in all_names:
+                                    bad.append(nm.strip())
+                except Exception:
+                    pass
+                return bad
+
+            invalid: list[str] = []
+            if isinstance(parsed, (StageLine, ChapterOutline, Chapter)):
+                logger.info(f"开始校验实体,all_names: {all_names}")
+                invalid = _check_entity_list(parsed)
+       
+
+            if invalid:
+                raise ModelRetry(f"实体不存在: {', '.join(sorted(set(invalid)))}，请仅从提供的实体列表中选择")
+        except ModelRetry:
+            raise
+        except Exception:
+            # 校验过程中不应阻塞主流程，如解析失败则忽略
+            pass
+
+        return parsed  # type: ignore[return-value]
 
     return validate_result

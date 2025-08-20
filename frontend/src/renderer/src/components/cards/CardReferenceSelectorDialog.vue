@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="modelValue"
     title="引用卡片/上下文"
-    width="70%"
+    width="84%"
     @update:modelValue="$emit('update:modelValue', $event)"
     @close="reset"
   >
@@ -50,10 +50,40 @@
             </el-radio-group>
           </div>
           <div class="mt8" v-if="typeFilterMode === 'previous'">
-            <el-input v-model="previousCount" placeholder="可选：最近 n 个之前的同类型卡片（不含当前），留空=全部" />
+            <el-radio-group v-model="previousMode" size="small">
+              <el-radio-button label="global" :title="previousModeTips.global">全局</el-radio-button>
+              <el-radio-button label="local" :title="previousModeTips.local" :disabled="!hasParent">局部</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="mt8" v-if="typeFilterMode === 'previous' && previousMode === 'global'">
+            <el-input v-model="previousCount" placeholder="可选：输入数字限制返回最近 n 个，留空=全部" />
           </div>
           <div class="mt8" v-if="typeFilterMode === 'index'">
-            <el-input v-model="indexExpr" placeholder="index= 的表达式，例如 1 / last / $current.volumeNumber-1 / $self.content.volume_number-1" />
+            <el-input v-model="indexExpr" placeholder="index= 的表达式，例如 1 / last / $current.volumeNumber-1 / $self.content.volume_number-1 / filter:content.name in $self.content.entity_list" />
+            <div class="mt8">
+              <el-checkbox v-model="advMode">高级模式</el-checkbox>
+            </div>
+            <div class="mt8 adv-grid" v-if="advMode">
+              <div class="cond-list">
+                <div class="cond-item" v-for="(c, idx) in advConds" :key="idx">
+                  <el-select v-model="c.field" placeholder="选择字段" style="width: 45%">
+                    <el-option v-for="fp in flatFieldList" :key="fp.path" :label="fp.label + ' ('+fp.path+')'" :value="fp.path" />
+                  </el-select>
+                  <el-select v-model="c.op" placeholder="操作符" style="width: 12%">
+                    <el-option label="=" value="=" />
+                    <el-option label="in" value="in" />
+                    <el-option label="<" value="<" />
+                    <el-option label=">" value=">" />
+                  </el-select>
+                  <el-input v-model="c.rhs" placeholder='右值：$self./$parent./$current. 或 JSON/字面量' style="width: 40%" />
+                  <el-button text type="danger" @click="removeCond(idx)">删除</el-button>
+                </div>
+                <div class="mt8">
+                  <el-button size="small" @click="addCond">添加条件</el-button>
+                </div>
+              </div>
+            </div>
+            <div class="hint" v-if="advMode">将生成：index=filter:{{ advCondPreview }}</div>
           </div>
         </template>
 
@@ -145,15 +175,21 @@ const selectedKard = ref<CardRead | null>(null)
 // 按类型
 const selectedTypeName = ref<string | undefined>(undefined)
 const typeFilterMode = ref<'previous' | 'sibling' | 'first' | 'last' | 'index'>('first')
+const previousMode = ref<'global' | 'local'>('global')
 const indexExpr = ref<string>('1')
 const previousCount = ref<string>('')
 
 const filterTips = {
   first: '全局稳定排序中的第一个同类型卡片',
   last: '全局稳定排序中的最后一个同类型卡片',
-  previous: '全局树形先序顺序中，当前卡片之前的所有同类型卡片；可填写最近 n 个（不含当前）',
+  previous: '选择 previous 模式：全局/局部',
   sibling: '与当前卡片同一父卡片下的同类型兄弟卡片（返回数组）',
   index: '按表达式选择单个卡片：1、-1、$current.volumeNumber-1、$self.content.volume_number+1 等'
+}
+
+const previousModeTips = {
+  global: '全局：树形先序顺序中，当前卡片之前的所有同类型卡片',
+  local: '局部：同一父卡片下，当前卡片之前的同类型兄弟卡片'
 }
 
 // 特殊
@@ -166,6 +202,22 @@ const selectedFieldPath = ref<string | null>(null)
 const selectedFieldPaths = ref<string[]>([])
 const multiMode = ref<boolean>(false)
 const fieldPaths = ref<FieldPath[]>([])
+// 高级模式（仅 index）：多条件
+const advMode = ref<boolean>(false)
+type AdvCond = { field: string; op: '='|'in'|'<'|'>'; rhs: string }
+const advConds = ref<AdvCond[]>([])
+
+const flatFieldList = computed(() => {
+  const out: { label: string; path: string }[] = []
+  function walk(nodes: FieldPath[]) {
+    for (const n of nodes) {
+      out.push({ label: n.label, path: n.path })
+      if (n.children && n.children.length) walk(n.children)
+    }
+  }
+  walk(fieldPaths.value)
+  return out
+})
 
 // 过滤卡片（按标题）
 const filteredCards = computed(() => props.cards.filter(card => card.title.toLowerCase().includes(cardSearch.value.toLowerCase())))
@@ -195,7 +247,12 @@ const selectionPreview = computed(() => {
     let filter = ''
     if (typeFilterMode.value === 'previous') {
       const n = previousCount.value.trim()
-      filter = n ? `[previous:${n}]` : '[previous]'
+      if (previousMode.value === 'local') {
+        filter = '[previous:local]'
+      } else {
+        // global 模式
+        filter = n ? `[previous:global:${n}]` : '[previous:global]'
+      }
     } else if (typeFilterMode.value === 'sibling') filter = '[sibling]'
     else if (typeFilterMode.value === 'first') filter = '[first]'
     else if (typeFilterMode.value === 'last') filter = '[last]'
@@ -230,6 +287,28 @@ const canConfirm = computed(() => {
   return false
 })
 
+const advCondPreview = computed(() => {
+  return advConds.value
+    .filter(c => c.field && c.op && (c.rhs || c.op === 'in'))
+    .map(c => `${c.field || 'content.<field>'} ${c.op} ${c.rhs || '<rhs>'}`)
+    .join(' && ')
+})
+
+function addCond() {
+  advConds.value.push({ field: 'content.name', op: 'in', rhs: '[]' })
+}
+function removeCond(idx: number) {
+  advConds.value.splice(idx, 1)
+}
+
+// 同步高级模式表达式到 indexExpr（多条件）
+watch([advMode, advConds], () => {
+  if (mode.value === 'type' && typeFilterMode.value === 'index' && advMode.value) {
+    const expr = advCondPreview.value
+    indexExpr.value = expr ? `filter:${expr}` : 'filter:'
+  }
+}, { deep: true })
+
 watch(
   () => props.modelValue,
   isOpening => {
@@ -245,8 +324,11 @@ function reset() {
   // 类型模式
   selectedTypeName.value = undefined
   typeFilterMode.value = 'first'
+  previousMode.value = 'global'
   indexExpr.value = '1'
   previousCount.value = ''
+  advMode.value = false
+  advConds.value = []
   // 特殊模式
   specialKey.value = undefined
   specialPath.value = ''
@@ -422,7 +504,7 @@ function handleConfirm() {
 .selector-container { display: flex; gap: 20px; height: 60vh; border-top: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); padding: 10px 0; }
 .column { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--el-border-color); padding-right: 20px; }
 .column:last-child { border-right: none; padding-right: 0; }
-.column.left { width: 46%; max-width: 520px; }
+.column.left { width: 60%; max-width: 780px; }
 .list-container { margin-top: 10px; flex-grow: 1; }
 .card-list { list-style: none; padding: 0; margin: 0; }
 .card-list li { padding: 8px 12px; cursor: pointer; border-radius: 4px; }
@@ -435,4 +517,8 @@ function handleConfirm() {
 .mt8 { margin-top: 8px; }
 .row-head { display: flex; align-items: center; justify-content: space-between; }
 .right-tools { display: flex; align-items: center; gap: 8px; }
+.adv-grid { display: flex; gap: 8px; align-items: center; }
+.cond-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.cond-item { display: flex; gap: 8px; align-items: center; }
+.hint { margin-top: 6px; font-size: 12px; color: var(--el-text-color-secondary); }
 </style> 

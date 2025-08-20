@@ -5,10 +5,9 @@ from pydantic import BaseModel, Field
 from app.schemas.relation_extract import RelationExtraction
 from app.schemas.entity import UpdateDynamicInfo
 
-
-class IngestCardTextRequest(BaseModel):
-	project_id: int = Field(..., description="项目ID")
-	card_id: int = Field(..., description="卡片ID（章节正文卡）")
+class ParticipantTyped(BaseModel):
+    name: str
+    type: str
 
 
 class QueryRequest(BaseModel):
@@ -19,7 +18,7 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
 	nodes: List[Dict[str, Any]]
 	edges: List[Dict[str, Any]]
-	# 精简：仅保留实际使用字段
+	# 仅保留实际使用字段
 	fact_summaries: List[str]
 	relation_summaries: List[Dict[str, Any]]
 
@@ -27,7 +26,7 @@ class QueryResponse(BaseModel):
 class IngestRelationsLLMRequest(BaseModel):
 	project_id: int
 	text: str
-	participants: Optional[List[str]] = None
+	participants: Optional[List[ParticipantTyped]] = None
 	llm_config_id: int = 1
 	timeout: Optional[float] = None
 	volume_number: Optional[int] = None
@@ -39,7 +38,7 @@ class IngestRelationsLLMResponse(BaseModel):
 
 class ExtractRelationsRequest(BaseModel):
 	text: str
-	participants: Optional[List[str]] = None
+	participants: Optional[List[ParticipantTyped]] = None
 	llm_config_id: int = 1
 	timeout: Optional[float] = None
 	volume_number: Optional[int] = None
@@ -59,7 +58,7 @@ class IngestRelationsFromPreviewResponse(BaseModel):
 class ExtractDynamicInfoRequest(BaseModel):
 	project_id: int
 	text: str
-	participants: Optional[List[str]] = None
+	participants: Optional[List[ParticipantTyped]] = None
 	llm_config_id: int = 1
 	timeout: Optional[float] = None
 	extra_context: Optional[str] = None
@@ -67,7 +66,7 @@ class ExtractDynamicInfoRequest(BaseModel):
 class ExtractOnlyRequest(BaseModel):
 	project_id: Optional[int] = None
 	text: str
-	participants: Optional[List[str]] = None
+	participants: Optional[List[ParticipantTyped]] = None
 	llm_config_id: int = 1
 	timeout: Optional[float] = None
 	extra_context: Optional[str] = None

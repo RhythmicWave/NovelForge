@@ -7,6 +7,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue';
 import type { CardRead } from '@renderer/api/cards';
+import ChapterStudio from '@renderer/views/ChapterStudio.vue';
 
 const props = defineProps<{
   card: CardRead;
@@ -15,10 +16,9 @@ const props = defineProps<{
 // --- Editor Component Map ---
 // This map allows us to resolve a string name to an actual component.
 const editorMap: Record<string, any> = {
-  NovelEditor: defineAsyncComponent(() => import('../editors/NovelEditor.vue')),
+  ChapterStudio:defineAsyncComponent(()=>import('@renderer/views/ChapterStudio.vue')),
   TagsEditor: defineAsyncComponent(() => import('../editors/TagsEditor.vue')),
   // Add other custom editors here in the future
-  // e.g., 'CharacterMapEditor': defineAsyncComponent(() => import('./CharacterMapEditor.vue'))
 };
 
 // --- Default Editor ---

@@ -23,10 +23,10 @@ def create_project(session: Session, project_in: ProjectCreate) -> Project:
     session.commit()
     session.refresh(db_project)
     
-    # After project is created, create the initial cards for it
+   
     CardService.create_initial_cards_for_project(session, db_project.id)
     
-    # Refresh again to load the newly created cards into the project relationship
+    # 刷新以加载新创建的卡片到项目关系中
     session.refresh(db_project)
     
     return db_project

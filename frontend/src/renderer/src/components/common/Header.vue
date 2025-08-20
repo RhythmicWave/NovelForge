@@ -25,7 +25,7 @@ function handleLogoClick() {
 const isLogoClickable = computed(() => currentView.value === 'editor')
 
 // 知识库抽屉
-const kbVisible = ref(false)
+// const kbVisible = ref(false)
 </script>
 
 <template>
@@ -34,13 +34,13 @@ const kbVisible = ref(false)
       <span class="logo-text">Novel Forge</span>
     </div>
     <div class="actions-container">
-      <el-button :icon="Collection" @click="kbVisible = true" circle title="知识库" />
+      <!-- <el-button :icon="Collection" @click="kbVisible = true" circle title="知识库" /> -->
       <el-button :icon="isDarkMode ? Moon : Sunny" @click="toggleTheme" circle title="切换主题" />
       <el-button :icon="Setting" @click="openSettingsDialog" circle title="设置" />
     </div>
-    <el-drawer v-model="kbVisible" title="知识库" size="50%" append-to-body>
+    <!-- <el-drawer v-model="kbVisible" title="知识库" size="50%" append-to-body>
       <KnowledgeManager />
-    </el-drawer>
+    </el-drawer> -->
   </header>
 </template>
 

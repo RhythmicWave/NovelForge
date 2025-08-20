@@ -4,7 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import keytar from 'keytar'
 
-const KEYTAR_SERVICE_NAME = 'NovelCreationEditor-LLM'
+const KEYTAR_SERVICE_NAME = 'NovelForge-LLM'
 
 const studioWindows = new Map<string, BrowserWindow>()
 
@@ -15,7 +15,8 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    title: 'Novel Forge', // 设置窗口标题
+    icon: icon, // 为所有平台设置图标
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -60,9 +61,9 @@ function openChapterStudio(projectId: number, chapterCardId: number) {
     width: 1100,
     height: 760,
     show: true,
-    title: 'Chapter Studio',
+    title: 'Novel Forge - Chapter Studio', // 设置子窗口标题
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon: icon, // 为所有平台设置图标
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -84,7 +85,7 @@ function openChapterStudio(projectId: number, chapterCardId: number) {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.novelforge.app')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

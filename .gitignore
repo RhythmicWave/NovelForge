@@ -45,3 +45,8 @@ desktop.ini
 # 临时文件
 *.tmp
 *.temp 
+
+backend/dist
+backend/build
+*.spec
+*.sh

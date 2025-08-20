@@ -147,6 +147,33 @@ function selectParent(cards: CardRead[], card?: CardRead): CardRead | undefined 
   return cards.find(c => c.id === card.parent_id)
 }
 
+// 获取某卡片向上追溯的最近一个特定类型祖先
+function getNearestAncestorOfType(cards: CardRead[], card: CardRead | undefined, typeName: string): CardRead | undefined {
+  let cur = card
+  while (cur && cur.parent_id) {
+    const parent = cards.find(c => c.id === cur!.parent_id)
+    if (!parent) return undefined
+    if (parent.card_type?.name === typeName) return parent
+    cur = parent
+  }
+  return undefined
+}
+
+// 针对实体卡（角色/场景/组织）：若 life_span 为“短期”，且候选卡不在当前卡片所在分卷下，则忽略
+function filterShortLivedEntityAcrossVolumes(cards: CardRead[], currentCard: CardRead | undefined, list: CardRead[]): CardRead[] {
+  const entityTypes = new Set(['角色卡', '场景卡', '组织卡'])
+  if (!currentCard) return list
+  const currentVol = getNearestAncestorOfType(cards, currentCard, '分卷大纲')
+  const currentVolId = currentVol?.id
+  return list.filter(c => {
+    if (!entityTypes.has(c.card_type?.name || '')) return true
+    const lifeSpan = (c.content as any)?.life_span
+    if (lifeSpan !== '短期') return true
+    const vol = getNearestAncestorOfType(cards, c, '分卷大纲')
+    return (vol?.id ?? null) === (currentVolId ?? null)
+  })
+}
+
 function getPathValue(obj: any, path?: string): any {
   if (!path || path.length === 0) return obj
   return path.split('.').reduce((acc, part) => (acc != null ? acc[part] : undefined), obj)
@@ -156,6 +183,139 @@ function stringifyValue(val: any): string {
   if (val == null) return ''
   if (typeof val === 'object') return JSON.stringify(val, null, 2)
   return String(val)
+}
+
+// 解析值表达式：支持 $self.$parent.$current 引用，JSON，数字与普通字符串
+function evalValueExpr(expr: string, ctx: ResolveContext, vars: ResolveVars): any {
+  const trimmed = (expr || '').trim()
+  const tryJson = () => {
+    try { return JSON.parse(trimmed) } catch { return undefined }
+  }
+  // $self.<path>(±int)
+  const mSelf = trimmed.match(/^\$self\.(.+?)(?:\s*([+-])\s*(\d+))?$/)
+  if (mSelf && ctx.currentCard) {
+    const baseRaw = getPathValue(ctx.currentCard, mSelf[1])
+    const delta = mSelf[2] && mSelf[3] ? (mSelf[2] === '+' ? parseInt(mSelf[3], 10) : -parseInt(mSelf[3], 10)) : 0
+    const baseNum = Number(baseRaw)
+    if (Number.isFinite(baseNum)) return baseNum + delta
+    return baseRaw
+  }
+  // $parent.<path>(±int)
+  const mParent = trimmed.match(/^\$parent\.(.+?)(?:\s*([+-])\s*(\d+))?$/)
+  if (mParent) {
+    const parent = selectParent(ctx.cards, ctx.currentCard)
+    const baseRaw = getPathValue(parent, mParent[1])
+    const delta = mParent[2] && mParent[3] ? (mParent[2] === '+' ? parseInt(mParent[3], 10) : -parseInt(mParent[3], 10)) : 0
+    const baseNum = Number(baseRaw)
+    if (Number.isFinite(baseNum)) return baseNum + delta
+    return baseRaw
+  }
+  // $current.<path>(±int) （默认从 content. 起）
+  const mCurrent = trimmed.match(/^\$current\.(.+?)(?:\s*([+-])\s*(\d+))?$/)
+  if (mCurrent && ctx.currentCard) {
+    const p = mCurrent[1]
+    const full = p.startsWith('content.') ? p : `content.${p}`
+    const baseRaw = getPathValue(ctx.currentCard, full)
+    const delta = mCurrent[2] && mCurrent[3] ? (mCurrent[2] === '+' ? parseInt(mCurrent[3], 10) : -parseInt(mCurrent[3], 10)) : 0
+    const baseNum = Number(baseRaw)
+    if (Number.isFinite(baseNum)) return baseNum + delta
+    return baseRaw
+  }
+  if (trimmed.startsWith('$self.')) {
+    const p = trimmed.substring('$self.'.length)
+    return getPathValue(ctx.currentCard, p)
+  }
+  if (trimmed.startsWith('$parent.')) {
+    const parent = selectParent(ctx.cards, ctx.currentCard)
+    const p = trimmed.substring('$parent.'.length)
+    return getPathValue(parent, p)
+  }
+  if (trimmed.startsWith('$current.')) {
+    const p = trimmed.substring('$current.'.length)
+    // $current.<path> 默认从当前卡片 content 开始
+    const full = p.startsWith('content.') ? p : `content.${p}`
+    return getPathValue(ctx.currentCard, full)
+  }
+  if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+    const j = tryJson(); if (j !== undefined) return j
+  }
+  // 数字
+  if (/^[-+]?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed)
+  // 去引号
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function toArray(val: any): any[] { if (Array.isArray(val)) return val; if (val == null) return []; return [val] }
+
+// 解析 filter 表达式：
+// - 多条件：filter:<cond> && <cond> && ...
+// - 条件形态：field in <rhs> | field = <rhs> | field < <rhs> | field > <rhs>
+// - field 可带前缀 card.，可省略 content.（默认补全）
+type FilterCond = { field: string; op: 'in'|'='|'<'|'>'; rhsRaw: string }
+function parseFilterExpr(expr: string): { conditions: FilterCond[] } | null {
+  const raw = (expr || '').trim()
+  const body = raw.startsWith('filter:') ? raw.substring('filter:'.length).trim() : raw
+  if (!body) return null
+  // 以 && 拆分多个条件
+  const parts = body.split(/\s*&&\s*/).map(s => s.trim()).filter(Boolean)
+  const conds: FilterCond[] = []
+  for (const p of parts) {
+    // 优先匹配 in
+    const inIdx = p.indexOf(' in ')
+    if (inIdx >= 0) {
+      let field = p.slice(0, inIdx).trim()
+      let rhsRaw = p.slice(inIdx + 4).trim()
+      if (field.startsWith('card.')) field = field.substring('card.'.length)
+      if (!field.startsWith('content.')) field = `content.${field}`
+      conds.push({ field, op: 'in', rhsRaw })
+      continue
+    }
+    // 其次匹配 < 或 >（只取第一个出现的位置）
+    let opIdx = -1
+    let opChar: '<' | '>' | '=' | null = null
+    for (const ch of ['<','>','='] as const) {
+      const idx = p.indexOf(` ${ch} `)
+      if (idx >= 0) { opIdx = idx; opChar = ch; break }
+    }
+    if (opIdx >= 0 && opChar) {
+      let field = p.slice(0, opIdx).trim()
+      let rhsRaw = p.slice(opIdx + 3).trim() // 跳过空格+op+空格
+      if (field.startsWith('card.')) field = field.substring('card.'.length)
+      if (!field.startsWith('content.')) field = `content.${field}`
+      conds.push({ field, op: opChar, rhsRaw })
+      continue
+    }
+    // 未识别
+    return null
+  }
+  return conds.length ? { conditions: conds } : null
+}
+
+function normalizeToStringArray(val: any): string[] {
+  const flat: any[] = []
+  const push = (x: any) => {
+    if (x == null) return
+    if (Array.isArray(x)) { x.forEach(push); return }
+    flat.push(x)
+  }
+  push(val)
+  const out: string[] = []
+  for (const it of flat) {
+    if (typeof it === 'string' || typeof it === 'number' || typeof it === 'boolean') {
+      out.push(String(it))
+      continue
+    }
+    if (typeof it === 'object') {
+      // 常见字段优先：EntityInvolved.name / title / label / content.name
+      const cand = (it as any).name ?? (it as any).title ?? (it as any).label ?? ((it as any).content?.name)
+      if (cand != null) { out.push(String(cand)); continue }
+    }
+  }
+  // 去重、标准化大小写
+  return Array.from(new Set(out.map(s => String(s))))
 }
 
 function parseMultiPathSpec(path?: string): { mode: 'single' | 'multi'; paths: string[] } {
@@ -280,15 +440,53 @@ function resolveToken(rawToken: string, ctx: ResolveContext, vars: ResolveVars):
 
     // previous: 全局之前（可选参数 n：仅返回最后 n 个）
     if (filter && filter.startsWith('previous')) {
-      const mPrev = filter.match(/^previous(?::(\d+))?$/)
-      const takeN = mPrev && mPrev[1] ? parseInt(mPrev[1], 10) : undefined
-      const indexById = new Map<number, number>()
-      orderedAll.forEach((c, i) => indexById.set(c.id, i))
-      const currentIndex = ctx.currentCard ? (indexById.get(ctx.currentCard.id) ?? -1) : -1
-      let prevList = orderedAll.filter((c, i) => c.card_type?.name === typeName && i < currentIndex)
-      if (typeof takeN === 'number' && takeN > 0 && prevList.length > takeN) {
-        prevList = prevList.slice(-takeN)
+      
+      // 修正解析逻辑：更灵活地处理 previous:N, previous:global, previous:global:N
+      const parts = filter.split(':');
+      let mode = 'global';
+      let takeN: number | undefined = undefined;
+      
+      for (const part of parts.slice(1)) {
+        if (part === 'global' || part === 'local') {
+          mode = part;
+        } else if (/^\d+$/.test(part)) {
+          takeN = parseInt(part, 10);
+        }
       }
+      
+      let prevList: CardRead[] = []
+      
+      if (mode === 'local') {
+        // 局部 previous：同一父卡片下的同类型兄弟卡片（按 display_order 排序）
+        const pid = ctx.currentCard?.parent_id ?? null
+        const siblings = ctx.cards.filter(c => 
+          c.parent_id === pid && 
+          c.card_type?.name === typeName && 
+          c.id !== ctx.currentCard?.id
+        ).sort((a, b) => a.display_order - b.display_order)
+        
+        // 找到当前卡片在同父下的位置，取之前的
+        const currentIndex = siblings.findIndex(c => c.id === ctx.currentCard?.id)
+        if (currentIndex > 0) {
+          prevList = siblings.slice(0, currentIndex)
+        }
+        // 局部模式通常同父，无需跨卷过滤；但若父层不是分卷，仍按实体短期过滤
+        prevList = filterShortLivedEntityAcrossVolumes(ctx.cards, ctx.currentCard, prevList)
+      } else {
+        // 全局 previous：当前树形先序顺序中，当前卡片之前的所有同类型卡片
+        const indexById = new Map<number, number>()
+        orderedAll.forEach((c, i) => indexById.set(c.id, i))
+        const currentIndex = ctx.currentCard ? (indexById.get(ctx.currentCard.id) ?? -1) : -1
+        prevList = orderedAll.filter((c, i) => c.card_type?.name === typeName && i < currentIndex)
+        // 应用实体短期跨卷过滤
+        prevList = filterShortLivedEntityAcrossVolumes(ctx.cards, ctx.currentCard, prevList)
+        
+        // 如果指定了 takeN，则取最后 n 个
+        if (typeof takeN === 'number' && takeN > 0 && prevList.length > takeN) {
+          prevList = prevList.slice(-takeN)
+        }
+      }
+      
       if (!rawPath) {
         const collected = prevList.map(c => getPathValue(c, 'content'))
         return stringifyValue(collected)
@@ -312,7 +510,13 @@ function resolveToken(rawToken: string, ctx: ResolveContext, vars: ResolveVars):
         return stringifyValue(collected)
       }
       if (pathMode === 'multi') return stringifyValue(siblings.map(c => pickFields(c, multiPaths)))
-      return stringifyValue(siblings.map(c => getPathValue(c, multiPaths[0])))
+      // 单路径：提取后过滤空值，若仅一个有效值则直接返回该值
+      const collectedVals = siblings
+        .map(c => getPathValue(c, multiPaths[0]))
+        .filter(v => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === ''))
+      if (collectedVals.length === 0) return ''
+      if (collectedVals.length === 1) return stringifyValue(collectedVals[0])
+      return stringifyValue(collectedVals)
     }
 
     // 其他情况：以稳定排序供 first/last/index 使用
@@ -329,7 +533,67 @@ function resolveToken(rawToken: string, ctx: ResolveContext, vars: ResolveVars):
     if (filter === 'last') selected = candidates[candidates.length - 1]
     else if (filter === 'first' || !filter) selected = candidates[0]
     else if (filter && filter.startsWith('index=')) {
-      const expr = filter.substring('index='.length)
+      const expr = filter.substring('index='.length).trim()
+      // 先尝试解析为过滤表达式
+      const f = parseFilterExpr(expr)
+      if (f) {
+        const matchFn = (card: CardRead) => {
+          for (const cond of f.conditions) {
+            // 计算左值
+            let lv = getPathValue(card, cond.field)
+            if ((cond.field.endsWith('.name') || cond.field === 'content.name') && (lv === undefined || lv === null || String(lv).trim() === '')) {
+              lv = (card as any).title || (card as any)?.content?.title || ''
+            }
+            const lvStr = String(lv)
+            if (cond.op === 'in') {
+              const rhs = evalValueExpr(cond.rhsRaw, ctx, vars)
+              const rhsArr = normalizeToStringArray(rhs)
+              const setLower = new Set(rhsArr.map(x => String(x).toLowerCase()))
+              if (!setLower.has(lvStr.toLowerCase())) return false
+            } else if (cond.op === '=') {
+              const rhs = evalValueExpr(cond.rhsRaw, ctx, vars)
+              const rhsStr = String(Array.isArray(rhs) ? rhs[0] : rhs)
+              // 数值优先比较
+              const lvNum = Number(lvStr)
+              const rhsNum = Number(rhsStr)
+              if (Number.isFinite(lvNum) && Number.isFinite(rhsNum)) {
+                if (lvNum !== rhsNum) return false
+              } else {
+                if (lvStr !== rhsStr) return false
+              }
+            } else if (cond.op === '<' || cond.op === '>') {
+              const rhs = evalValueExpr(cond.rhsRaw, ctx, vars)
+              const rhsStr = String(Array.isArray(rhs) ? rhs[0] : rhs)
+              const a = Number(lvStr)
+              const b = Number(rhsStr)
+              if (Number.isFinite(a) && Number.isFinite(b)) {
+                if (cond.op === '<' && !(a < b)) return false
+                if (cond.op === '>' && !(a > b)) return false
+              } else {
+                // 字符串比较（本地化较复杂，这里用简单字典序）
+                const cmp = lvStr.localeCompare(rhsStr)
+                if (cond.op === '<' && !(cmp < 0)) return false
+                if (cond.op === '>' && !(cmp > 0)) return false
+              }
+            }
+          }
+          return true
+        }
+        const matched = candidates.filter(matchFn)
+        // 根据 pathMode 返回集合
+        if (!rawPath) {
+          const collected = matched.map(c => getPathValue(c, 'content'))
+          return stringifyValue(collected)
+        }
+        if (pathMode === 'multi') {
+          const collected = matched.map(c => pickFields(c, multiPaths))
+          return stringifyValue(collected)
+        } else {
+          const collected = matched.map(c => getPathValue(c, multiPaths[0]))
+          return stringifyValue(collected)
+        }
+      }
+      // 否则按原有数字/表达式处理
       const idx = evalIndexExpr(expr, vars, ctx, candidates.length)
       if (idx === 'last') selected = candidates[candidates.length - 1]
       else if (typeof idx === 'number') {
@@ -409,16 +673,50 @@ export function resolveTemplate(ctx: ResolveContext): string {
   const { template } = ctx
   if (!template) return ''
 
-  // 粗略拆分 token：以空白作为分隔，提取以 @ 开头的片段
-  const tokenRegex = /@([^\s]+)/g
-  let result = template
-  const matches = [...template.matchAll(tokenRegex)]
-  // 为避免嵌套替换偏移，从后往前替换
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const m = matches[i]
-    const full = '@' + m[1]
-    const replacement = resolveToken(full, ctx, vars)
-    result = result.slice(0, m.index!) + replacement + result.slice(m.index! + full.length)
+  const s = template
+  const tokens: { start: number; end: number; raw: string }[] = []
+  const n = s.length
+  let i = 0
+  while (i < n) {
+    const at = s.indexOf('@', i)
+    if (at === -1) break
+    // 扫描 token，允许 [] / {} / 引号 内的空格
+    let j = at + 1
+    let depthSquare = 0
+    let depthCurly = 0
+    let quote: '"' | "'" | null = null
+    while (j < n) {
+      const ch = s[j]
+      const prev = j > 0 ? s[j - 1] : ''
+      if (quote) {
+        if (ch === quote && prev !== '\\') quote = null
+        j++
+        continue
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch as any
+        j++
+        continue
+      }
+      if (ch === '[') { depthSquare++; j++; continue }
+      if (ch === ']') { depthSquare = Math.max(0, depthSquare - 1); j++; continue }
+      if (ch === '{') { depthCurly++; j++; continue }
+      if (ch === '}') { depthCurly = Math.max(0, depthCurly - 1); j++; continue }
+      // 结束条件：遇到空白或新的 @，且不在任何括号/引号内
+      if ((ch === '@' || /\s/.test(ch)) && depthSquare === 0 && depthCurly === 0) break
+      j++
+    }
+    const raw = s.substring(at, j)
+    tokens.push({ start: at, end: j, raw })
+    i = j + 1
+  }
+
+  // 反向替换
+  let result = s
+  for (let k = tokens.length - 1; k >= 0; k--) {
+    const t = tokens[k]
+    const replacement = resolveToken(t.raw, ctx, vars)
+    result = result.slice(0, t.start) + replacement + result.slice(t.end)
   }
   return result
 } 

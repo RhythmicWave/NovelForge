@@ -1,2 +1,1 @@
-
-from . import project_service, llm_config_service, chapter_service, ai_service 
+# 为避免循环依赖，不在此处导入子模块。仅作为命名空间包保留。 

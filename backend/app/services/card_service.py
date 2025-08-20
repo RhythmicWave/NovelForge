@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
 import logging
-# 新增：引入动态信息模型
+# 引入动态信息模型
 from app.schemas.entity import UpdateDynamicInfo, CharacterCard, DynamicInfoItem
 from sqlalchemy import update as sa_update
 
@@ -24,7 +24,7 @@ MAX_ITEMS_BY_TYPE: dict[str, int] = {
     # DynamicInfoType.CONNECTION: 5,
 }
 
-# 全局权重阈值（默认 0.45，可通过环境变量覆盖）
+# 全局权重阈值（默认 0.45）
 WEIGHT_THRESHOLD =0.45
 
 def _next_item_id(items: List[DynamicInfoItem]) -> int:
@@ -65,7 +65,7 @@ class CardService:
         self.db = db
 
     def get_all_for_project(self, project_id: int) -> List[Card]:
-        # Fetch all cards for the project. The tree structure will be built on the client-side.
+        # 获取该项目所有卡片，树形结构将在客户端构建。
         statement = (
             select(Card)
             .where(Card.project_id == project_id)
@@ -78,7 +78,7 @@ class CardService:
         return self.db.get(Card, card_id)
 
     def create(self, card_create: CardCreate, project_id: int) -> Card:
-        # FEATURE: Check for singleton card type constraint
+
         card_type = self.db.get(CardType, card_create.card_type_id)
         if not card_type:
              raise HTTPException(status_code=404, detail=f"CardType with id {card_create.card_type_id} not found")
@@ -92,7 +92,7 @@ class CardService:
                     detail=f"A card of type '{card_type.name}' already exists in this project, and it is a singleton."
                 )
 
-        # Determine display order
+        # 决定显示顺序
         statement = select(Card).where(Card.project_id == project_id, Card.parent_id == card_create.parent_id)
         sibling_cards = self.db.exec(statement).all()
         display_order = len(sibling_cards)
@@ -171,13 +171,13 @@ class CardService:
             
         update_data = card_update.model_dump(exclude_unset=True)
 
-        # If parent_id changes, we need to update display_order
+        # 如果parent_id改变了，我们需要更新display_order
         if 'parent_id' in update_data and card.parent_id != update_data['parent_id']:
-            # This logic can be complex. For now, let's just append to the end of the new list.
+            # 这个逻辑可能很复杂。现在只是将新的列表追加到末尾。
             statement = select(Card).where(Card.project_id == card.project_id, Card.parent_id == update_data['parent_id'])
             sibling_cards = self.db.exec(statement).all()
             update_data['display_order'] = len(sibling_cards)
-            # You might want to shift other cards' orders here as well.
+
 
         for key, value in update_data.items():
             setattr(card, key, value)
@@ -188,7 +188,7 @@ class CardService:
         return card
 
     def delete(self, card_id: int) -> bool:
-        # The recursive delete is handled by the cascade option in the relationship
+        # 递归删除由关系中的级联选项处理
         card = self.get_by_id(card_id)
         if not card:
             return False

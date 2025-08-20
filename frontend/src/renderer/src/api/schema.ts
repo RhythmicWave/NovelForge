@@ -4,19 +4,26 @@ import { ref } from 'vue'
 // --- 类型定义 ---
 // 基础的 JSON Schema 类型定义。可以根据需要进行扩展。
 export interface JSONSchema {
-  type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'null'
+  // Common properties
+  type?: string | string[]
   title?: string
   description?: string
   default?: any
+  examples?: any[]
+  enum?: any[]
+  const?: any
+  minLength?: number
+
+  // Object properties
   properties?: { [key: string]: JSONSchema }
   required?: string[]
-  items?: JSONSchema // 用于数组
+  // 用于数组
+  items?: JSONSchema
   // 用于 Pydantic v2+ 的元组（Tuple）
   prefixItems?: JSONSchema[]
   // 用于 Pydantic v1 的元组（Tuple）或联合类型（Union）
   anyOf?: JSONSchema[]
   // 用于 Literal 转换来的枚举
-  enum?: (string | number)[]
   // 用于对象引用
   $ref?: string
 }
@@ -153,7 +160,7 @@ async function loadSchemas() {
   }
 }
 
-// 新增：强制刷新（清空缓存并重新加载）
+// 强制刷新（清空缓存并重新加载）
 async function refreshSchemas() {
   try {
     schemas.value = new Map()

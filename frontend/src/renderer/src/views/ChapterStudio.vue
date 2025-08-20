@@ -9,13 +9,14 @@
 
     <div class="studio-body">
       <div class="editor-pane">
-        <component :is="NovelEditor" 
+        <component :is="CodeMirrorEditor" 
                    v-if="chapterCard"
                    :card="chapterCard"
                    :chapter="chapterModel"
+                   :prefetched="prefetchedContext"
                    @update:chapter="onChapterModelChange"
                    @save="onSave"
-                   :context-params="{ project_id: projectId || undefined, volume_number: chapterModel.volume_number || undefined, chapter_number: chapterModel.chapter_number || undefined, extra_context_fn: getStoryOutlineText }" />
+                   :context-params="({ project_id: projectId || undefined, volume_number: chapterModel.volume_number || undefined, chapter_number: chapterModel.chapter_number || undefined, extra_context_fn: getStoryOutlineText, stage_overview: (currentStageLine && currentStageLine.overview) || undefined } as any)" />
         <div v-else class="placeholder">未找到章节卡片</div>
       </div>
       <div class="right-pane">
@@ -24,15 +25,20 @@
             <ContextPanel :project-id="projectId || undefined"
                           :participants="participants"
                           :volume-number="chapterModel.volume_number ?? null"
+                          :stage-number="chapterModel.stage_number ?? null"
                           :chapter-number="chapterModel.chapter_number ?? null"
                           :prefetched="prefetchedContext"
                           @update:participants="onParticipantsChange"
                           @update:volumeNumber="onVolumeChange"
+                          @update:stageNumber="onStageChange"
                           @update:chapterNumber="onChapterChange"
                           :draft-tail="''"/>
           </el-tab-pane>
           <el-tab-pane label="大纲速查" name="outline">
-            <OutlinePanel :outline="currentVolumeOutline" />
+            <OutlinePanel :outline="currentVolumeOutline"
+                          :current-stage="currentStageLine"
+                          :volume-number="chapterModel.volume_number ?? null"
+                          :chapter-number="chapterModel.chapter_number ?? null" />
           </el-tab-pane>
           <el-tab-pane label="智能工具" name="tools">
             <div class="panel-pad">
@@ -68,9 +74,11 @@ import { storeToRefs } from 'pinia'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
 
-const NovelEditor = defineAsyncComponent(() => import('@renderer/components/editors/NovelEditor.vue'))
+const CodeMirrorEditor = defineAsyncComponent(() => import('@renderer/components/editors/CodeMirrorEditor.vue'))
 const ContextPanel = defineAsyncComponent(() => import('@renderer/components/panels/ContextPanel.vue'))
 const OutlinePanel = defineAsyncComponent(() => import('@renderer/components/panels/OutlinePanel.vue'))
+
+type ContextParams = { project_id?: number; volume_number?: number; chapter_number?: number; participants?: string[]; extra_context_fn?: Function; [key: string]: any }
 
 const activeTab = ref('context')
 const projectId = ref<number | null>(null)
@@ -88,9 +96,10 @@ const llmOptions = ref<Array<{ id: number; display_name: string }>>([])
 const currentVolumeOutline = ref<any | null>(null)
 
 // 父组件统一维护的 Chapter 模型
-const chapterModel = ref<{ title?: string; volume_number?: number; chapter_number?: number; entity_list?: Array<string|{name:string}>; content: string }>({ content: '' })
+const chapterModel = ref<{ title?: string; volume_number?: number; stage_number?: number; chapter_number?: number; entity_list?: Array<string|{name:string}>; content: string }>({ content: '' })
 const participants = ref<string[]>([])
 const prefetchedContext = ref<any | null>(null)
+const currentStageLine = ref<any | null>(null)
 
 function onChapterModelChange(val: any) {
   chapterModel.value = { ...chapterModel.value, ...(val || {}) }
@@ -108,6 +117,10 @@ function onParticipantsChange(list: string[]) {
 
 function onVolumeChange(v: number | null) {
   chapterModel.value.volume_number = (v == null ? undefined : v)
+}
+
+function onStageChange(v: number | null) {
+  chapterModel.value.stage_number = (v == null ? undefined : v)
 }
 
 function onChapterChange(v: number | null) {
@@ -182,6 +195,18 @@ function findVolumeOutline(card:CardRead|null){
       if(parent){
         if(parent.card_type?.name === '分卷大纲'){
           currentVolumeOutline.value = parent.content
+          // 若当前阶段号未设置，则根据章节号匹配所处阶段
+          try {
+            const stageLines: any[] = Array.isArray((parent.content as any)?.stage_lines) ? (parent.content as any).stage_lines : []
+            const chNo = chapterModel.value.chapter_number
+            if (typeof chNo === 'number') {
+              currentStageLine.value = stageLines.find(st => Array.isArray(st.reference_chapter) && st.reference_chapter.length === 2 && chNo >= st.reference_chapter[0] && chNo <= st.reference_chapter[1]) || null
+              if (currentStageLine.value && chapterModel.value.stage_number == null) {
+                const idx = Number(currentStageLine.value.stage_number || stageLines.indexOf(currentStageLine.value) + 1)
+                chapterModel.value.stage_number = idx
+              }
+            }
+          } catch {}
           // 注入卷号（若章节模型未设置）
           const volNum = (parent.content as any)?.volume_number
           if (chapterModel.value.volume_number == null && typeof volNum === 'number') chapterModel.value.volume_number = volNum
@@ -220,6 +245,7 @@ onMounted(async () => {
     chapterModel.value = {
       title: cc.title ?? chapterCard.value.title,
       volume_number: cc.volume_number ?? undefined,
+      stage_number: cc.stage_number ?? undefined,
       chapter_number: cc.chapter_number ?? undefined,
       entity_list: Array.isArray(cc.entity_list) ? cc.entity_list : [],
       content: typeof cc.content === 'string' ? cc.content : ''
@@ -264,7 +290,7 @@ async function onTriggerExtract() {
 .studio-layout { display: flex; flex-direction: column; height: 100vh; }
 .studio-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color); }
 .studio-body { flex: 1; display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 75px); }
-.editor-pane { overflow: hidden; }
+.editor-pane { min-height: 0; overflow: hidden; }
 .right-pane { border-left: 1px solid var(--el-border-color-light); overflow: hidden; }
 .right-tabs { height: 100%; display: flex; flex-direction: column; }
 :deep(.el-tabs__content) { flex: 1; overflow: auto; }

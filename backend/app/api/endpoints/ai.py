@@ -10,17 +10,11 @@ from fastapi import Body
 from pydantic import ValidationError, create_model
 from pydantic import Field as PydanticField
 from typing import Type, Dict, Any, List
-from app.schemas.wizard import (
-    WorldBuildingResponse, BlueprintResponse,
-    VolumeOutline, ChapterOutline,
-    Task0Response, Task1Response, Task2Response,
-    CharacterCard, SceneCard, StoryLine, StageLine, CharacterAction, ChapterPoint, Enemy, ResolveEnemy, SmallChapter, Task6Response,
-    Tags, WorldviewTemplate, Chapter
-)
-from app.db.models import OutputModel
+
+from app.db.models import OutputModel, Card, CardType
 from copy import deepcopy
 
-# 新增：引入知识库
+# 引入知识库
 from app.services.knowledge_service import KnowledgeService
 import re
 from app.schemas.entity import DYNAMIC_INFO_TYPES
@@ -123,29 +117,9 @@ def _augment_schema_with_builtin_defs(schema: Dict[str, Any]) -> Dict[str, Any]:
     return sch
 
 # 响应模型映射表（内置）
-RESPONSE_MODEL_MAP = {
-    'Tags': Tags,
-    'Task0Response': Task0Response,
-    'Task1Response': Task1Response,
-    'Task2Response': Task2Response,
-    'WorldBuildingResponse': WorldBuildingResponse,
-    'WorldviewTemplate': WorldviewTemplate,
-    'BlueprintResponse': BlueprintResponse,
-    # 使用未包装模型
-    'VolumeOutline': VolumeOutline,
-    'ChapterOutline': ChapterOutline,
-    'Chapter': Chapter,
-    'Task6Response': Task6Response,
-    # 基础schema，自动包含在OpenAPI中
-    'CharacterCard': CharacterCard,
-    'SceneCard': SceneCard,
-    'SmallChapter': SmallChapter,
-    # 新增：显式导出嵌套类型，便于前端字段树解析
-    'StageLine': StageLine,
-    'StoryLine': StoryLine,
-}
+from app.schemas.response_registry import RESPONSE_MODEL_MAP
 
-# 新增：知识库占位符解析与替换
+# 知识库占位符解析与替换
 _KB_ID_PATTERN = re.compile(r"@KB\{\s*id\s*=\s*(\d+)\s*\}")
 _KB_NAME_PATTERN = re.compile(r"@KB\{\s*name\s*=\s*([^}]+)\}")
 
@@ -287,7 +261,6 @@ def get_all_schemas(session: Session = Depends(get_session)):
         entity_models = [
             entity_schemas.DynamicInfoItem,
             entity_schemas.DynamicInfo,
-            entity_schemas.ModifyDynamicInfo,
             entity_schemas.UpdateDynamicInfo,
 
         ]
@@ -393,15 +366,20 @@ async def generate_ai_content(
     )
 
     user_prompt = request.input['input_text']
+
+    # 直接透传前端提供的 deps（JSON 字符串或 None）
+    deps_str = request.deps or ""
+
     result = await agent_service.run_llm_agent(
         session=session,
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         output_type=resp_model,
-        llm_config_id=request.llm_config_id,
+        llm_config_id=request.llm_config_id, 
         max_tokens=request.max_tokens,
         temperature=request.temperature,
         timeout=request.timeout,
+        deps=deps_str,
     )
     return ApiResponse(data=result)
 
@@ -442,6 +420,7 @@ async def generate_continuation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@router.get("/models/tags", response_model=Tags, summary="导出 Tags 模型（用于类型生成）")
+from app.schemas.wizard import Tags as _Tags
+@router.get("/models/tags", response_model=_Tags, summary="导出 Tags 模型（用于类型生成）")
 def export_tags_model():
-    return Tags() 
+    return _Tags() 

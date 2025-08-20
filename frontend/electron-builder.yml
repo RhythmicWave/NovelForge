@@ -1,7 +1,9 @@
-appId: com.electron.app
-productName: frontend
+appId: com.novelforge.app
+productName: NovelForge
+copyright: © 2025 NovelForge
 directories:
   buildResources: build
+icon: build/icon.ico
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -10,14 +12,27 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
-  - resources/**
+  - backend/**
+# 将后端放到与可执行文件同级
+extraFiles:
+  - from: ../backend/dist
+    to: backend
+  - from: ../backend/.env.example
+    to: backend/.env
+
 win:
-  executableName: frontend
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  executableName: NovelForge
+  publisherName: NovelForge Team
+  signAndEditExecutable: true
+  target:
+    - dir
+  icon: build/icon.ico
+extraMetadata:
+  CompanyName: NovelForge Team
+  FileDescription: NovelForge
+  ProductName: NovelForge
+  OriginalFilename: NovelForge.exe
+# 移除 NSIS 安装器相关配置（仅保留便携版）
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

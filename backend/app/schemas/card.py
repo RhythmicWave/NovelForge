@@ -8,14 +8,14 @@ from datetime import datetime
 class CardTypeBase(BaseModel):
     name: str
     description: Optional[str] = None
-    # 新增：统一选择的输出模型名称（对应 OutputModel.name）
+    # 统一选择的输出模型名称（对应 OutputModel.name）
     output_model_name: Optional[str] = None
     editor_component: Optional[str] = None
     is_ai_enabled: bool = Field(default=False)
     is_singleton: bool = Field(default=False)
-    # 新增：默认AI上下文注入模板（类型级别）
+    # 默认AI上下文注入模板（类型级别）
     default_ai_context_template: Optional[str] = None
-    # 新增：UI 布局（可选）
+    # UI 布局（可选）
     ui_layout: Optional[Dict[str, Any]] = None
 
 

@@ -137,6 +137,21 @@ export const useCardStore = defineStore('card', () => {
     if (!currentProject.value?.id) return
     try {
       const newCard = await createCard(currentProject.value.id, cardData)
+      // 若新建的是特定类型，自动设置默认 AI 参数卡 ID
+      try {
+        const typeName = (newCard as any)?.card_type?.name
+        const defaultParamMap: Record<string, string> = {
+          '章节正文': 'card-009',
+          '阶段大纲': 'card-007',
+          '写作指南': 'card-010',
+        }
+        const paramId = defaultParamMap[typeName as string]
+        if (paramId) {
+          await updateCard(newCard.id, { selected_ai_param_card_id: paramId } as any)
+        }
+      } catch (e) {
+        console.warn('[CardStore] 自动设置参数卡失败（可忽略）：', e)
+      }
       // 为保证树与排序的正确性，这里简单起见直接刷新
       await fetchCards(currentProject.value.id)
       ElMessage.success(`Card "${newCard.title}" created.`)

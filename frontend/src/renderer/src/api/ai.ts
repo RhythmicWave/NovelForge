@@ -14,17 +14,9 @@ export interface AIConfigOptions {
 }
 
 // 使用后端生成的类型
-export type ContextSettingsModel = components['schemas']['ContextSettingsModel']
 export type AssembleContextRequest = components['schemas']['AssembleContextRequest']
 export type AssembleContextResponse = components['schemas']['AssembleContextResponse']
 
-export function getContextSettings(): Promise<ContextSettingsModel> {
-  return aiHttpClient.get<ContextSettingsModel>('/context/settings')
-}
-
-export function updateContextSettings(patch: Partial<ContextSettingsModel>): Promise<ContextSettingsModel> {
-  return aiHttpClient.post<ContextSettingsModel>('/context/settings', patch)
-}
 
 export function assembleContext(body: AssembleContextRequest): Promise<AssembleContextResponse> {
   return aiHttpClient.post<AssembleContextResponse>('/context/assemble', body)

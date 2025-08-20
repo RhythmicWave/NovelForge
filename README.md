@@ -1,1 +1,230 @@
-测试
+<div align="center">
+
+# NovelForge
+
+<p><strong>新一代 AI 长篇小说创作引擎</strong></p>
+
+<p>
+  <a href="#-核心特性">核心特性</a> •
+  <a href="#-技术栈">技术栈</a> •
+  <a href="#-运行指南">运行指南</a> •
+  <a href="#-展望">展望</a>
+</p>
+
+
+</div>
+
+**NovelForge** 是一款具备数百万字级长篇创作潜力的 AI 辅助写作工具。它不仅是编辑器，更是一套集世界观构建、结构化内容生成于一体的解决方案。
+
+长篇创作中，维持一致性、保证可控性、激发持续灵感是最大的挑战。为此，NovelForge 围绕四大核心理念构建：模块化的 **“卡片”**、可自定义的 **“动态输出模型”**、灵活的 **“上下文注入”** 与保证一致性的 **“知识图谱”**。
+
+---
+
+## ✨ 核心特性
+
+*   **📚 动态输出模型 (Dynamic Output Models)**
+    *   **告别传统手写 JSON 约束！** 基于 Pydantic 构建，你可以通过可视化界面自由定义任何创作元素（角色、场景、大纲）的结构。AI 的每一次生成都将被强制校验，确保输出是你想要的精确格式，这是实现高度结构化与可配置性的基石。
+
+*   **✨ 自由上下文注入 (@DSL)**
+    *   通过简单的 `@` 语法，你可以将项目中的任何卡片、任何字段、任何集合，按需注入到提示词中。无论是“当前角色的所有仇人”、“上一卷的所有场景”，还是“所有等级大于5的宝物”，复杂的上下文检索都只是一行表达式的事，为实现复杂创作逻辑提供了无限可能。
+
+*   **🧠 知识图谱驱动 (Knowledge Graph)**
+    *   为解决长篇创作中最棘手的一致性问题（如角色关系、称呼、立场变化），NovelForge 集成了 Neo4j。在创作过程中，系统能自动或手动提取文本中的人物关系与动态信息。在生成后续内容时，这些结构化的“事实”将被动态注入，显著减少 AI 幻觉，确保角色行为符合其人设与过往经历。
+
+*   **❄️ 雪花式创作流程 (Snowflake Method Inspired)**
+    *   该项目借鉴了经典的“雪花创作法”，引导你从“一句话梗概”开始，逐步扩展到大纲、世界观、蓝图、分卷、章节，最终到正文。所有这些步骤都以独立的“卡片”形式存在，并以树形结构组织，让你的整个创作世界一目了然。
+
+*   **🛠️ 高度可配置与可扩展**
+    *   从 AI 模型参数、提示词模板，到卡片类型、内容结构，项目中几乎每一个环节都允许用户深度自定义，你可以打造一套完全属于自己的创作工作流。
+
+---
+
+## 🛠️ 技术栈
+
+*   **前端 (Frontend):** Electron, Vue 3, TypeScript, Pinia, Element Plus
+*   **后端 (Backend):** FastAPI, SQLModel (Pydantic + SQLAlchemy), Uvicorn
+*   **数据库 (Database):** SQLite (核心数据), Neo4j (知识图谱)
+
+---
+
+## 🚀 运行指南
+
+无论你是想直接体验，还是参与开发，都可以轻松开始。
+
+### 0. 核心依赖：Neo4j Desktop
+
+**这是运行知识图谱功能的必要前提。**
+
+*   请下载并安装 **Neo4j Desktop**，推荐版本 **5.16** 或更高。
+*   下载地址: [Neo4j Desktop](https://neo4j.com/download/)
+*   安装后，创建一个本地数据库实例，并确保其处于**运行状态**。默认连接信息可在 `.env` 文件中配置。
+![alt text](docImgs/README/image-6.png)
+
+### 方式一：从源码运行 (开发者/最新功能)
+
+**1. 后端 (Python / FastAPI)**
+```bash
+# 克隆仓库
+git clone <your-repo-url>
+cd NovelForge/backend
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行后端服务
+python main.py
+```
+
+**2. 前端 (Node.js / Electron)**
+```bash
+# 进入前端目录
+cd ../frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+
+### 方式二：使用发行版 (快速上手)
+
+定期打包发布版本，无需配置开发环境，开箱即用。
+
+1.  前往项目的 **Releases** 页面下载最新的便携版压缩包 (`.zip` 或 `.7z`)。
+2.  解压到任意位置。
+3.  **（重要）** 运行前，请先确保 Neo4j Desktop 中的数据库实例已启动。
+4.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接或其他 AI 参数。
+5.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
+6.  返回上一级，运行 `NovelForge.exe` 启动主程序。
+
+---
+
+## ✍️ 创作流程
+
+1.  **配置大语言模型 (LLM)**
+    *   首次启动后，在设置中添加你的 AI 模型配置，如 API Key、Base URL 等。
+    ![alt text](docImgs/README/image.png)
+
+    推荐使用Gemini 2.5Pro级别的LLM进行创作
+
+2.  **创建项目与预设卡片**
+    *   新建项目后，系统会自动为你创建一套基于“雪花创作法”的预设卡片树。
+    ![alt text](docImgs/README/image-1.png)
+
+3.  **自顶向下，填充核心设定**
+    *   从最高层的卡片开始，利用 AI 逐一填充内容。例如，基于“一句话梗概”生成“故事大纲”，再生成“世界观”和“核心蓝图”。
+    基本上每个步骤都提供了AI生成的选项。
+    完成核心蓝图卡片创作后，点击保存，会自动根据分卷数量创建对应分卷卡片。
+    继续完成分卷大纲创作即可，从第1卷开始。
+    完成之后，会自动根据阶段数创建阶段大纲子卡片、写作指南卡片。建议先生成写作指南卡片，生成写作指导信息，再进行阶段大纲卡片创作。
+    ![alt text](docImgs/README/image-2.png)
+
+    完成阶段大纲创作后，自动生成章节大纲、章节正文卡片，并自动注入每章需要参与的实体。
+    ![alt text](docImgs/README/image-3.png)
+
+4.  **进入章节创作**
+    *   完成上述步骤后，点击对应的章节正文卡片，打开章节编辑器，进入核心的写作界面。右侧的上下文面板会自动为你准备好当前章节所需的全部背景资料。
+    ![alt text](docImgs/README/image-7.png)
+    
+    *   内容创作完成后，点击入图关系，解析出角色之间的关系存入知识图谱，供后续写作时参考。
+    ![alt text](docImgs/README/image-4.png)
+    提取完成后，点击确认即可存入neo4j数据库。
+    ![alt text](docImgs/README/image-5.png)
+
+    *    建议再提取角色动态信息，可用成本更低的模型进行提取。
+    ![alt text](docImgs/README/image-8.png)
+
+    *    以上步骤完成后，进行下一章创作时，自动注入相关参与实体的信息
+    ![alt text](docImgs/README/image-9.png)
+
+
+---
+
+## ⚙️ 高级功能与配置
+
+虽然 NovelForge 提供了一套推荐的创作流程，但其真正的强大之处在于高度的灵活性。你可以完全抛开预设，利用以下工具，组合出专属于你自己的创作体系。
+
+### 自定义输出模型与卡片类型
+
+*   在 `设置 -> 输出模型` 中，你可以通过可视化构建器，像搭积木一样创建任何你想要的“结构”。
+    ![alt text](docImgs/README/image-10.png)
+    ![alt text](docImgs/README/image-11.png)
+
+*   在 `设置 -> 卡片类型` 中，将你创建的输出模型绑定到一个新的卡片类型，即可在项目中使用它。
+    ![alt text](docImgs/README/image-12.png)
+    ![alt text](docImgs/README/image-13.png)
+
+*   为了测试，再新增一个提示词和AI参数卡片
+    ![alt text](docImgs/README/image-14.png)
+    ![alt text](docImgs/README/image-15.png)
+
+*  上述步骤完成后，就可以在项目中创建该卡片，然后选中AI参数卡片，进行AI生成了
+    ![alt text](docImgs/README/image-16.png)
+    可以按照设定的结构来返回结构，并成功解析
+    ![alt text](docImgs/README/image-17.png)
+
+*  输出模型结构还支持嵌入其他已有的结构，更多用法欢迎探索。
+    ![alt text](docImgs/README/image-19.png)
+    
+注意，尽量新增模型而不是修改已存在模型结构，避免和已有数据冲突。
+
+### 提示词工坊 (Prompt Workshop)
+
+*   所有 AI 功能的背后都是可编辑的提示词模板。你可以在这里修改预设模板，或创建全新的模板。
+*   **知识库注入**: 支持通过 `@KB{name=知识库名称}` 语法，在提示词中动态引用“知识库”内容，为 AI 提供更丰富的背景信息。
+
+### 上下文注入 (@DSL) 详解
+
+这是 NovelForge 的特色。它允许你在提示词模板中，用 `@` 符号精确地引用项目中的任何数据注入为上下文。
+
+*   **按标题引用**: `@卡片标题` 或 `@卡片标题.content.某个字段`
+*   **按类型引用**: `@type:角色卡` (所有角色卡)
+*   **特殊引用**: `@self` (当前卡片), `@parent` (父卡片)
+*   **强大的过滤器**:
+    *   `[previous]`: 获取同级的前一个卡片。
+    *   `[previous:global:n]`: 获取全局顺序（树状先序）中最近的n个同类型卡片。
+    *   `[sibling]`: 获取所有同级兄弟卡片。
+    *   `[index=...]`: 按序号获取，支持表达式，如 `$self.content.volume_number - 1`。
+    *   `[filter:...]`: 按条件过滤，如 `[filter:content.level > 5]` 或 `[filter:content.name in $self.content.entity_list]`。
+*   **字段级别选中**: 可选中整个卡片数据，也可以单独选中卡片的字段。
+
+例如，引用最近3章的章节标题及原文:
+![alt text](docImgs/README/image-18.png)
+
+---
+
+## 📂 项目结构
+
+```
+NovelForge/
+  ├── backend/        # FastAPI 后端
+  │   ├── app/
+  │   │   ├── api/        # API 路由
+  │   │   ├── db/         # 数据库模型与会话
+  │   │   ├── schemas/    # Pydantic 数据模型
+  │   │   └── services/   # 核心业务逻辑
+  │   └── main.py       # 入口
+  │
+  └── frontend/       # Electron + Vue3 前端
+      └── src/
+          ├── main/       # Electron 主进程
+          ├── preload/    # 预加载脚本
+          └── renderer/   # Vue 渲染进程
+              └── src/
+                  ├── components/ # Vue 组件
+                  ├── services/   # 前端服务
+                  ├── stores/     # Pinia 状态管理
+                  └── views/      # 页面视图
+```
+
+---
+
+## 展望
+
+NovelForge 目前仍处于迭代的早期阶段，作者深知该项目在创作流程、一致性维持、 UI 设计、交互体验等方面还有巨大的改进空间。
+
+最好的工具源于社区的智慧。无论你是创作者还是开发者，都真诚地欢迎你：
+
+*   在 **Issues** 中提出宝贵的功能建议或反馈问题。
+*   分享你对创作流程的独到见解。

@@ -1,10 +1,11 @@
 fastapi
 uvicorn
+json_repair
 sqlmodel
 alembic
 loguru
-pydantic
-pydantic_ai
+pydantic==2.11.7
+pydantic_ai==0.3.1
 openai>=1.0.0
 neo4j
 python-dotenv

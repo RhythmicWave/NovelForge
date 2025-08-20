@@ -43,7 +43,7 @@ export const useEditorStore = defineStore('editor', () => {
   type ReplacePair = { from: string; to: string }
   const applyChapterReplacements = ref<null | ((pairs: ReplacePair[]) => Promise<void> | void)>(null)
 
-  // 新增：用于跨组件触发“提取动态信息”的回调
+  // 用于跨组件触发“提取动态信息”的回调
   const triggerExtractDynamicInfoRef = ref<null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)>(null)
 
   // 写作上下文共享：卷号/章节号/标题（供其它面板使用）

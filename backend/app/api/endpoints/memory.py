@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Any
+from typing import Any, Optional, List, Dict
 from sqlmodel import Session, select
+from loguru import logger
 
 from app.db.session import get_session
 from app.db.models import Card
@@ -11,7 +12,6 @@ from app.services.card_service import CardService
 from app.schemas.entity import UpdateDynamicInfo
 from app.schemas.relation_extract import RelationExtraction
 from app.schemas.memory import (
-    IngestCardTextRequest,
     QueryRequest,
     QueryResponse,
     IngestRelationsLLMRequest,
@@ -28,14 +28,6 @@ from app.schemas.memory import (
 router = APIRouter()
 
 
-@router.post("/ingest-card-text")
-def ingest_card_text(body: IngestCardTextRequest, session: Session = Depends(get_session)):
-    # 该端点已废弃 Episode 写入，仅保持兼容返回成功。
-    card: Card | None = session.get(Card, body.card_id)
-    if card is None or card.project_id != body.project_id:
-        raise HTTPException(status_code=404, detail="卡片不存在或不属于该项目")
-    return {"success": True, "card_id": body.card_id}
-
 
 @router.post("/query", response_model=QueryResponse, summary="检索子图/快照")
 def query(req: QueryRequest, session: Session = Depends(get_session)):
@@ -49,23 +41,35 @@ async def ingest_relations_llm(req: IngestRelationsLLMRequest, session: Session 
     svc = MemoryService(session)
     try:
         data = await svc.extract_relations_llm(req.text, req.participants, req.llm_config_id, req.timeout)
-        res = svc.ingest_relations_from_llm(req.project_id, data, volume_number=req.volume_number, chapter_number=req.chapter_number)
+        # 将带类型的参与者信息传递给 ingest 方法
+        res = svc.ingest_relations_from_llm(
+            req.project_id, 
+            data, 
+            volume_number=req.volume_number, 
+            chapter_number=req.chapter_number,
+            participants_with_type=req.participants
+        )
         return IngestRelationsLLMResponse(written=res.get("written", 0))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM 关系抽取或写入失败: {e}")
 
 
-# === 新增：仅抽取关系（预览用） ===
+# === 仅抽取关系（预览用） ===
 @router.post("/extract-relations-llm", response_model=RelationExtraction, summary="仅抽取实体关系（不入图）")
 async def extract_relations_only(req: ExtractRelationsRequest, session: Session = Depends(get_session)):
     svc = MemoryService(session)
     try:
+        # 传递参与者列表（包含类型）
         data = await svc.extract_relations_llm(req.text, req.participants, req.llm_config_id, req.timeout)
+        
+        # 在这里也可以选择性地进行一次后端过滤，如果需要的话
+        # (代码与 ingest_relations_from_llm 中的过滤逻辑类似)
+
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM 关系抽取失败: {e}")
 
-# === 恢复：仅提取动态信息（不更新） ===
+# === 仅提取动态信息（不更新） ===
 @router.post("/extract-dynamic-info", response_model=UpdateDynamicInfo, summary="仅提取动态信息（不更新）")
 async def extract_dynamic_info_only(req: ExtractOnlyRequest, session: Session = Depends(get_session)):
     svc = MemoryService(session)
@@ -82,7 +86,7 @@ async def extract_dynamic_info_only(req: ExtractOnlyRequest, session: Session = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"动态信息提取失败: {e}")
 
-# === 新增：按预览后的结果入图 ===
+# === 按预览后的结果入图 ===
 @router.post("/ingest-relations", response_model=IngestRelationsFromPreviewResponse, summary="根据 RelationExtraction 结果入图")
 def ingest_relations_from_preview(req: IngestRelationsFromPreviewRequest, session: Session = Depends(get_session)):
     svc = MemoryService(session)
@@ -93,15 +97,24 @@ def ingest_relations_from_preview(req: IngestRelationsFromPreviewRequest, sessio
         raise HTTPException(status_code=500, detail=f"关系入图失败: {e}")
 
 
-@router.post("/update-dynamic-info", response_model=UpdateDynamicInfoResponse, summary="仅更新动态信息到角色卡")
-def update_dynamic_info_only(req: UpdateDynamicInfoRequest, session: Session = Depends(get_session)):
-    card_svc = CardService(session)
+@router.post("/update-dynamic-info", response_model=UpdateDynamicInfoResponse)
+def update_dynamic_info(req: UpdateDynamicInfoRequest, session: Session = Depends(get_session)):
+    """
+    接收前端预览并确认后的动态信息，执行更新。
+    现在调用新的、更完整的服务函数。
+    """
+    svc = MemoryService(session)
     try:
-        updated_cards = card_svc.update_character_dynamic_info(
+        # 调用新的服务函数，它会处理删除、修改和新增
+        result = svc.update_dynamic_character_info(
             project_id=req.project_id,
-            update_data=req.data,
-            queue_size=req.queue_size or 5,
+            data=req.data,
+            queue_size=req.queue_size or 3
         )
-        return UpdateDynamicInfoResponse(success=True, updated_card_count=len(updated_cards))
+        return UpdateDynamicInfoResponse(
+            success=result.get("success", False),
+            updated_card_count=result.get("updated_card_count", 0)
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"动态信息更新失败: {e}") 
+        logger.error(f"Failed to update dynamic info: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) 

@@ -41,8 +41,7 @@ const effectiveSchema = computed<JSONSchema>(() => {
     title: 'Item',
     properties: {
       id: { type: 'integer', title: 'id' },
-      info: { type: 'string', title: 'info' },
-      weight: { type: 'number', title: 'weight' },
+      info: { type: 'string', title: 'info' }
     },
   }
   const propsMap: Record<string, JSONSchema> = {}
