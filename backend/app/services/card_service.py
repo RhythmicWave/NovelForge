@@ -48,18 +48,6 @@ def _normalize_dynamic_type_key(key_obj: object) -> str:
         pass
     return str(key_obj)
 
-# 默认映射：卡片类型名称 -> AI参数卡“键”（允许为名称或ID）。
-# 前端 store 的 findByKey 会同时按 id 与 name 查找，因此这里写名称即可。
-DEFAULT_PARAM_CARD_KEY_BY_TYPE = {
-    "金手指": "金手指生成",
-    "一句话梗概": "一句话梗概生成",
-    "故事大纲": "大纲扩写生成",
-    "世界观设定": "世界观生成",
-    "核心蓝图": "蓝图生成",
-    "分卷大纲": "分卷大纲生成",
-    "章节大纲": "章节大纲生成",
-}
-
 class CardService:
     def __init__(self, db: Session):
         self.db = db
@@ -102,17 +90,11 @@ class CardService:
         if not ai_context_template:
             ai_context_template = card_type.default_ai_context_template
 
-        # 若未显式指定参数卡键，则根据卡片类型名选择系统预设
-        selected_ai_param_card_id = getattr(card_create, 'selected_ai_param_card_id', None)
-        if not selected_ai_param_card_id:
-            selected_ai_param_card_id = DEFAULT_PARAM_CARD_KEY_BY_TYPE.get(card_type.name)
-
         card = Card(
             **card_create.model_dump(),
             project_id=project_id,
             display_order=display_order,
             ai_context_template=ai_context_template,
-            selected_ai_param_card_id=selected_ai_param_card_id,
         )
         self.db.add(card)
         self.db.commit()
@@ -138,31 +120,20 @@ class CardService:
             try:
                 statement = select(CardType).where(CardType.name == card_type_name)
                 card_type = db.exec(statement).first()
-
-                if not card_type:
-                    logger.warning(f"Card type '{card_type_name}' not found. Skipping initial card creation.")
-                    continue
-
-                # 通过服务创建，以便继承卡片类型的默认上下文模板与默认参数卡键
-                service = CardService(db)
-                new_card = service.create(CardCreate(
-                    title=card_type.name,
+                if card_type:
+                    # 创建卡片
+                    new_card = Card(
+                        title=card_type_name,
+                        content={},
+                        project_id=project_id,
                     card_type_id=card_type.id,
-                    parent_id=None,
-                    content={}
-                ), project_id)
-                # 更新排序（保持原有显示顺序）
-                new_card.display_order = setup["order"]
+                        display_order=setup["order"],
+                        ai_context_template=card_type.default_ai_context_template,
+                    )
                 db.add(new_card)
                 db.commit()
-                db.refresh(new_card)
-                logger.info(f"Successfully created initial card '{new_card.title}' for project {project_id}.")
             except Exception as e:
-                logger.error(f"Failed to create initial card for type '{card_type_name}' in project {project_id}.", exc_info=True)
-                db.rollback()
-
-        return db.exec(select(Card).where(Card.project_id == project_id)).all()
-
+                logger.error(f"Failed creating initial card for type {card_type_name}: {e}")
 
     def update(self, card_id: int, card_update: CardUpdate) -> Optional[Card]:
         card = self.get_by_id(card_id)

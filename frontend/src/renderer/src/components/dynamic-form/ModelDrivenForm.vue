@@ -77,7 +77,8 @@ function resolveActualSchema(schema: JSONSchema): JSONSchema {
     if (nonNullSchema) {
       if (nonNullSchema.$ref) {
         const refName = nonNullSchema.$ref.split('/').pop() || ''
-        const resolvedSchema = schemaService.getSchema(refName)
+        const localDefs = (props.schema as any)?.$defs || {}
+        const resolvedSchema = localDefs[refName] || schemaService.getSchema(refName)
         if (resolvedSchema) {
           return { ...resolvedSchema, title: schema.title, description: schema.description }
         }
@@ -87,7 +88,8 @@ function resolveActualSchema(schema: JSONSchema): JSONSchema {
   }
   if (schema.$ref) {
     const refName = schema.$ref.split('/').pop() || ''
-    const resolvedSchema = schemaService.getSchema(refName)
+    const localDefs = (props.schema as any)?.$defs || {}
+    const resolvedSchema = localDefs[refName] || schemaService.getSchema(refName)
     if (resolvedSchema) {
       return { ...resolvedSchema, title: schema.title, description: schema.description }
     }

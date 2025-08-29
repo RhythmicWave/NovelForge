@@ -3,9 +3,7 @@ import { ref } from 'vue'
 import LLMConfigManager from '../setting/LLMConfigManager.vue'
 // import Versions from '../Versions.vue'
 import PromptWorkshop from '../setting/PromptWorkshop.vue'
-import AIParamCardManager from '../setting/AIParamCardManager.vue'
 import CardTypeManager from '../setting/CardTypeManager.vue'
-import OutputModelManager from '../setting/OutputModelManager.vue'
 import KnowledgeManager from '../setting/KnowledgeManager.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -38,12 +36,6 @@ function handleClose() {
         </el-tab-pane>
         <el-tab-pane label="提示词工坊" name="prompts">
           <PromptWorkshop />
-        </el-tab-pane>
-        <el-tab-pane label="AI参数卡片" name="ai-cards">
-          <AIParamCardManager />
-        </el-tab-pane>
-        <el-tab-pane label="输出模型" name="output-models">
-          <OutputModelManager />
         </el-tab-pane>
         <el-tab-pane label="卡片类型" name="card-types">
           <CardTypeManager />

@@ -47,24 +47,28 @@ class Prompt(SQLModel, table=True):
 
 
 # 输出模型库
-class OutputModel(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    # 模型唯一名称（作为 response_model_name）
-    name: str = Field(unique=True, index=True)
-    description: Optional[str] = None
-    # 存储完整 JSON Schema（解引用可在前端完成）
-    json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-    built_in: bool = Field(default=False)
-    version: int = Field(default=1)
-    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+# class OutputModel(SQLModel, table=True):
+#     id: Optional[int] = Field(default=None, primary_key=True)
+#     # 模型唯一名称（作为 response_model_name）
+#     name: str = Field(unique=True, index=True)
+#     description: Optional[str] = None
+#     # 存储完整 JSON Schema（解引用可在前端完成）
+#     json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+#     built_in: bool = Field(default=False)
+#     version: int = Field(default=1)
+#     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 class CardType(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    # 兼容旧的模型名称（如 CharacterCard/SceneCard），为空则默认等于 name
+    model_name: Optional[str] = Field(default=None, index=True)
     description: Optional[str] = None
-    # 统一选择输出模型（引用 OutputModel.name）
-    output_model_name: Optional[str] = Field(default=None)
+    # 类型内置结构（JSON Schema）
+    json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # 类型级默认 AI 参数（模型ID/提示词/采样等）
+    ai_params: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     editor_component: Optional[str] = None  # e.g., 'NovelEditor' for custom UI
     is_ai_enabled: bool = Field(default=True)
     is_singleton: bool = Field(default=False)  # e.g., only one 'Synopsis' card per project
@@ -79,8 +83,15 @@ class CardType(SQLModel, table=True):
 class Card(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
+    # 兼容旧的模型名称；为空表示跟随类型的 model_name 或类型名
+    model_name: Optional[str] = Field(default=None, index=True)
     content: Any = Field(default={}, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+    # 允许实例自定义结构；为空表示跟随类型
+    json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # 实例级 AI 参数；为空表示跟随类型
+    ai_params: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # 自引用关系，用于树形结构
     parent_id: Optional[int] = Field(default=None, foreign_key="card.id")
@@ -107,7 +118,6 @@ class Card(SQLModel, table=True):
     # 用于排序卡片，用于同一父级下的排序
     display_order: int = Field(default=0)
     ai_context_template: Optional[str] = Field(default=None)
-    selected_ai_param_card_id: Optional[str] = Field(default=None)
 
 
 # 伏笔登记表

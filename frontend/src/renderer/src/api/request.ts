@@ -14,21 +14,30 @@ interface ApiResponse<T> {
 class HttpClient {
   private instance: AxiosInstance
   private loadingInstance: any
+  private loadingCount = 0
 
   constructor(config: AxiosRequestConfig) {
     this.instance = axios.create(config)
 
     this.instance.interceptors.request.use(
       (config) => {
-        this.loadingInstance = ElLoading.service({
-          lock: true,
-          text: '加载中...',
-          background: 'rgba(0, 0, 0, 0.7)'
-        })
+        // 允许通过 config.showLoading = false 关闭本次请求的全局 Loading
+        const showLoading = (config as any).showLoading !== false
+        if (showLoading) {
+          if (this.loadingCount === 0) {
+            this.loadingInstance = ElLoading.service({
+              lock: true,
+              text: '加载中...',
+              background: 'rgba(0, 0, 0, 0.7)'
+            })
+          }
+          this.loadingCount++
+        }
         return config
       },
       (error) => {
-        this.loadingInstance?.close()
+        // request 阶段异常，尝试安全关闭
+        try { this.loadingCount = Math.max(0, this.loadingCount - 1); if (this.loadingCount === 0) this.loadingInstance?.close() } catch {}
         return Promise.reject(error)
       }
     )
@@ -36,7 +45,13 @@ class HttpClient {
     this.instance.interceptors.response.use(
       // 我们期望从后端获取的数据结构是 ApiResponse<T>
       (response: AxiosResponse<any>) => {
-        this.loadingInstance?.close()
+        const showLoading = (response.config as any).showLoading !== false
+        if (showLoading) {
+          try {
+            this.loadingCount = Math.max(0, this.loadingCount - 1)
+            if (this.loadingCount === 0) this.loadingInstance?.close()
+          } catch {}
+        }
         const res = response.data
 
         // 如果响应的数据中不包含我们约定的 status 字段，
@@ -55,16 +70,22 @@ class HttpClient {
         return res.data
       },
       (error) => {
-        this.loadingInstance?.close()
+        const showLoading = (error.config as any)?.showLoading !== false
+        if (showLoading) {
+          try {
+            this.loadingCount = Math.max(0, this.loadingCount - 1)
+            if (this.loadingCount === 0) this.loadingInstance?.close()
+          } catch {}
+        }
         
         // --- 详细的错误处理增强 ---
         if (error.response && error.response.status === 422) {
           // 专门处理 FastAPI 的校验错误
           const validationErrors = error.response.data.detail
           if (Array.isArray(validationErrors)) {
-            const errorMessages = validationErrors.map(err => {
+            const errorMessages = validationErrors.map((err: any) => {
               // 从 loc 数组中提取有意义的字段名
-              const fieldName = err.loc.slice(1).join(' -> ') // e.g., "body -> world_building -> world_name" becomes "world_building -> world_name"
+              const fieldName = err.loc.slice(1).join(' -> ')
               return `字段 '${fieldName}': ${err.msg}`
             }).join('<br/>')
             
@@ -95,24 +116,24 @@ class HttpClient {
     return this.instance.request(config)
   }
 
-  public get<T>(url: string, params?: object, prefix: string = '/api'): Promise<T> {
+  public get<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'GET', url: fullUrl, params })
+    return this.request<T>({ method: 'GET', url: fullUrl, params, ...(options || {}) })
   }
 
-  public post<T>(url: string, data?: object, prefix: string = '/api'): Promise<T> {
+  public post<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'POST', url: fullUrl, data })
+    return this.request<T>({ method: 'POST', url: fullUrl, data, ...(options || {}) })
   }
 
-  public put<T>(url: string, data?: object, prefix: string = '/api'): Promise<T> {
+  public put<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'PUT', url: fullUrl, data })
+    return this.request<T>({ method: 'PUT', url: fullUrl, data, ...(options || {}) })
   }
 
-  public delete<T>(url: string, params?: object, prefix: string = '/api'): Promise<T> {
+  public delete<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'DELETE', url: fullUrl, params })
+    return this.request<T>({ method: 'DELETE', url: fullUrl, params, ...(options || {}) })
   }
 }
 

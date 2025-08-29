@@ -7,9 +7,12 @@ from datetime import datetime
 
 class CardTypeBase(BaseModel):
     name: str
+    model_name: Optional[str] = None
     description: Optional[str] = None
-    # 统一选择的输出模型名称（对应 OutputModel.name）
-    output_model_name: Optional[str] = None
+    # 类型内置结构（JSON Schema）
+    json_schema: Optional[Dict[str, Any]] = None
+    # 类型默认 AI 参数
+    ai_params: Optional[Dict[str, Any]] = None
     editor_component: Optional[str] = None
     is_ai_enabled: bool = Field(default=False)
     is_singleton: bool = Field(default=False)
@@ -25,8 +28,10 @@ class CardTypeCreate(CardTypeBase):
 
 class CardTypeUpdate(BaseModel):
     name: Optional[str] = None
+    model_name: Optional[str] = None
     description: Optional[str] = None
-    output_model_name: Optional[str] = None
+    json_schema: Optional[Dict[str, Any]] = None
+    ai_params: Optional[Dict[str, Any]] = None
     editor_component: Optional[str] = None
     is_ai_enabled: Optional[bool] = None
     is_singleton: Optional[bool] = None
@@ -43,9 +48,14 @@ class CardTypeRead(CardTypeBase):
 
 class CardBase(BaseModel):
     title: str
+    model_name: Optional[str] = None
     content: Optional[Dict[str, Any]] = Field(default_factory=dict)
     parent_id: Optional[int] = None
     card_type_id: int
+    # 实例可选自定义结构；为空表示跟随类型
+    json_schema: Optional[Dict[str, Any]] = None
+    # 实例 AI 参数；为空表示跟随类型
+    ai_params: Optional[Dict[str, Any]] = None
 
 
 class CardCreate(CardBase):
@@ -54,11 +64,13 @@ class CardCreate(CardBase):
 
 class CardUpdate(BaseModel):
     title: Optional[str] = None
+    model_name: Optional[str] = None
     content: Optional[Dict[str, Any]] = None
     parent_id: Optional[int] = None
     display_order: Optional[int] = None
     ai_context_template: Optional[str] = None
-    selected_ai_param_card_id: Optional[str] = None
+    json_schema: Optional[Dict[str, Any]] = None
+    ai_params: Optional[Dict[str, Any]] = None
 
 
 class CardRead(CardBase):
@@ -69,4 +81,3 @@ class CardRead(CardBase):
     card_type: CardTypeRead
     # 具体卡片可覆盖类型默认模板
     ai_context_template: Optional[str] = None 
-    selected_ai_param_card_id: Optional[str] = None 

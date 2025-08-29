@@ -112,13 +112,19 @@ function detectTypeGroupByCard(c: CardRead): string {
   if (et === 'item') return '物品'
   if (et === 'concept') return '概念'
 
-  // 2) 其次使用输出模型名精确匹配
-  const om = (c.card_type?.output_model_name || '').toLowerCase()
-  if (om === 'charactercard') return '角色'
-  if (om === 'scenecard') return '场景'
-  if (om === 'organizationcard') return '组织'
-  if (om === 'itemcard') return '物品'
-  if (om === 'conceptcard') return '概念'
+  // 2) 使用卡片类型中文名归类
+  const tname = (c.card_type?.name || '').trim()
+  if (tname.includes('角色')) return '角色'
+  if (tname.includes('场景')) return '场景'
+  if (tname.includes('组织')) return '组织'
+  if (tname.includes('物品')) return '物品'
+  if (tname.includes('概念')) return '概念'
+
+  // 3) 兼容旧模型名：优先实例/类型的 model_name
+  const m = (c as any).model_name || (c.card_type as any)?.model_name || ''
+  if (m === 'CharacterCard') return '角色'
+  if (m === 'SceneCard') return '场景'
+  if (m === 'OrganizationCard') return '组织'
 
   return '其他'
 }

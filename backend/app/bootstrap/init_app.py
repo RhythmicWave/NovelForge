@@ -1,11 +1,11 @@
 import os
 from sqlmodel import Session, select
-from app.db.models import Prompt, CardType, OutputModel, Card
+from app.db.models import Prompt, CardType, Card
 from loguru import logger
 from app.api.endpoints.ai import RESPONSE_MODEL_MAP
 
 # 新增
-from app.db.models import Knowledge
+from app.db.models import Knowledge, LLMConfig
 
 def _parse_prompt_file(file_path: str):
     """解析单个提示词文件，支持frontmatter元数据"""
@@ -71,39 +71,20 @@ def init_prompts(db: Session):
 
 
 def init_output_models(db: Session):
-    """初始化/更新内置输出模型（将内置 Pydantic 模型写入 OutputModel）。"""
-    existing = {om.name: om for om in db.exec(select(OutputModel)).all()}
-    updated = 0
-    created = 0
-    for name, model in RESPONSE_MODEL_MAP.items():
-        schema = model.model_json_schema(ref_template="#/$defs/{model}")
-        if '$defs' in schema:
-            del schema['$defs']
-        if name in existing:
-            om = existing[name]
-            om.json_schema = schema
-            om.built_in = True
-            updated += 1
-        else:
-            db.add(OutputModel(name=name, description=f"内置输出模型 {name}", json_schema=schema, built_in=True))
-            created += 1
-    if created or updated:
-        db.commit()
-        logger.info(f"输出模型初始化完成：新增 {created}，更新 {updated}")
-    else:
-        logger.info("输出模型已是最新状态。")
+    """已废弃：输出模型表被合并到卡片类型。"""
+    logger.info("输出模型初始化跳过：已合并到卡片类型。")
 
 
 def create_default_card_types(db: Session):
     default_types = {
-        "作品标签": {"output_model_name": "Tags", "editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
-        "金手指": {"output_model_name": "SpecialAbilityResponse", "is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content"},
-        "一句话梗概": {"output_model_name": "OneSentence", "is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities"},
-        "故事大纲": {"output_model_name": "ParagraphOverview", "is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事梗概: @一句话梗概.content.one_sentence"},
-        "世界观设定": {"output_model_name": "WorldBuilding", "is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事大纲: @故事大纲.content.overview"},
-        "核心蓝图": {"output_model_name": "Blueprint", "is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事大纲: @故事大纲.content.overview\n世界观设定: @世界观设定.content\n组织/势力设定:@type:组织卡[previous:global].{content.name,content.description,content.influence,content.relationship}"},
+        "作品标签": {"editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
+        "金手指": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content"},
+        "一句话梗概": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities"},
+        "故事大纲": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事梗概: @一句话梗概.content.one_sentence"},
+        "世界观设定": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事大纲: @故事大纲.content.overview"},
+        "核心蓝图": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities\n故事大纲: @故事大纲.content.overview\n世界观设定: @世界观设定.content\n组织/势力设定:@type:组织卡[previous:global].{content.name,content.description,content.influence,content.relationship}"},
         # 分卷大纲
-        "分卷大纲": {"output_model_name": "VolumeOutline", "default_ai_context_template": (
+        "分卷大纲": {"default_ai_context_template": (
             "总卷数:@核心蓝图.content.volume_count\n"
             "故事大纲:@故事大纲.content.overview\n"
             "作品标签:@作品标签.content\n"
@@ -115,7 +96,6 @@ def create_default_card_types(db: Session):
             "接下来请你创作第 @self.content.volume_number 卷的细纲\n"
         )},
         "写作指南": {
-            "output_model_name": "WritingGuide", 
             "is_singleton": False,
             "default_ai_context_template": (
                 "世界观设定: @世界观设定.content.world_view\n"
@@ -128,7 +108,7 @@ def create_default_card_types(db: Session):
                 "请为第 @self.content.volume_number 卷生成一份写作指南。"
             )
         },
-        "阶段大纲": {"output_model_name": "StageLine", "default_ai_context_template": (
+        "阶段大纲": {"default_ai_context_template": (
             "世界观设定: @世界观设定.content.world_view\n"
             "组织/势力设定:@type:组织卡[previous:global].{content.name,content.entity_type,content.life_span,content.description,content.influence,content.relationship}\n"
             "分卷主线:@parent.content.main_target\n"
@@ -143,7 +123,7 @@ def create_default_card_types(db: Session):
             "接下来请你创作第 @self.content.stage_number 阶段的故事细纲。"
         )},
         # 章节大纲：使用未包装模型 ChapterOutline
-        "章节大纲": {"output_model_name": "ChapterOutline", "default_ai_context_template": (
+        "章节大纲": {"default_ai_context_template": (
             "word_view: @世界观设定.content\n"
             "volume_number: @self.content.volume_number\n"
             "volume_main_target: @type:分卷大纲[index=$current.volumeNumber].content.main_target\n"
@@ -154,7 +134,7 @@ def create_default_card_types(db: Session):
             "之前的章节大纲: @type:章节大纲[sibling].{content.chapter_number,content.overview}\n"
             "请开始创作第 @self.content.chapter_number 章的大纲，保证连贯性"
         )},
-        "章节正文": {"output_model_name": "Chapter", "editor_component": "ChapterStudio", "is_ai_enabled": False, "default_ai_context_template": (
+        "章节正文": {"editor_component": "ChapterStudio", "is_ai_enabled": False, "default_ai_context_template": (
             "世界观设定: @世界观设定.content\n"
             "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship}\n"
             "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description}\n"
@@ -167,20 +147,73 @@ def create_default_card_types(db: Session):
             "注意，写作时必须保证结尾剧情与下一章的剧情大纲不会冲突，且不会提取设计下一章剧情(如果存在的话):@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number = $self.content.chapter_number+1].{content.title,content.overview}\n"
             "写作时请结合写作指南要求:@type:写作指南[index=filter:content.volume_number = $self.content.volume_number].{content.content}\n"
             )},
-        "角色卡": {"output_model_name": "CharacterCard", "default_ai_context_template": None},
-        "场景卡": {"output_model_name": "SceneCard", "default_ai_context_template": None},
-        "组织卡":{"output_model_name": "OrganizationCard", "default_ai_context_template": None},
+        "角色卡": {"default_ai_context_template": None},
+        "场景卡": {"default_ai_context_template": None},
+        "组织卡": {"default_ai_context_template": None},
+    }
+
+    # 类型默认 AI 参数预设（不包含 llm_config_id）
+    DEFAULT_AI_PARAMS = {
+        "金手指": {"prompt_name": "金手指生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 60},
+        "一句话梗概": {"prompt_name": "一句话梗概", "temperature": 0.6, "max_tokens": 4096, "timeout": 60},
+        "故事大纲": {"prompt_name": "一段话大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 90},
+        "世界观设定": {"prompt_name": "世界观设定", "temperature": 0.7, "max_tokens": 1500, "timeout": 90},
+        "核心蓝图": {"prompt_name": "核心蓝图", "temperature": 0.7, "max_tokens": 8192  , "timeout": 120},
+        "分卷大纲": {"prompt_name": "分卷大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
+        "写作指南": {"prompt_name": "写作指南", "temperature": 0.6, "max_tokens": 8192, "timeout": 90},
+        "阶段大纲": {"prompt_name": "阶段大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
+        "章节大纲": {"prompt_name": "章节大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 90},
+        "章节正文": {"prompt_name": "内容生成", "temperature": 0.7, "max_tokens": 8192, "timeout": 90},
+        "角色卡": {"prompt_name": "角色动态信息提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 60},
+        "场景卡": {"prompt_name": "内容生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 60},
+        "组织卡": {"prompt_name": "关系提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 60},
+    }
+
+    # 类型名称到内置响应模型的映射（直接用于生成 json_schema）
+    TYPE_TO_MODEL_KEY = {
+        "作品标签": "Tags",
+        "金手指": "SpecialAbilityResponse",
+        "一句话梗概": "OneSentence",
+        "故事大纲": "ParagraphOverview",
+        "世界观设定": "WorldBuilding",
+        "核心蓝图": "Blueprint",
+        "分卷大纲": "VolumeOutline",
+        "写作指南": "WritingGuide",
+        "阶段大纲": "StageLine",
+        "章节大纲": "ChapterOutline",
+        "章节正文": "Chapter",
+        "角色卡": "CharacterCard",
+        "场景卡": "SceneCard",
+        "组织卡": "OrganizationCard",
     }
 
     existing_types = db.exec(select(CardType)).all()
     existing_type_names = {ct.name for ct in existing_types}
 
+    # 默认 llm_config_id：取第一个可用 LLM 配置（若存在）
+    default_llm = db.exec(select(LLMConfig)).first()
+
     for name, details in default_types.items():
         if name not in existing_type_names:
+            # 直接在卡片类型上存储结构（json_schema）
+            schema = None
+            try:
+                model_class = RESPONSE_MODEL_MAP.get(TYPE_TO_MODEL_KEY.get(name))
+                if model_class:
+                    schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
+            except Exception:
+                schema = None
+            # AI 参数预设（llm_config_id 由前端选择，不在此指定）
+            ai_params = DEFAULT_AI_PARAMS.get(name)
+            if ai_params is not None:
+                # 若存在可用的默认 LLM，则写入其 ID；避免写 0 导致前端无法识别
+                ai_params = { **ai_params, "llm_config_id": (default_llm.id if default_llm else None) }
             card_type = CardType(
                 name=name,
+                model_name=TYPE_TO_MODEL_KEY.get(name, name),
                 description=details.get("description", f"{name}的默认卡片类型"),
-                output_model_name=details.get("output_model_name"),
+                json_schema=schema,
+                ai_params=ai_params,
                 editor_component=details.get("editor_component"),
                 is_ai_enabled=details.get("is_ai_enabled", True),
                 is_singleton=details.get("is_singleton", False),
@@ -190,9 +223,23 @@ def create_default_card_types(db: Session):
             db.add(card_type)
             logger.info(f"Created default card type: {name}")
         else:
-            # 增量更新
+            # 增量更新：刷新类型结构与元信息
             ct = next(ct for ct in existing_types if ct.name == name)
-            ct.output_model_name = details.get("output_model_name")
+            try:
+                model_class = RESPONSE_MODEL_MAP.get(TYPE_TO_MODEL_KEY.get(name))
+                if model_class:
+                    schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
+                    ct.json_schema = schema
+            except Exception:
+                pass
+            # 若缺失 ai_params 则按预设填充（不覆盖用户已设置的）
+            if getattr(ct, 'ai_params', None) is None:
+                preset = DEFAULT_AI_PARAMS.get(name)
+                if preset is not None:
+                    ct.ai_params = { **preset, "llm_config_id": (default_llm.id if default_llm else None) }
+            # 若缺失 model_name 则按映射补齐
+            if not getattr(ct, 'model_name', None):
+                ct.model_name = TYPE_TO_MODEL_KEY.get(name, name)
             ct.editor_component = details.get("editor_component")
             ct.is_ai_enabled = details.get("is_ai_enabled", True)
             ct.is_singleton = details.get("is_singleton", False)

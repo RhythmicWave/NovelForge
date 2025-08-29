@@ -385,24 +385,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/context/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 获取上下文装配设置 */
-        get: operations["get_context_settings_api_context_settings_get"];
-        put?: never;
-        /** 更新上下文装配设置（部分字段） */
-        post: operations["update_context_settings_api_context_settings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/memory/query": {
         parameters: {
             query?: never;
@@ -862,8 +844,6 @@ export interface components {
             card_type: components["schemas"]["CardTypeRead"];
             /** Ai Context Template */
             ai_context_template?: string | null;
-            /** Selected Ai Param Card Id */
-            selected_ai_param_card_id?: string | null;
         };
         /** CardTypeCreate */
         CardTypeCreate: {
@@ -961,23 +941,6 @@ export interface components {
             display_order?: number | null;
             /** Ai Context Template */
             ai_context_template?: string | null;
-            /** Selected Ai Param Card Id */
-            selected_ai_param_card_id?: string | null;
-        };
-        /** ContextSettingsModel */
-        ContextSettingsModel: {
-            /** Recent Chapters Window */
-            recent_chapters_window: number;
-            /** Total Context Budget Chars */
-            total_context_budget_chars: number;
-            /** Soft Budget Chars */
-            soft_budget_chars: number;
-            /** Quota Recent */
-            quota_recent: number;
-            /** Quota Older Summary */
-            quota_older_summary: number;
-            /** Quota Facts */
-            quota_facts: number;
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -1604,21 +1567,6 @@ export interface components {
              * @default
              */
             affection: string;
-        };
-        /** UpdateContextSettingsRequest */
-        UpdateContextSettingsRequest: {
-            /** Recent Chapters Window */
-            recent_chapters_window?: number | null;
-            /** Total Context Budget Chars */
-            total_context_budget_chars?: number | null;
-            /** Soft Budget Chars */
-            soft_budget_chars?: number | null;
-            /** Quota Recent */
-            quota_recent?: number | null;
-            /** Quota Older Summary */
-            quota_older_summary?: number | null;
-            /** Quota Facts */
-            quota_facts?: number | null;
         };
         /** UpdateDynamicInfo */
         "UpdateDynamicInfo-Input": {
@@ -2743,59 +2691,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssembleContextResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_context_settings_api_context_settings_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContextSettingsModel"];
-                };
-            };
-        };
-    };
-    update_context_settings_api_context_settings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateContextSettingsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContextSettingsModel"];
                 };
             };
             /** @description Validation Error */

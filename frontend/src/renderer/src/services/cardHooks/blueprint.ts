@@ -25,7 +25,7 @@ registerHook('核心蓝图',
               parent_id: null,
               card_type_id: volumeTypeId,
               content: { volume_number: i } as any
-            })
+            }, { silent: true })
           }
         }
       }
@@ -51,7 +51,7 @@ registerHook('核心蓝图',
             parent_id: card.id,
             card_type_id: characterTypeId,
             content: ch || {}
-          })
+          }, { silent: true })
         }
       }
     }
@@ -66,7 +66,7 @@ registerHook('核心蓝图',
             parent_id: card.id,
             card_type_id: sceneTypeId,
             content: sc || {}
-          })
+          }, { silent: true })
         }
       }
     }

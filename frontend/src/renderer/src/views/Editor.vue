@@ -4,45 +4,71 @@
     <el-aside class="sidebar card-navigation-sidebar" :style="{ width: leftSidebarWidth + 'px' }" @contextmenu.prevent="onSidebarContextMenu">
       <div class="sidebar-header">
         <h3 class="sidebar-title">创作卡片</h3>
-        <el-button type="primary" size="small" :icon="Plus" @click="isCreateCardDialogVisible = true">
-          新建卡片
-        </el-button>
+        
       </div>
-      <el-tree
-        v-if="groupedTree.length > 0"
-        :data="groupedTree"
-        node-key="id"
-        :default-expanded-keys="expandedKeys"
-        :expand-on-click-node="false"
-        @node-click="handleNodeClick"
-        @node-expand="onNodeExpand"
-        @node-collapse="onNodeCollapse"
-        class="card-tree"
-      >
-        <template #default="{ node, data }">
-          <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
-            <div class="custom-tree-node full-row">
-              <el-icon class="card-icon"> 
-                <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
-              </el-icon>
-              <span class="label">{{ node.label || data.title }}</span>
-              <span v-if="data.children && data.children.length > 0" class="child-count">{{ data.children.length }}</span>
-            </div>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <template v-if="!data.__isGroup">
-                  <el-dropdown-item command="create-child">新建子卡片</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>删除卡片</el-dropdown-item>
-                </template>
-                <template v-else>
-                  <el-dropdown-item command="delete-group" divided>删除该分组下所有卡片</el-dropdown-item>
-                </template>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </template>
-      </el-tree>
-      <el-empty v-else description="暂无卡片" :image-size="80"></el-empty>
+
+      <!-- 新增：上半区（类型列表） -->
+      <div class="types-pane" :style="{ height: typesPaneHeight + 'px' }" @dragover.prevent @drop="onTypesPaneDrop">
+        <div class="pane-title">已有卡片类型</div>
+        <el-scrollbar class="types-scroll">
+          <ul class="types-list">
+            <li v-for="t in cardStore.cardTypes" :key="t.id" class="type-item" draggable="true"
+                @dragstart="onTypeDragStart(t)">
+              <span class="type-name">{{ t.name }}</span>
+            </li>
+          </ul>
+        </el-scrollbar>
+      </div>
+      <!-- 内部分割条（垂直） -->
+      <div class="inner-resizer" @mousedown="startResizingInner"></div>
+
+      <!-- 下半区：项目卡片树 -->
+      <div class="cards-pane" :style="{ height: `calc(100% - ${typesPaneHeight + innerResizerThickness}px)` }" @dragover.prevent @drop="onCardsPaneDrop">
+        <div class="cards-title">
+          <span class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</span>
+          <div class="cards-title-actions">
+            <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
+          </div>
+        </div>
+        <el-tree
+          ref="treeRef"
+          v-if="groupedTree.length > 0"
+          :data="groupedTree"
+          node-key="id"
+          :default-expanded-keys="expandedKeys"
+          :expand-on-click-node="false"
+          @node-click="handleNodeClick"
+          @node-expand="onNodeExpand"
+          @node-collapse="onNodeCollapse"
+          class="card-tree"
+        >
+          <template #default="{ node, data }">
+            <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
+              <div class="custom-tree-node full-row" draggable="true" @dragstart="onCardDragStart(data)" @dragover.prevent @drop="(e:any) => onTypeDropToNode(e, data)">
+                <el-icon class="card-icon"> 
+                  <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
+                </el-icon>
+                <span class="label">{{ node.label || data.title }}</span>
+                <span v-if="data.children && data.children.length > 0" class="child-count">{{ data.children.length }}</span>
+              </div>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <template v-if="!data.__isGroup">
+                    <el-dropdown-item command="create-child">新建子卡片</el-dropdown-item>
+                    <el-dropdown-item command="rename">重命名</el-dropdown-item>
+                    <el-dropdown-item command="edit-structure">结构编辑</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>删除卡片</el-dropdown-item>
+                  </template>
+                  <template v-else>
+                    <el-dropdown-item command="delete-group" divided>删除该分组下所有卡片</el-dropdown-item>
+                  </template>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+        </el-tree>
+        <el-empty v-else description="暂无卡片" :image-size="80"></el-empty>
+      </div>
 
       <!-- 空白区域右键菜单（手动触发） -->
       <span ref="blankMenuRef" class="blank-menu-ref" :style="{ position: 'fixed', left: blankMenuX + 'px', top: blankMenuY + 'px', width: '1px', height: '1px' }"></span>
@@ -62,7 +88,6 @@
     <!-- 中栏主内容区 -->
     <el-main class="main-content">
       <el-tabs v-model="activeTab" type="border-card" class="main-tabs">
-        <!-- 将“卡片集市”改为“卡片库”，更贴近素材库/资源库的含义 -->
         <el-tab-pane label="卡片库" name="market">
           <CardMarket @edit-card="handleEditCard" />
         </el-tab-pane>
@@ -109,13 +134,17 @@
       <el-button type="primary" @click="handleCreateCard">创建</el-button>
     </template>
   </el-dialog>
+
+  <SchemaStudio v-model:visible="schemaStudio.visible" :mode="'card'" :target-id="schemaStudio.cardId" :context-title="schemaStudio.cardTitle" @saved="onCardSchemaSaved" />
+
+  
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, defineAsyncComponent, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, reactive, defineAsyncComponent, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Plus } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import { 
   CollectionTag,
   MagicStick,
@@ -131,9 +160,10 @@ import {
 import type { components } from '@renderer/types/generated'
 import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
 import { useCardStore } from '@renderer/stores/useCardStore'
-import { ElMessage } from 'element-plus'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
+import SchemaStudio from '@renderer/components/shared/SchemaStudio.vue'
+import { getCardSchema, createCardType } from '@renderer/api/setting'
  
  // Mock components that will be created later
  const CardEditorHost = defineAsyncComponent(() => import('@renderer/components/cards/CardEditorHost.vue'));
@@ -231,6 +261,95 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
 
  // Composables
  const { leftSidebarWidth, startResizing } = useSidebarResizer()
+  
+  // 内部垂直分割：类型/卡片高度
+  const typesPaneHeight = ref(180)
+  const innerResizerThickness = 6
+  // 左侧宽度拖拽沿用 useSidebarResizer.startResizing('left')
+ 
+  function startResizingInner() {
+    const startY = (event as MouseEvent).clientY
+    const startH = typesPaneHeight.value
+    const onMove = (e: MouseEvent) => {
+      const dy = e.clientY - startY
+      const next = Math.max(120, Math.min(startH + dy, 400))
+      typesPaneHeight.value = next
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+ // 拖拽：从类型到卡片区域创建新实例
+ function onTypeDragStart(t: any) {
+   try { (event as DragEvent).dataTransfer?.setData('application/x-card-type-id', String(t.id)) } catch {}
+ }
+ function onCardsPaneDrop(e: DragEvent) {
+   try {
+     const typeId = e.dataTransfer?.getData('application/x-card-type-id')
+     if (typeId) {
+       // 在根创建一个该类型的新卡片，标题默认与类型同名（可后续弹框重命名）
+       newCardForm.title = (cardStore.cardTypes.find(ct => ct.id === Number(typeId))?.name || '新卡片')
+       newCardForm.card_type_id = Number(typeId)
+       newCardForm.parent_id = '' as any
+       handleCreateCard()
+       return
+     }
+   } catch {}
+ }
+
+ // 从卡片实例提升为类型：在上半区松手
+async function onTypesPaneDrop(e: DragEvent) {
+  try {
+    const cardIdStr = e.dataTransfer?.getData('application/x-card-id')
+    const cardId = cardIdStr ? Number(cardIdStr) : NaN
+    if (!cardId || Number.isNaN(cardId)) return
+    // 读取该卡片的有效 schema
+    const resp = await getCardSchema(cardId)
+    const effective = resp?.effective_schema || resp?.json_schema
+    if (!effective) { ElMessage.warning('该卡片暂无可用结构，无法生成类型'); return }
+    // 默认名称：卡片标题或“新类型”
+    const old = cards.value.find(c => (c as any).id === cardId)
+    const defaultName = (old?.title || '新类型') as string
+    const { value } = await ElMessageBox.prompt('从该实例创建卡片类型，请输入类型名称：', '创建卡片类型', {
+      inputValue: defaultName,
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputValidator: (v:string) => v.trim().length > 0 || '名称不能为空'
+    })
+    const finalName = String(value).trim()
+    await createCardType({ name: finalName, description: `${finalName}的默认卡片类型`, json_schema: effective } as any)
+    ElMessage.success('已从实例创建卡片类型')
+    await cardStore.fetchCardTypes()
+  } catch (err) {
+    // 用户取消或错误忽略
+  }
+}
+
+ // 从卡片到类型区域：派生为新类型（稍后实现完整流程）
+ function onCardDragStart(card: any) {
+   try { (event as DragEvent).dataTransfer?.setData('application/x-card-id', String(card?.id || '')) } catch {}
+ }
+
+ // --- 拖拽：从类型列表到卡片树 ---
+function getDraggedTypeId(e: DragEvent): number | null {
+  try {
+    const raw = e.dataTransfer?.getData('application/x-card-type-id') || ''
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch { return null }
+}
+
+async function onTypeDropToNode(e: DragEvent, nodeData: any) {
+  const typeId = getDraggedTypeId(e)
+  if (!typeId) return
+  // 仅对真实卡片节点生效，分组节点不接收
+  if (nodeData?.__isGroup) return
+  await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
+}
 
  // --- Methods ---
 
@@ -312,7 +431,25 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
      deleteNode(data.id, data.title)
    } else if (command === 'delete-group') {
      deleteGroupNodes(data)
+   } else if (command === 'edit-structure') {
+      if (!data?.id || data.__isGroup) return
+      openCardSchemaStudio(data)
+   } else if (command === 'rename') {
+     if (!data?.id || data.__isGroup) return
+     renameCard(data.id, data.title || '')
    }
+ }
+
+ function openCardSchemaStudio(card: any) {
+   schemaStudio.value = { visible: true, cardId: card.id, cardTitle: card.title || '' }
+ }
+
+ const schemaStudio = ref<{ visible: boolean; cardId: number; cardTitle: string }>({ visible: false, cardId: 0, cardTitle: '' })
+
+ async function onCardSchemaSaved() {
+   try {
+     await cardStore.fetchCards(projectStore.currentProject?.id as number)
+   } catch {}
  }
 
  // 打开“新建卡片”对话框并预填父ID
@@ -380,6 +517,25 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
    }
  }
 
+ // 重命名功能
+ async function renameCard(cardId: number, oldTitle: string) {
+   try {
+     const { value } = await ElMessageBox.prompt('重命名会立即生效，请输入新名称：', '重命名', {
+       confirmButtonText: '确定',
+       cancelButtonText: '取消',
+       inputValue: oldTitle,
+       inputPlaceholder: '请输入卡片标题',
+       inputValidator: (v:string) => v.trim().length > 0 || '标题不能为空'
+     })
+     const newTitle = String(value).trim()
+     if (newTitle === oldTitle) return
+     await cardStore.modifyCard(cardId, { title: newTitle })
+     ElMessage.success('已重命名')
+   } catch {
+     // 用户取消或失败
+   }
+ }
+
  // --- Lifecycle ---
 
  onMounted(async () => {
@@ -403,6 +559,13 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
 
  // 点击页面任意处隐藏空白菜单
  document.addEventListener('click', () => (blankMenuVisible.value = false))
+
+ const treeRef = ref<any>(null)
+
+ watch(groupedTree, async () => {
+   await nextTick()
+   try { treeRef.value?.setExpandedKeys?.(expandedKeys) } catch {}
+ }, { deep: true })
 </script>
 
 <style scoped>
@@ -429,16 +592,11 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
 }
 
 .card-navigation-sidebar {
-  padding: 10px;
+  padding: 8px;
 }
 
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  padding: 0 5px;
-}
+/* 顶部标题区已移除按钮，这里直接隐藏以消除空隙 */
+.sidebar-header { display: none; }
 
 .sidebar-title {
   margin: 0;
@@ -503,14 +661,30 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
   height: 100%;
 }
 
-.custom-tree-node.full-row {
+.custom-tree-node.full-row { 
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 4px 6px;
+  padding: 3px 6px;
 }
 .custom-tree-node.full-row .label {
   flex: 1;
 }
-/* 分组节点沿用通用样式，图标由类型映射决定；自适应无需额外样式 */
+
+
+.types-pane { display: flex; flex-direction: column; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-fill-color-lighter); padding: 6px; box-shadow: 0 2px 6px -2px var(--el-box-shadow-lighter); border-radius: 6px; }
+.pane-title { font-size: 12px; color: var(--el-text-color-regular); font-weight: 600; padding: 2px 4px 6px 4px; }
+.types-scroll { flex: 1; background: var(--el-fill-color-lighter); }
+.types-list { list-style: none; padding: 0; margin: 0; }
+.type-item { padding: 6px 8px; cursor: grab; display: flex; align-items: center; color: var(--el-text-color-primary); font-size: 13px; border-radius: 4px; }
+.type-item:hover { background: var(--el-fill-color-light); color: var(--el-color-primary); }
+.type-name { flex: 1; }
+
+.inner-resizer { height: 6px; cursor: row-resize; background: var(--el-fill-color-light); border-top: 1px solid var(--el-border-color-light); border-bottom: 1px solid var(--el-border-color-light); transition: height .12s ease, background-color .12s ease, border-color .12s ease; }
+.inner-resizer:hover { height: 8px; background: var(--el-fill-color); border-top: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); }
+/* 下半区：标题置顶并设置滚动容器 */
+.cards-pane { position: relative; padding-top: 8px; overflow: auto; }
+.cards-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
+.cards-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards-title-actions { display: flex; align-items: center; gap: 6px; }
 </style>

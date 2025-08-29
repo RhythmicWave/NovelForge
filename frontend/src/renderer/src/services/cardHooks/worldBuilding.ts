@@ -31,7 +31,7 @@ registerHook('世界观设定', async (card: any, ctx: any) => {
         parent_id: card.id,
         card_type_id: orgTypeId,
         content: org || {}
-      })
+      }, { skipHooks: true })
     }
   }
 

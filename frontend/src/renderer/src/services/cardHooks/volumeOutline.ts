@@ -41,7 +41,7 @@ registerHook('分卷大纲', async (card: any, ctx: any) => {
             parent_id: card.id,
             card_type_id: characterTypeId,
             content: ch || {}
-          })
+          }, { silent: true })
         }
       }
     }
@@ -57,7 +57,7 @@ registerHook('分卷大纲', async (card: any, ctx: any) => {
             parent_id: card.id,
             card_type_id: sceneTypeId,
             content: sc || {}
-          })
+          }, { silent: true })
         }
       }
     }
@@ -86,7 +86,7 @@ registerHook('分卷大纲', async (card: any, ctx: any) => {
           parent_id: card.id,
           card_type_id: stageTypeId,
           content: { stage_number: stageNumber, volume_number: content?.volume_number } as any
-        })
+        }, { silent: true })
       }
     }
   }
@@ -104,7 +104,7 @@ registerHook('分卷大纲', async (card: any, ctx: any) => {
         parent_id: card.id,
         card_type_id: guideTypeId,
         content: { volume_number: content.volume_number } as any
-      })
+      }, { silent: true })
     }
   }
 

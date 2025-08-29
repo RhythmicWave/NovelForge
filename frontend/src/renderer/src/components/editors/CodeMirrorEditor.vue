@@ -1,12 +1,13 @@
 <template>
-	<div class="editor-container">
+	<div class="chapter-studio">
 		<div class="toolbar">
-			<el-button-group class="mx-2">
+			<div class="toolbar-left">
+				<span class="title">章节创作</span>
+				<!-- 自动缩进/字号/行距 控件 -->
+				<el-button-group class="mx-2" style="margin-left: 12px;">
 				<el-tooltip content="自动缩进" placement="bottom">
 					<el-button :type="autoIndent ? 'primary' : ''" @click="toggleAutoIndent">缩进</el-button>
 				</el-tooltip>
-
-				<!-- 新增字号与行距下拉菜单 -->
 				<el-dropdown @command="(c:any) => fontSize = c" trigger="click">
 					<el-button>
 						字号 <el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -20,7 +21,6 @@
 						</el-dropdown-menu>
 					</template>
 				</el-dropdown>
-
 				<el-dropdown @command="(c:any) => lineHeight = c" trigger="click">
 					<el-button>
 						行距 <el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -36,7 +36,7 @@
 					</template>
 				</el-dropdown>
 			</el-button-group>
-
+			</div>
 			<div class="flex-spacer"></div>
 
 			<span class="word-count-display">{{ wordCount }} 字</span>
@@ -44,9 +44,7 @@
 			<el-input-number v-model="fontSize" :min="12" :max="28" :step="1" size="small" controls-position="right" style="width: 110px; margin-right: 8px; display: none;" />
 			<el-input-number v-model="lineHeight" :min="1.2" :max="2.4" :step="0.1" size="small" controls-position="right" style="width: 120px; margin-right: 12px; display: none;" />
 
-			<el-popover placement="bottom-end" title="AI续写设置" :width="400" trigger="click">
-				<!-- 预留更多设置项 -->
-			</el-popover>
+			<!-- 移除顶部的 AI 参数按钮，改放到底部标题行 -->
 
 			<el-button @click="openDrawer = true" plain>上下文注入</el-button>
 			<el-button @click="executeAIContinuation" type="primary" :loading="aiLoading">
@@ -68,9 +66,7 @@
 				<div class="chapter-title-wrapper">
 					<h1 class="chapter-title-text">{{ localCard.title }}</h1>
 					<div class="title-actions">
-						<el-select v-model="selectedAiParamCardId" placeholder="选择参数卡" class="param-select-top" @change="onParamChange" filterable>
-							<el-option v-for="p in paramCards" :key="p.id" :label="p.name || ('参数卡 ' + p.id)" :value="p.id" />
-						</el-select>
+						<AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
 					</div>
 				</div>
 			</div>
@@ -166,15 +162,17 @@ import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
-import { useAIParamCardStore } from '@renderer/stores/useAIParamCardStore'
+import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/stores/usePerCardAISettingsStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
-import { generateContinuationStreaming, type ContinuationRequest } from '@renderer/api/ai'
+import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
+import { getCardAIParams, updateCardAIParams, applyCardAIParamsToType } from '@renderer/api/setting'
 import { resolveTemplate } from '@renderer/services/contextResolver'
 import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOutput, extractRelationsOnly, ingestRelationsFromPreview, type RelationExtractionOutput } from '@renderer/api/memory'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ContextDrawer from '../common/ContextDrawer.vue'
 import CardReferenceSelectorDialog from '../cards/CardReferenceSelectorDialog.vue'
+import AIPerCardParams from '../common/AIPerCardParams.vue'
 
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
@@ -185,21 +183,13 @@ const emit = defineEmits<{ (e: 'update:chapter', value: any): void; (e: 'save'):
 
 const cardStore = useCardStore()
 const projectStore = useProjectStore()
-const aiParamCardStore = useAIParamCardStore()
+const perCardStore = usePerCardAISettingsStore()
 const editorStore = useEditorStore()
 const { cards } = storeToRefs(cardStore)
-const { paramCards } = storeToRefs(aiParamCardStore)
 
 const ready = ref(false)
 const cmRoot = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
-
-const selectedAiParamCardId = ref<string | undefined>(props.card.selected_ai_param_card_id ?? undefined)
-watch(() => props.card.selected_ai_param_card_id, (id) => { selectedAiParamCardId.value = id ?? undefined })
-
-function onParamChange() {
-	cardStore.modifyCard(localCard.id, { selected_ai_param_card_id: selectedAiParamCardId.value } as any, { skipHooks: true })
-}
 
 const localCard = reactive({
 	...props.card,
@@ -215,6 +205,68 @@ const localCard = reactive({
 		...(props.card.content as any || {})
 	}
 })
+
+// 每卡片参数
+const editingParams = ref<PerCardAIParams>({})
+const aiOptions = ref<AIConfigOptions | null>(null)
+async function loadAIOptions() { try { aiOptions.value = await getAIConfigOptions() } catch {} }
+const perCardParams = computed(() => perCardStore.getByCardId(props.card.id))
+const selectedModelName = computed(() => {
+	try {
+		const id = (perCardParams.value || editingParams.value)?.llm_config_id
+		const list = aiOptions.value?.llm_configs || []
+		const found = list.find(m => m.id === id)
+		return found?.display_name || (id != null ? String(id) : '')
+	} catch { return '' }
+})
+const paramSummary = computed(() => {
+	const p = perCardParams.value || editingParams.value
+	const model = selectedModelName.value ? `模型:${selectedModelName.value}` : '模型:未设'
+	const prompt = p?.prompt_name ? `任务:${p.prompt_name}` : '任务:未设'
+	const t = p?.temperature != null ? `温度:${p.temperature}` : ''
+	const m = p?.max_tokens != null ? `max_tokens:${p.max_tokens}` : ''
+	return [model, prompt, t, m].filter(Boolean).join(' · ')
+})
+
+watch(() => props.card, async (newCard) => {
+	if (!newCard) return
+	await loadAIOptions()
+	// 优先读取后端“有效参数”（类型默认或实例覆盖）
+	try {
+		const resp = await getCardAIParams(newCard.id)
+		const eff = (resp as any)?.effective_params
+		if (eff && Object.keys(eff).length) {
+			editingParams.value = { ...eff }
+			perCardStore.setForCard(newCard.id, { ...eff })
+			return
+		}
+	} catch {}
+	// 回退：使用本地存储或预设
+	const saved = perCardStore.getByCardId(newCard.id)
+	if (saved) editingParams.value = { ...saved }
+	else {
+		const preset = getPresetForType(newCard.card_type?.name) || {}
+		if (!preset.llm_config_id) { const first = aiOptions.value?.llm_configs?.[0]; if (first) preset.llm_config_id = first.id }
+		editingParams.value = { ...preset }
+		perCardStore.setForCard(newCard.id, editingParams.value)
+	}
+}, { immediate: true })
+
+function applyAndSavePerCardParams() {
+	try { perCardStore.setForCard(props.card.id, { ...editingParams.value }); ElMessage.success('已保存到本卡片设置') } catch { ElMessage.error('保存失败') }
+}
+function resetToPreset() {
+	const preset = getPresetForType(props.card.card_type?.name)
+	editingParams.value = { ...(preset || {}) }
+	perCardStore.setForCard(props.card.id, editingParams.value)
+}
+function getPresetForType(typeName?: string) : PerCardAIParams | undefined {
+	const map: Record<string, PerCardAIParams> = {
+		'章节大纲': { prompt_name: '章节大纲', llm_config_id: 1, temperature: 0.6, max_tokens: 4096, timeout: 60 },
+		'内容生成': { prompt_name: '内容生成', llm_config_id: 1, temperature: 0.7, max_tokens: 8192, timeout: 60 },
+	}
+	return map[typeName || '']
+}
 
 watch(() => props.chapter, (ch) => {
 	if (!ch) return
@@ -399,23 +451,17 @@ async function handleSave() {
 }
 
 function resolveLlmConfigId(): number | undefined {
-	const selectedParamCard = aiParamCardStore.findByKey?.(selectedAiParamCardId.value)
-	if (selectedParamCard?.llm_config_id) return selectedParamCard.llm_config_id
-	const first = (aiParamCardStore as any).paramCards?.[0]
-	return first?.llm_config_id
+	const p = perCardParams.value || editingParams.value
+	return p?.llm_config_id
 }
 
 function resolvePromptName(): string | undefined {
-	const selectedParamCard = aiParamCardStore.findByKey?.(selectedAiParamCardId.value)
-	if (selectedParamCard?.prompt_name) return selectedParamCard.prompt_name
-	const first = (aiParamCardStore as any).paramCards?.[0]
-	return first?.prompt_name
+	const p = perCardParams.value || editingParams.value
+	return p?.prompt_name
 }
 
 function resolveSampling() {
-	const selectedParamCard = aiParamCardStore.findByKey?.(selectedAiParamCardId.value)
-	const first = (aiParamCardStore as any).paramCards?.[0]
-	const src: any = selectedParamCard || first || {}
+	const src: any = perCardParams.value || editingParams.value || {}
 	return { temperature: src.temperature, max_tokens: src.max_tokens, timeout: src.timeout }
 }
 
@@ -459,9 +505,9 @@ function formatFactsFromContext(ctx: any | null | undefined): string {
 
 async function executeAIContinuation() {
 	const llmConfigId = resolveLlmConfigId()
-	if (!llmConfigId) { ElMessage.error('请先选择一个有效的AI参数配置（模型）'); return }
+	if (!llmConfigId) { ElMessage.error('请先设置有效的模型ID'); return }
 	const promptName = resolvePromptName()
-	if (!promptName) { ElMessage.error('所选参数卡未配置提示词（prompt）'); return }
+	if (!promptName) { ElMessage.error('未设置生成任务名（prompt）'); return }
 
 	aiLoading.value = true
 
@@ -938,4 +984,5 @@ onUnmounted(() => {
 	max-height: 60vh;
 	overflow: auto;
 }
+.chapter-studio { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 </style>

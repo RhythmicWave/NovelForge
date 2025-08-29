@@ -149,6 +149,7 @@
 import { ref, computed, watch } from 'vue'
 import type { CardRead } from '@renderer/api/cards'
 import { schemaService, type JSONSchema } from '@renderer/api/schema'
+import { getCardSchema } from '@renderer/api/setting'
 import { ElDialog, ElInput, ElScrollbar, ElTree, ElButton, ElRadioGroup, ElRadioButton, ElSelect, ElOption, ElCheckbox } from 'element-plus'
 
 interface FieldPath {
@@ -379,23 +380,17 @@ watch(specialKey, async (key) => {
   fieldPaths.value = []
   if (key === 'parent') {
     if (!hasParent.value) { fieldPaths.value = []; return }
-    const modelName = (parentCard.value?.card_type as any)?.output_model_name as string | undefined
-    if (modelName) {
-      await schemaService.loadSchemas()
-      const schema = schemaService.getSchema(modelName)
-      fieldPaths.value = schema ? generateFieldPaths(schema) : []
-    } else {
-      fieldPaths.value = []
-    }
+    try {
+      const resp = await getCardSchema(parentCard.value!.id)
+      const sch = resp?.effective_schema || resp?.json_schema
+      fieldPaths.value = sch ? generateFieldPaths(sch as any) : []
+    } catch { fieldPaths.value = [] }
   } else if (key === 'self') {
-    const modelName = (currentCard.value?.card_type as any)?.output_model_name as string | undefined
-    if (modelName) {
-      await schemaService.loadSchemas()
-      const schema = schemaService.getSchema(modelName)
-      fieldPaths.value = schema ? generateFieldPaths(schema) : []
-    } else {
-      fieldPaths.value = []
-    }
+    try {
+      const resp = await getCardSchema(currentCard.value!.id)
+      const sch = resp?.effective_schema || resp?.json_schema
+      fieldPaths.value = sch ? generateFieldPaths(sch as any) : []
+    } catch { fieldPaths.value = [] }
   } else if (key === 'stage:current') {
     // 自动定位当前章节所在阶段；若命中，则右侧展示 StageLine 字段
     const { stage, volumeNumber, chapterNumber } = findCurrentStage(props.cards, props.currentCardId)
@@ -415,12 +410,11 @@ async function handleCardSelect(card: CardRead) {
   selectedFieldPath.value = null
   selectedFieldPaths.value = []
   fieldPaths.value = []
-  const modelName = (card.card_type as any).output_model_name as string | undefined
-  if (modelName) {
-    await schemaService.loadSchemas()
-    const schema = schemaService.getSchema(modelName)
-    if (schema) fieldPaths.value = generateFieldPaths(schema)
-  }
+  try {
+    const resp = await getCardSchema(card.id)
+    const sch = resp?.effective_schema || resp?.json_schema
+    if (sch) fieldPaths.value = generateFieldPaths(sch as any)
+  } catch {}
 }
 
 async function handleTypeChange() {
@@ -429,11 +423,12 @@ async function handleTypeChange() {
   selectedFieldPaths.value = []
   fieldPaths.value = []
   const sample = props.cards.find(c => c.card_type?.name === selectedTypeName.value)
-  const modelName = (sample?.card_type as any)?.output_model_name as string | undefined
-  if (modelName) {
-    await schemaService.loadSchemas()
-    const schema = schemaService.getSchema(modelName)
-    if (schema) fieldPaths.value = generateFieldPaths(schema)
+  if (sample) {
+    try {
+      const resp = await getCardSchema(sample.id)
+      const sch = resp?.effective_schema || resp?.json_schema
+      if (sch) fieldPaths.value = generateFieldPaths(sch as any)
+    } catch {}
   }
 }
 

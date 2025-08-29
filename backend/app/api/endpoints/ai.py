@@ -11,8 +11,9 @@ from pydantic import ValidationError, create_model
 from pydantic import Field as PydanticField
 from typing import Type, Dict, Any, List
 
-from app.db.models import OutputModel, Card, CardType
+from app.db.models import Card, CardType
 from copy import deepcopy
+from sqlmodel import select as orm_select
 
 # 引入知识库
 from app.services.knowledge_service import KnowledgeService
@@ -116,6 +117,26 @@ def _augment_schema_with_builtin_defs(schema: Dict[str, Any]) -> Dict[str, Any]:
         # 若找不到该定义，则跳过（保持原样，让 LLM 容忍）
     return sch
 
+# --- 动态注入 CardType 的 defs（与 cards.py 一致思想） ---
+def _compose_with_card_types(session: Session, schema: Dict[str, Any]) -> Dict[str, Any]:
+    sch = deepcopy(schema) if isinstance(schema, dict) else {}
+    if not isinstance(sch, dict):
+        return sch
+    sch.setdefault('$defs', {})
+    defs = sch['$defs']
+    ref_names: set[str] = _collect_ref_names(sch)
+    types = session.exec(orm_select(CardType)).all()
+    by_model: Dict[str, Any] = {}
+    for t in types:
+        if t and t.json_schema:
+            if t.model_name:
+                by_model[t.model_name] = t.json_schema
+            by_model[t.name] = t.json_schema
+    for n in ref_names:
+        if n in by_model:
+            defs[n] = by_model[n]
+    return sch
+
 # 响应模型映射表（内置）
 from app.schemas.response_registry import RESPONSE_MODEL_MAP
 
@@ -205,27 +226,25 @@ def _inject_knowledge(session: Session, template: str) -> str:
     result = _KB_NAME_PATTERN.sub(repl_name, result)
     return result
 
-@router.get("/schemas", response_model=Dict[str, Any], summary="获取所有输出模型的JSON Schema（内置+自定义）")
+@router.get("/schemas", response_model=Dict[str, Any], summary="获取所有输出模型的JSON Schema（仅内置）")
 def get_all_schemas(session: Session = Depends(get_session)):
-    """返回内置模型和数据库 OutputModel 的 schema 聚合，键为模型名称。"""
+    """返回内置 pydantic 模型的 schema 聚合，键为模型名称。"""
     all_definitions: Dict[str, Any] = {}
 
     # 1) 内置 pydantic 模型
     for name, model_class in RESPONSE_MODEL_MAP.items():
         schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
         if '$defs' in schema:
-            # 合并依赖到主表；移除自身 $defs，提高前端解析简洁性
             all_definitions.update(schema['$defs'])
             del schema['$defs']
         all_definitions[name] = schema
 
-    # --- 动态修复：将 CharacterCard.dynamic_info 从 Dict 展开为显式 properties（按枚举值），便于前端解析 ---
+    # 动态修复 CharacterCard.dynamic_info 的属性
     try:
         cc = all_definitions.get('CharacterCard')
         if isinstance(cc, dict):
             props = (cc.get('properties') or {})
             if 'dynamic_info' in props:
-                # 内联 DynamicInfoItem 结构，避免 $defs 引用导致前端解析困难
                 item_schema = {
                     "type": "object",
                     "properties": {
@@ -249,20 +268,12 @@ def get_all_schemas(session: Session = Depends(get_session)):
     except Exception:
         pass
 
-    # 2) 数据库输出模型
-    db_models = session.exec(select(OutputModel)).all()
-    for om in db_models:
-        if om.json_schema:
-            # 返回时对 DB 模型做 $defs 递归补全，便于前端解析嵌入-嵌入结构
-            all_definitions[om.name] = _augment_schema_with_builtin_defs(om.json_schema)
-
-    # 3) 注入 entity 动态信息相关模型（用于前端解析 $ref: DynamicInfo 等）
+    # 2) 注入 entity 动态信息相关模型（用于前端解析 $ref: DynamicInfo 等）
     try:
         entity_models = [
             entity_schemas.DynamicInfoItem,
             entity_schemas.DynamicInfo,
             entity_schemas.UpdateDynamicInfo,
-
         ]
         for mdl in entity_models:
             sch = mdl.model_json_schema(ref_template="#/$defs/{model}")
@@ -277,12 +288,8 @@ def get_all_schemas(session: Session = Depends(get_session)):
 
 @router.get("/content-models", response_model=List[str], summary="获取所有可用输出模型名称")
 def get_content_models(session: Session = Depends(get_session)):
-    names = list(RESPONSE_MODEL_MAP.keys())
-    db_models = session.exec(select(OutputModel.name)).all()
-    for n in db_models:
-        if n not in names:
-            names.append(n)
-    return names
+    # 仅返回内置模型名称
+    return list(RESPONSE_MODEL_MAP.keys())
 
 
 async def stream_wrapper(generator):
@@ -297,7 +304,7 @@ async def get_ai_config_options(session: Session = Depends(get_session)):
         llm_configs = llm_config_service.get_llm_configs(session)
         # 获取所有提示词
         prompts = prompt_service.get_prompts(session)
-        # 响应模型来自内置 + OutputModel
+        # 响应模型仅内置
         response_models = get_content_models(session)
         return ApiResponse(data={
             "llm_configs": [{"id": config.id, "display_name": config.display_name or config.model_name} for config in llm_configs],
@@ -314,51 +321,32 @@ async def generate_ai_content(
     session: Session = Depends(get_session),
 ):
     """
-    一个通用的AI内容生成端点。
-    它接收一个输入、LLM配置、提示词和响应模型，然后返回结构化的输出。
+    通用的AI内容生成端点：前端必须提供 response_model_schema。
     """
-    # 验证必要的参数
-    if not all([request.input, request.llm_config_id, request.prompt_name, request.response_model_name]):
-        raise HTTPException(status_code=400, detail="缺少必要的生成参数: input, llm_config_id, prompt_name, 或 response_model_name")
+    # 基本参数校验：input/llm_config_id/prompt_name/response_model_schema 必填
+    if not request.input or not request.llm_config_id or not request.prompt_name:
+        raise HTTPException(status_code=400, detail="缺少必要的生成参数: input, llm_config_id 或 prompt_name")
+    if request.response_model_schema is None:
+        raise HTTPException(status_code=400, detail="请提供 response_model_schema")
 
-    # 解析响应模型（保持原有实现）
-    resp_model = None
-    schema_for_prompt: Dict[str, Any] | None = None
-    # 1) 优先动态 schema
-    if request.response_model_schema:
-        try:
-            resp_model = _build_model_from_json_schema('DynamicResponseModel', request.response_model_schema)
-            # system_prompt 使用“原始 schema”确保与训练一致
-            schema_for_prompt = _augment_schema_with_builtin_defs(request.response_model_schema)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"动态创建模型失败: {e}")
-    else:
-        # 2) 尝试内置
-        built_in = RESPONSE_MODEL_MAP.get(request.response_model_name) if isinstance(request.response_model_name, str) else None
-        if built_in is not None:
-            resp_model = built_in
-            schema_for_prompt = built_in.model_json_schema()
-        else:
-            # 3) 数据库 OutputModel
-            om = session.exec(select(OutputModel).where(OutputModel.name == request.response_model_name)).first() if isinstance(request.response_model_name, str) else None
-            if not om or not om.json_schema:
-                raise HTTPException(status_code=400, detail=f"未找到响应模型: {request.response_model_name}")
-            try:
-                resp_model = _build_model_from_json_schema('DbResponseModel', om.json_schema)
-                # system_prompt 使用：补全后的 DB Schema
-                schema_for_prompt = _augment_schema_with_builtin_defs(om.json_schema)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"根据数据库Schema创建模型失败: {e}")
+    # 解析响应模型（仅动态 schema）
+    try:
+        # 先动态注入 CardType 的 defs，再补全内置 defs
+        composed = _compose_with_card_types(session, request.response_model_schema)
+        schema_for_prompt: Dict[str, Any] | None = _augment_schema_with_builtin_defs(composed)
+        resp_model = _build_model_from_json_schema('DynamicResponseModel', schema_for_prompt or composed)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"动态创建模型失败: {e}")
 
     # 获取提示词
     prompt = prompt_service.get_prompt_by_name(session, request.prompt_name)
     if not prompt:
         raise HTTPException(status_code=400, detail=f"未找到提示词名称: {request.prompt_name}")
 
-    # 注入知识库占位符
+    # 注入知识库
     prompt_template = _inject_knowledge(session, prompt.template or '')
 
-    # 准备 System Prompt：把 schema 发送给 LLM（尽量使用原始 JSON Schema，保持训练一致性）
+    # System Prompt：携带 JSON Schema
     schema_json = json.dumps(schema_for_prompt if schema_for_prompt is not None else resp_model.model_json_schema(), indent=2, ensure_ascii=False)
     system_prompt = (
         f"{prompt_template}\n\n"
@@ -366,8 +354,6 @@ async def generate_ai_content(
     )
 
     user_prompt = request.input['input_text']
-
-    # 直接透传前端提供的 deps（JSON 字符串或 None）
     deps_str = request.deps or ""
 
     result = await agent_service.run_llm_agent(

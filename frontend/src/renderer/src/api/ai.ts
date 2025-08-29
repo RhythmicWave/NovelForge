@@ -19,7 +19,7 @@ export type AssembleContextResponse = components['schemas']['AssembleContextResp
 
 
 export function assembleContext(body: AssembleContextRequest): Promise<AssembleContextResponse> {
-  return aiHttpClient.post<AssembleContextResponse>('/context/assemble', body)
+  return aiHttpClient.post<AssembleContextResponse>('/context/assemble', body, '/api', { showLoading: false })
 }
 
 export function generateAIContent(
@@ -33,7 +33,7 @@ export function getAIConfigOptions(): Promise<AIConfigOptions> {
 }
 
 export function generateContinuation(params: ContinuationRequest): Promise<ContinuationResponse> {
-  return aiHttpClient.post<ContinuationResponse>('/ai/generate/continuation', params)
+  return aiHttpClient.post<ContinuationResponse>('/ai/generate/continuation', params, '/api', { showLoading: false })
 }
 
 export function generateContinuationStreaming(

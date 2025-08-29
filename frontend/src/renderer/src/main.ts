@@ -6,8 +6,8 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
-import { useAIParamCardStore } from './stores/useAIParamCardStore'
 import { useAppStore } from './stores/useAppStore'
+import { usePerCardAISettingsStore } from './stores/usePerCardAISettingsStore'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -20,8 +20,7 @@ const appStore = useAppStore()
 appStore.initTheme()
 
 // --- Load initial data ---
-// It's crucial to do this AFTER pinia is used by the app
-const aiParamCardStore = useAIParamCardStore()
-aiParamCardStore.loadFromLocal()
+const perCardStore = usePerCardAISettingsStore()
+perCardStore.loadFromLocal()
 
 app.mount('#app')

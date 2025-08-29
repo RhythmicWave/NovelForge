@@ -107,7 +107,6 @@ npm run dev
 1.  **配置大语言模型 (LLM)**
     *   首次启动后，在设置中添加你的 AI 模型配置，如 API Key、Base URL 等。
     ![alt text](docImgs/README/image.png)
-
     推荐使用Gemini 2.5Pro级别的LLM进行创作
 
 2.  **创建项目与预设卡片**
@@ -147,27 +146,32 @@ npm run dev
 
 虽然 NovelForge 提供了一套推荐的创作流程，但其真正的强大之处在于高度的灵活性。你可以完全抛开预设，利用以下工具，组合出专属于你自己的创作体系。
 
-### 自定义输出模型与卡片类型
+### Schema-first：类型/实例结构与参数
 
-*   在 `设置 -> 输出模型` 中，你可以通过可视化构建器，像搭积木一样创建任何你想要的“结构”。
+*   在 `设置 -> 卡片类型` 中，使用结构构建器为类型定义 `json_schema`（支持基础类型、relation(embed)、tuple 等）。类型 Schema 将作为该类型卡片的默认结构。
     ![alt text](docImgs/README/image-10.png)
     ![alt text](docImgs/README/image-11.png)
 
-*   在 `设置 -> 卡片类型` 中，将你创建的输出模型绑定到一个新的卡片类型，即可在项目中使用它。
+*   在具体卡片中，可打开 `结构`（Schema Studio）对该卡片实例的结构进行覆写，或一键“应用到类型”。
     ![alt text](docImgs/README/image-12.png)
+
     ![alt text](docImgs/README/image-13.png)
 
-*   为了测试，再新增一个提示词和AI参数卡片
-    ![alt text](docImgs/README/image-14.png)
-    ![alt text](docImgs/README/image-15.png)
+    应用到类型之后，后续再创建该类型卡片将使用新的结构。
 
-*  上述步骤完成后，就可以在项目中创建该卡片，然后选中AI参数卡片，进行AI生成了
+*   卡片 AI 参数：通过编辑器工具栏的“模型”按钮打开参数弹层，设置 `llm_config_id`、`prompt_name`、`temperature`、`max_tokens`、`timeout`。。
+    ![alt text](docImgs/README/image-14.png)
+
+*  完成以上设置后，即可在项目中创建该类型的卡片并进行 AI 生成。前端会将该卡片的“有效 Schema”一并发送给后端进行结构化校验与输出。
+    ![alt text](docImgs/README/image-15.png)
+    新建卡片时也可以直接从已有卡片中拖动到下方，自动创建
     ![alt text](docImgs/README/image-16.png)
-    可以按照设定的结构来返回结构，并成功解析
+
     ![alt text](docImgs/README/image-17.png)
 
-*  输出模型结构还支持嵌入其他已有的结构，更多用法欢迎探索。
-    ![alt text](docImgs/README/image-19.png)
+*  Schema 支持嵌入（`$ref` 到类型 `$defs`），可以组合复用已有结构，便于复合能力搭建。
+
+    ![alt text](docImgs/README/image-18.png)
     
 注意，尽量新增模型而不是修改已存在模型结构，避免和已有数据冲突。
 

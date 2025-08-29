@@ -1,7 +1,6 @@
 from typing import Optional, Dict, Any, AsyncGenerator
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
-from app.db.models import OutputModel
+from sqlmodel import Session
 from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from app.services import agent_service, prompt_service
 import json
@@ -15,7 +14,7 @@ class ContinuationRequest(BaseModel):
     """请求AI续写的模型"""
     llm_config_id: int
     prompt_id: int
-    context: Dict[str, Any] # 用于填充提示词模板的上下文
+    context: Dict[str, Any]  # 用于填充提示词模板的上下文
     max_tokens: Optional[int] = 5000
     temperature: Optional[float] = 0.7
     stream: bool = False
@@ -93,16 +92,3 @@ async def generate_continuation_streaming(
     except ValueError as e:
         logger.error(f"生成流式续写内容时出错: {e}")
         raise e 
-
-# 简单服务：按名称返回 JSON Schema（优先内置），否则从数据库 OutputModel 取
-
-def get_output_schema_by_name(session: Session, name: str) -> Optional[Dict[str, Any]]:
-    # 内置 pydantic
-    if name in RESPONSE_MODEL_MAP:
-        schema = RESPONSE_MODEL_MAP[name].model_json_schema(ref_template="#/$defs/{model}")
-        if '$defs' in schema:
-            del schema['$defs']
-        return schema
-    # 数据库
-    om = session.exec(select(OutputModel).where(OutputModel.name == name)).first()
-    return om.json_schema if om and om.json_schema else None 

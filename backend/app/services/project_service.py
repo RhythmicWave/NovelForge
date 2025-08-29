@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.db.models import Project, Chapter
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
+from app.services.kg_provider import get_provider
 
 def get_projects(session: Session) -> List[Project]:
     statement = select(Project).order_by(Project.id.desc())
@@ -47,5 +48,14 @@ def delete_project(session: Session, project_id: int) -> bool:
     project = session.get(Project, project_id)
     if not project:
         return False
+    # 先删除数据库中的项目记录
     session.delete(project)
+    session.commit()
+    # 再清理图数据库中该项目的所有实体与关系
+    try:
+        kg = get_provider()
+        kg.delete_project_graph(project_id)
+    except Exception:
+        # 避免图数据库不可用时影响主流程
+        pass
     return True 

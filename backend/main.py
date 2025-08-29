@@ -25,7 +25,7 @@ from sqlmodel import SQLModel, Session, select
 from app.api.router import api_router
 from app.db.session import engine
 from app.db import models
-from app.bootstrap.init_app import init_prompts, create_default_card_types, init_output_models
+from app.bootstrap.init_app import init_prompts, create_default_card_types
 # 知识库初始化
 from app.bootstrap.init_app import init_knowledge
 
@@ -45,7 +45,6 @@ async def lifespan(app):
     models.SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         init_prompts(session)
-        init_output_models(session)
         create_default_card_types(session)
         # 初始化知识库
         init_knowledge(session)

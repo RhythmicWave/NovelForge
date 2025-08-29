@@ -24,6 +24,7 @@ class KnowledgeGraphProvider(Protocol):
 		top_k: int = 50,
 		max_chapter_id: Optional[int] = None,
 	) -> Dict[str, Any]: ...
+	def delete_project_graph(self, project_id: int) -> None: ...
 
 
 class Neo4jKGProvider:
@@ -150,6 +151,14 @@ class Neo4jKGProvider:
 			"fact_summaries": fact_summaries,
 			"relation_summaries": relation_summaries,
 		}
+
+	def delete_project_graph(self, project_id: int) -> None:
+		"""删除某个项目(group_id)下的所有节点和关系。"""
+		group = self._group(project_id)
+		with self._driver.session() as sess:
+			# 先删关系再删节点
+			sess.run("MATCH (n:Entity {group_id:$group})-[r]-() DELETE r", group=group)
+			sess.run("MATCH (n:Entity {group_id:$group}) DELETE n", group=group)
 
 
 def get_provider() -> KnowledgeGraphProvider:

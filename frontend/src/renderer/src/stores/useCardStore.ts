@@ -133,31 +133,23 @@ export const useCardStore = defineStore('card', () => {
     }
   }
 
-  async function addCard(cardData: CardCreate) {
+  // 新增：addCard 支持 options.silent，静默模式下不全量刷新、不弹 Toast，直接本地插入并返回新卡
+  async function addCard(cardData: CardCreate, options?: { silent?: boolean }) {
     if (!currentProject.value?.id) return
     try {
       const newCard = await createCard(currentProject.value.id, cardData)
-      // 若新建的是特定类型，自动设置默认 AI 参数卡 ID
-      try {
-        const typeName = (newCard as any)?.card_type?.name
-        const defaultParamMap: Record<string, string> = {
-          '章节正文': 'card-009',
-          '阶段大纲': 'card-007',
-          '写作指南': 'card-010',
-        }
-        const paramId = defaultParamMap[typeName as string]
-        if (paramId) {
-          await updateCard(newCard.id, { selected_ai_param_card_id: paramId } as any)
-        }
-      } catch (e) {
-        console.warn('[CardStore] 自动设置参数卡失败（可忽略）：', e)
+      if (options?.silent) {
+        // 直接插入本地状态，避免频繁全量刷新导致的 "加载中" 卡住
+        cards.value = [...cards.value, newCard as unknown as CardRead]
+      } else {
+        await fetchCards(currentProject.value.id)
+        ElMessage.success(`Card "${newCard.title}" created.`)
       }
-      // 为保证树与排序的正确性，这里简单起见直接刷新
-      await fetchCards(currentProject.value.id)
-      ElMessage.success(`Card "${newCard.title}" created.`)
+      return newCard
     } catch (error) {
-      ElMessage.error('Failed to create card.')
+      if (!options?.silent) ElMessage.error('Failed to create card.')
       console.error(error)
+      return
     }
   }
 

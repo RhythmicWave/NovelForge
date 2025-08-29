@@ -70,7 +70,7 @@ registerHook('阶段大纲', async (card: any, ctx: any) => {
 				parent_id: card.id,
 				card_type_id: chapterOutlineTypeId,
 				content: outlineContent,
-			})
+			}, { silent: true })
 		}
 
 		// --- 章节正文卡 ---
@@ -96,7 +96,7 @@ registerHook('阶段大纲', async (card: any, ctx: any) => {
 				parent_id: card.id,
 				card_type_id: chapterTypeId,
 				content: { ...nextChapterCore, content: '' },
-			})
+			}, { silent: true })
 		}
 	}
 

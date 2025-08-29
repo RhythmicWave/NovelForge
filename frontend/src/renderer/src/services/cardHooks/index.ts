@@ -3,15 +3,12 @@
 
 import { type CardRead } from '@renderer/api/cards'
 
-// 钩子存储：按类型名与按输出模型名各一份，优先按类型名分发
+// 钩子存储：按类型名注册与分发
 type HookFn = (card: CardRead, ctx: any) => Promise<void> | void
 const hooksByTypeName: Record<string, HookFn> = {}
-const hooksByModelName: Record<string, HookFn> = {}
 
-export function registerHook(key: string, hook: HookFn) {
-  // 兼容老用法：不区分 key 是类型名还是模型名，分别注册
-  hooksByTypeName[key] = hook
-  hooksByModelName[key] = hook
+export function registerHook(typeName: string, hook: HookFn) {
+  hooksByTypeName[typeName] = hook
 }
 
 let loaded = false
@@ -30,10 +27,7 @@ async function runAfterSave(card: CardRead, ctx: any) {
   await ensureHooksLoaded()
 
   const typeName = (card.card_type as any)?.name as string | undefined
-  const modelName = (card.card_type as any)?.output_model_name as string | undefined
-
-  const hook = (typeName && hooksByTypeName[typeName])
-    || (modelName && hooksByModelName[modelName])
+  const hook = typeName ? hooksByTypeName[typeName] : undefined
 
   if (hook) {
     await hook(card, ctx)

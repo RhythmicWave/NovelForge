@@ -27,6 +27,7 @@ export function schemaToBuilder(schema: any): BuilderField[] {
   const props = schema?.properties || {}
   const required: string[] = schema?.required || []
   const fields: BuilderField[] = []
+  // 允许带 $defs，但此函数只解析主 properties → relation 的 $ref 名称
   for (const key of Object.keys(props)) {
     const p = props[key]
     const isArray = p?.type === 'array'
@@ -71,6 +72,7 @@ export function schemaToBuilder(schema: any): BuilderField[] {
 export function builderToSchema(fields: BuilderField[]): any {
   const properties: Record<string, any> = {}
   const required: string[] = []
+  const defs: Record<string, any> = {}
   for (const f of fields) {
     if (!f.name) continue
     let node: any = {}
@@ -98,5 +100,6 @@ export function builderToSchema(fields: BuilderField[]): any {
   }
   const schema: any = { type: 'object', properties }
   if (required.length) schema.required = required
+  // defs 由调用方（SchemaStudio）收集/注入，以便跨模型复用
   return schema
 } 
