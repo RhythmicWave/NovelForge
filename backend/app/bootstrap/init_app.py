@@ -4,8 +4,9 @@ from app.db.models import Prompt, CardType, Card
 from loguru import logger
 from app.api.endpoints.ai import RESPONSE_MODEL_MAP
 
-# 新增
 from app.db.models import Knowledge, LLMConfig
+# 项目模板
+from app.db.models import ProjectTemplate, ProjectTemplateItem
 
 def _parse_prompt_file(file_path: str):
     """解析单个提示词文件，支持frontmatter元数据"""
@@ -31,7 +32,7 @@ def get_all_prompt_files():
 
     prompt_files = {}
     for filename in os.listdir(prompt_dir):
-        # Adjusted to handle both .prompt and .txt files for prompts
+       
         if filename.endswith(('.prompt', '.txt')):
             file_path = os.path.join(prompt_dir, filename)
             name = os.path.splitext(filename)[0]
@@ -70,9 +71,6 @@ def init_prompts(db: Session):
         logger.info("所有提示词已是最新状态。")
 
 
-def init_output_models(db: Session):
-    """已废弃：输出模型表被合并到卡片类型。"""
-    logger.info("输出模型初始化跳过：已合并到卡片类型。")
 
 
 def create_default_card_types(db: Session):
@@ -288,3 +286,59 @@ def init_knowledge(db: Session):
         logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}")
     else:
         logger.info("知识库已是最新状态。")
+
+
+def init_project_templates(db: Session):
+    """初始化系统预设项目模板（基于原有的默认卡片集合与顺序）。"""
+    DEFAULT_TEMPLATE_NAME = "雪花创作法"
+    # 需要这些卡片类型的 ID
+    type_names_in_order = [
+        ("作品标签", 0),
+        ("金手指", 1),
+        ("一句话梗概", 2),
+        ("故事大纲", 3),
+        ("世界观设定", 4),
+        ("核心蓝图", 5),
+    ]
+
+    # 确保卡片类型已存在
+    ct_map = {}
+    for name, order in type_names_in_order:
+        ct = db.exec(select(CardType).where(CardType.name == name)).first()
+        if not ct:
+            logger.warning(f"初始化项目模板时缺少卡片类型：{name}")
+            return
+        ct_map[name] = ct
+
+    existing = db.exec(select(ProjectTemplate).where(ProjectTemplate.name == DEFAULT_TEMPLATE_NAME)).first()
+    if not existing:
+        tpl = ProjectTemplate(name=DEFAULT_TEMPLATE_NAME, description="系统预设模板：按雪花法创建基础卡片", built_in=True)
+        db.add(tpl)
+        db.flush()
+        for name, order in type_names_in_order:
+            db.add(ProjectTemplateItem(
+                template_id=tpl.id,
+                card_type_id=ct_map[name].id,
+                display_order=order,
+                title_override=name
+            ))
+        db.commit()
+        logger.info("系统预设项目模板已创建")
+    else:
+        # 增量更新条目（以顺序为准）
+        # 先删除旧项后重建，保持简单
+        items = db.exec(select(ProjectTemplateItem).where(ProjectTemplateItem.template_id == existing.id)).all()
+        for it in items:
+            db.delete(it)
+        db.flush()
+        for name, order in type_names_in_order:
+            db.add(ProjectTemplateItem(
+                template_id=existing.id,
+                card_type_id=ct_map[name].id,
+                display_order=order,
+                title_override=name
+            ))
+        existing.built_in = True
+        db.add(existing)
+        db.commit()
+        logger.info("系统预设项目模板已更新")

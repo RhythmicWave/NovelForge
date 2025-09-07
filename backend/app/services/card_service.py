@@ -102,38 +102,62 @@ class CardService:
         return card
 
     @staticmethod
-    def create_initial_cards_for_project(db: Session, project_id: int):
+    def create_initial_cards_for_project(db: Session, project_id: int, template_items: Optional[List[dict]] = None):
         """
-        Creates the initial set of cards for a new project, all as top-level cards (no parents).
-        Also sets up the AI context injection templates.
+        # 为新项目创建初始卡片集合。
+        # 如果提供了 template_items，则使用它们；否则回退到内置的默认列表（兼容旧版）。
+        # template_items: List[ { card_type_id: int, display_order: int, title_override?: str } ]
         """
-        initial_cards_setup = {
-            "作品标签": {"order": 0},
-            "金手指": {"order": 1},
-            "一句话梗概": {"order": 2},
-            "故事大纲": {"order": 3},
-            "世界观设定": {"order": 4},
-            "核心蓝图": {"order": 5},
-        }
+        if template_items is None:
+            initial_cards_setup = {
+                "作品标签": {"order": 0},
+                "金手指": {"order": 1},
+                "一句话梗概": {"order": 2},
+                "故事大纲": {"order": 3},
+                "世界观设定": {"order": 4},
+                "核心蓝图": {"order": 5},
+            }
 
-        for card_type_name, setup in initial_cards_setup.items():
+            for card_type_name, setup in initial_cards_setup.items():
+                try:
+                    statement = select(CardType).where(CardType.name == card_type_name)
+                    card_type = db.exec(statement).first()
+                    if card_type:
+                        # 创建卡片
+                        new_card = Card(
+                            title=card_type_name,
+                            content={},
+                            project_id=project_id,
+                        card_type_id=card_type.id,
+                            display_order=setup["order"],
+                            ai_context_template=card_type.default_ai_context_template,
+                        )
+                    db.add(new_card)
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"Failed creating initial card for type {card_type_name}: {e}")
+            return
+
+        # 使用模板条目创建
+        for item in sorted(template_items, key=lambda x: x.get('display_order', 0)):
             try:
-                statement = select(CardType).where(CardType.name == card_type_name)
-                card_type = db.exec(statement).first()
-                if card_type:
-                    # 创建卡片
-                    new_card = Card(
-                        title=card_type_name,
-                        content={},
-                        project_id=project_id,
-                    card_type_id=card_type.id,
-                        display_order=setup["order"],
-                        ai_context_template=card_type.default_ai_context_template,
-                    )
+                ct = db.get(CardType, item['card_type_id'])
+                if not ct:
+                    continue
+                title = item.get('title_override') or ct.name
+                new_card = Card(
+                    title=title,
+                    content={},
+                    project_id=project_id,
+                    card_type_id=ct.id,
+                    display_order=item.get('display_order', 0),
+                    ai_context_template=ct.default_ai_context_template,
+                )
                 db.add(new_card)
                 db.commit()
             except Exception as e:
-                logger.error(f"Failed creating initial card for type {card_type_name}: {e}")
+                logger.error(f"Failed creating initial card by template item {item}: {e}")
+        return
 
     def update(self, card_id: int, card_update: CardUpdate) -> Optional[Card]:
         card = self.get_by_id(card_id)

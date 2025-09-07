@@ -139,4 +139,32 @@ class Knowledge(SQLModel, table=True):
     name: str = Field(unique=True, index=True)
     description: Optional[str] = None
     content: str
-    built_in: bool = Field(default=False) 
+    built_in: bool = Field(default=False)
+
+
+# 项目模板
+class ProjectTemplate(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    built_in: bool = Field(default=False)
+    # 关联的模板条目
+    items: List["ProjectTemplateItem"] = Relationship(back_populates="template", sa_relationship_kwargs={
+        "cascade": "all, delete-orphan",
+        "order_by": "ProjectTemplateItem.display_order"
+    })
+
+
+class ProjectTemplateItem(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    template_id: int = Field(foreign_key="projecttemplate.id")
+    template: ProjectTemplate = Relationship(back_populates="items")
+
+    # 指向卡片类型
+    card_type_id: int = Field(foreign_key="cardtype.id")
+    card_type: CardType = Relationship()
+
+    # 顶层创建时的显示顺序（同级/根级）
+    display_order: int = Field(default=0)
+    # 可选的标题覆写；为空则使用 CardType.name
+    title_override: Optional[str] = None 

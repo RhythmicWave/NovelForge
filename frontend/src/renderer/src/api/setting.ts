@@ -73,3 +73,23 @@ export async function updateCardTypeAIParams(id: number, ai_params: any | null):
 export async function getCardAIParams(id: number): Promise<any> { return await request.get(`/cards/${id}/ai-params`) }
 export async function updateCardAIParams(id: number, ai_params: any | null): Promise<any> { return await request.put(`/cards/${id}/ai-params`, { ai_params }) }
 export async function applyCardAIParamsToType(id: number): Promise<any> { return await request.post(`/cards/${id}/ai-params/apply-to-type`, {}) }
+
+// --- 项目模板 API ---
+export interface ProjectTemplateItem { id?: number; card_type_id: number; display_order: number; title_override?: string | null }
+export interface ProjectTemplate { id: number; name: string; description?: string; built_in?: boolean; items: ProjectTemplateItem[] }
+export interface ProjectTemplateCreate { name: string; description?: string; items: ProjectTemplateItem[] }
+export interface ProjectTemplateUpdate { name?: string; description?: string; items?: ProjectTemplateItem[] }
+
+export async function listProjectTemplates(): Promise<ProjectTemplate[]> {
+  return await request.get<ProjectTemplate[]>('/project-templates')
+}
+export async function createProjectTemplate(body: ProjectTemplateCreate): Promise<ProjectTemplate> {
+  return await request.post<ProjectTemplate>('/project-templates', body)
+}
+export async function updateProjectTemplate(id: number, body: ProjectTemplateUpdate): Promise<ProjectTemplate> {
+  return await request.put<ProjectTemplate>(`/project-templates/${id}`, body)
+}
+export async function deleteProjectTemplate(id: number): Promise<{ message: string }> {
+  const resp = await request.delete<{ message?: string }>(`/project-templates/${id}`)
+  return { message: resp?.message || 'OK' } as any
+}

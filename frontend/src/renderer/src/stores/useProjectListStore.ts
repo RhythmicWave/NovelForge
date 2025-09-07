@@ -27,7 +27,7 @@ export const useProjectListStore = defineStore('projectList', () => {
     }
   }
 
-  async function createProject(projectData: ProjectCreate) {
+  async function createProject(projectData: any) {
     try {
       const newProject = await request.post<Project>('/projects', projectData)
       await fetchProjects()

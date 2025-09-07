@@ -5,6 +5,7 @@ import LLMConfigManager from '../setting/LLMConfigManager.vue'
 import PromptWorkshop from '../setting/PromptWorkshop.vue'
 import CardTypeManager from '../setting/CardTypeManager.vue'
 import KnowledgeManager from '../setting/KnowledgeManager.vue'
+import ProjectTemplateManager from '../setting/ProjectTemplateManager.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'close': [] }>()
@@ -39,6 +40,9 @@ function handleClose() {
         </el-tab-pane>
         <el-tab-pane label="卡片类型" name="card-types">
           <CardTypeManager />
+        </el-tab-pane>
+        <el-tab-pane label="项目模板" name="project-templates">
+          <ProjectTemplateManager />
         </el-tab-pane>
         <!-- <el-tab-pane label="关于" name="about">
           <Versions />

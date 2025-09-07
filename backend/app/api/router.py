@@ -5,6 +5,7 @@ from app.api.endpoints import context as context_ep
 from app.api.endpoints import memory as memory_ep
 from app.api.endpoints import foreshadow as foreshadow_ep
 from app.api.endpoints import knowledge as knowledge_ep
+from app.api.endpoints import project_templates as project_templates_ep
 
 api_router = APIRouter()
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
@@ -18,3 +19,4 @@ api_router.include_router(context_ep.router, prefix="/context", tags=["context"]
 api_router.include_router(memory_ep.router, prefix="/memory", tags=["memory"]) 
 api_router.include_router(foreshadow_ep.router, prefix="/foreshadow", tags=["foreshadow"]) 
 api_router.include_router(knowledge_ep.router, prefix="/knowledge", tags=["knowledge"]) 
+api_router.include_router(project_templates_ep.router, prefix="/project-templates", tags=["project-templates"]) 

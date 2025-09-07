@@ -2,14 +2,16 @@
 from typing import List, Optional
 from sqlmodel import Session, select
 
-from app.db.models import Project, Chapter
+from app.db.models import Project, Chapter, ProjectTemplate, ProjectTemplateItem
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
 from app.services.kg_provider import get_provider
 
+
 def get_projects(session: Session) -> List[Project]:
     statement = select(Project).order_by(Project.id.desc())
     return session.exec(statement).all()
+
 
 def get_project(session: Session, project_id: int) -> Optional[Project]:
     statement = (
@@ -18,19 +20,42 @@ def get_project(session: Session, project_id: int) -> Optional[Project]:
     )
     return session.exec(statement).first()
 
+
+def _load_template_items(session: Session, template_id: Optional[int]) -> Optional[List[dict]]:
+    if not template_id:
+        return None
+    tpl = session.get(ProjectTemplate, template_id)
+    if not tpl:
+        return None
+    items = session.exec(
+        select(ProjectTemplateItem).where(ProjectTemplateItem.template_id == template_id)
+    ).all()
+    # 按当前 CardService.create_initial_cards_for_project 需要的字段映射
+    return [
+        {
+            "card_type_id": it.card_type_id,
+            "display_order": it.display_order,
+            "title_override": it.title_override,
+        }
+        for it in items
+    ]
+
+
 def create_project(session: Session, project_in: ProjectCreate) -> Project:
     db_project = Project.model_validate(project_in)
     session.add(db_project)
     session.commit()
     session.refresh(db_project)
     
-   
-    CardService.create_initial_cards_for_project(session, db_project.id)
+    # 从模板创建初始卡片（若提供 template_id），否则回退到默认内置集合
+    template_items = _load_template_items(session, getattr(project_in, 'template_id', None))
+    CardService.create_initial_cards_for_project(session, db_project.id, template_items=template_items)
     
     # 刷新以加载新创建的卡片到项目关系中
     session.refresh(db_project)
     
     return db_project
+
 
 def update_project(session: Session, project_id: int, project_in: ProjectUpdate) -> Optional[Project]:
     db_project = session.get(Project, project_id)
@@ -43,6 +68,7 @@ def update_project(session: Session, project_id: int, project_in: ProjectUpdate)
     session.flush()
     session.refresh(db_project)
     return db_project
+
 
 def delete_project(session: Session, project_id: int) -> bool:
     project = session.get(Project, project_id)
