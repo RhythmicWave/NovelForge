@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { components } from '@renderer/types/generated'
+import { getFreeProject } from '@renderer/api/projects'
 
 type Project = components['schemas']['ProjectRead']
 
@@ -25,6 +26,17 @@ export const useProjectStore = defineStore('project', () => {
     isSaving.value = saving
   }
 
+  async function loadFreeProject() {
+    try {
+      isLoading.value = true
+      const proj = await getFreeProject()
+      currentProject.value = proj
+      return proj
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   function reset() {
     currentProject.value = null
     isLoading.value = false
@@ -41,6 +53,7 @@ export const useProjectStore = defineStore('project', () => {
     setCurrentProject,
     setLoading,
     setSaving,
+    loadFreeProject,
     reset
   }
 }) 

@@ -26,6 +26,67 @@ router = APIRouter()
 # --- JSON Schema → Python 类型简易映射（尽量保守，无法解析的情况回退为 Any） ---
 from typing import Any as _Any, Dict as _Dict, List as _List
 
+# 基于元数据的 Schema 过滤（移除 x-ai-exclude=true 的字段）
+def _filter_schema_for_ai(schema: Dict[str, Any]) -> Dict[str, Any]:
+    def prune(node: Any, parent_required: List[str] | None = None) -> Any:
+        if isinstance(node, dict):
+            # 对象：过滤 properties 中标记了 x-ai-exclude 的字段
+            if node.get('type') == 'object' and isinstance(node.get('properties'), dict):
+                props = node.get('properties') or {}
+                required = list(node.get('required') or [])
+                new_props: Dict[str, Any] = {}
+                for name, sch in props.items():
+                    if isinstance(sch, dict) and sch.get('x-ai-exclude') is True:
+                        # 从 required 中剔除
+                        if name in required:
+                            required = [r for r in required if r != name]
+                        continue
+                    new_props[name] = prune(sch)
+                node = dict(node)  # 复制
+                node['properties'] = new_props
+                if required:
+                    node['required'] = required
+                elif 'required' in node:
+                    # 若全部被剔除，移除 required 字段
+                    node.pop('required', None)
+            # 数组：递归处理 items/prefixItems（tuple）
+            if node.get('type') == 'array':
+                if 'items' in node:
+                    node = dict(node)
+                    node['items'] = prune(node['items'])
+                if 'prefixItems' in node and isinstance(node.get('prefixItems'), list):
+                    node = dict(node)
+                    node['prefixItems'] = [prune(it) for it in node.get('prefixItems', [])]
+            # 组合关键字：递归处理 anyOf/oneOf/allOf
+            for kw in ('anyOf', 'oneOf', 'allOf'):
+                if isinstance(node.get(kw), list):
+                    node = dict(node)
+                    node[kw] = [prune(it) for it in node.get(kw, [])]
+            # $defs：仅对内部定义做递归处理（不删除定义键本身）
+            if isinstance(node.get('$defs'), dict):
+                defs = node.get('$defs') or {}
+                new_defs: Dict[str, Any] = {}
+                for k, v in defs.items():
+                    new_defs[k] = prune(v)
+                node = dict(node)
+                node['$defs'] = new_defs
+            # 清理元数据痕迹（可选，不强制）
+            if 'x-ai-exclude' in node:
+                node = dict(node)
+                node.pop('x-ai-exclude', None)
+            return node
+        elif isinstance(node, list):
+            return [prune(it) for it in node]
+        return node
+
+    try:
+        root = deepcopy(schema) if isinstance(schema, dict) else {}
+        return prune(root)
+    except Exception:
+        # 出错时不阻断流程，回退原始 schema
+        return schema
+
+
 def _json_schema_to_py_type(sch: Dict[str, Any]) -> Any:
     if not isinstance(sch, dict):
         return _Any
@@ -315,6 +376,17 @@ async def get_ai_config_options(session: Session = Depends(get_session)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取配置选项失败: {str(e)}")
 
+@router.get("/prompts/render", summary="渲染并注入知识库的提示词模板")
+async def render_prompt_with_knowledge(name: str, session: Session = Depends(get_session)):
+    p = prompt_service.get_prompt_by_name(session, name)
+    if not p or not p.template:
+        raise HTTPException(status_code=404, detail=f"未找到提示词: {name}")
+    try:
+        text = _inject_knowledge(session, str(p.template))
+        return ApiResponse(data={"text": text})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"渲染失败: {e}")
+
 @router.post("/generate", summary="通用AI生成接口")
 async def generate_ai_content(
     request: GeneralAIRequest = Body(...),
@@ -331,8 +403,11 @@ async def generate_ai_content(
 
     # 解析响应模型（仅动态 schema）
     try:
-        # 先动态注入 CardType 的 defs，再补全内置 defs
+        # 先动态注入 CardType 的 defs
         composed = _compose_with_card_types(session, request.response_model_schema)
+        # 在补全内置 defs 前，先基于 x-ai-exclude 过滤字段
+        composed = _filter_schema_for_ai(composed)
+        # 再补全内置 defs
         schema_for_prompt: Dict[str, Any] | None = _augment_schema_with_builtin_defs(composed)
         resp_model = _build_model_from_json_schema('DynamicResponseModel', schema_for_prompt or composed)
     except Exception as e:

@@ -9,6 +9,8 @@ export interface BuilderField {
   example?: string
   // tuple element types（仅用于 Builder 展示与生成简单元组）
   tupleItems?: Array<'string' | 'number' | 'integer' | 'boolean'>
+  // 是否从 AI 生成的有效 Schema 中排除
+  aiExclude?: boolean
 }
 
 function toStringExample(val: any): string {
@@ -54,6 +56,8 @@ export function schemaToBuilder(schema: any): BuilderField[] {
     else if (core?.example !== undefined) exRaw = core.example
     else if (p?.example !== undefined) exRaw = p.example
 
+    const aiExclude = Boolean(core?.['x-ai-exclude'] ?? p?.['x-ai-exclude'])
+
     fields.push({
       name: key,
       label: core?.title || key,
@@ -64,6 +68,7 @@ export function schemaToBuilder(schema: any): BuilderField[] {
       description: core?.description || p?.description || '',
       example: toStringExample(exRaw),
       tupleItems,
+      aiExclude,
     })
   }
   return fields
@@ -95,6 +100,7 @@ export function builderToSchema(fields: BuilderField[]): any {
       node.example = f.example
       node.examples = [parseMaybeJSON(f.example)]
     }
+    if (f.aiExclude) node['x-ai-exclude'] = true
     properties[f.name] = node
     if (f.required) required.push(f.name)
   }

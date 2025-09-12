@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   // 当前视图
-  const currentView = ref<'dashboard' | 'editor'>('dashboard')
+  const currentView = ref<'dashboard' | 'editor' | 'ideas'>('dashboard')
   
   // 主题状态
   const isDarkMode = ref(false)
@@ -22,7 +22,7 @@ export const useAppStore = defineStore('app', () => {
   const isEditor = computed(() => currentView.value === 'editor')
 
   // Actions
-  function setCurrentView(view: 'dashboard' | 'editor') {
+  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas') {
     currentView.value = view
   }
 
@@ -32,6 +32,10 @@ export const useAppStore = defineStore('app', () => {
 
   function goToEditor() {
     currentView.value = 'editor'
+  }
+
+  function goToIdeas() {
+    currentView.value = 'ideas'
   }
 
   function toggleTheme() {
@@ -104,6 +108,7 @@ export const useAppStore = defineStore('app', () => {
     setCurrentView,
     goToDashboard,
     goToEditor,
+    goToIdeas,
     toggleTheme,
     setTheme,
     applyTheme,

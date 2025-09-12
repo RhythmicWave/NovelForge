@@ -3,7 +3,16 @@
     <div class="toolbar">
       <el-button type="primary" @click="addField">新增字段</el-button>
     </div>
-    <el-table :data="localFields" size="小" class="field-table">
+    <el-table :data="localFields" size="small" class="field-table">
+             <el-table-column label="操作" width="100" align="left">
+        <template #default="{ $index }">
+          <div class="ops-col">
+            <el-button class="ops-btn" size="small" @click="moveUp($index)" :disabled="$index===0">上移</el-button>
+            <el-button class="ops-btn" size="small" @click="moveDown($index)" :disabled="$index===localFields.length-1">下移</el-button>
+            <el-button class="ops-btn" size="small" type="danger" plain @click="removeField($index)">删除</el-button>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="名称" width="150">
         <template #default="{ row }">
           <el-input v-model="row.name" placeholder="字段名" />
@@ -30,6 +39,11 @@
       <el-table-column label="必填" width="80" align="center">
         <template #default="{ row }">
           <el-switch v-model="row.required" />
+        </template>
+      </el-table-column>
+      <el-table-column label="AI排除" width="90" align="center">
+        <template #default="{ row }">
+          <el-switch v-model="row.aiExclude" />
         </template>
       </el-table-column>
       <el-table-column label="注解" min-width="240">
@@ -66,13 +80,6 @@
           <div v-else class="rel-config muted">—</div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" align="right">
-        <template #default="{ $index }">
-          <el-button size="small" @click="moveUp($index)" :disabled="$index===0">上移</el-button>
-          <el-button size="small" @click="moveDown($index)" :disabled="$index===localFields.length-1">下移</el-button>
-          <el-button size="small" type="danger" plain @click="removeField($index)">删除</el-button>
-        </template>
-      </el-table-column>
     </el-table>
   </div>
 </template>
@@ -102,7 +109,7 @@ watch(localFields, (v) => { if (!syncingFromProps.value) emit('update:modelValue
 const targetModels = computed(() => props.models || [])
 
 function cloneField(f: BuilderField): BuilderField { return JSON.parse(JSON.stringify(f)) }
-function addField() { localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, relation: { targetModelName: null }, description: '', example: '', tupleItems: [] }) }
+function addField() { localFields.value.push({ name: '', label: '', kind: 'string', isArray: false, required: false, aiExclude: false, relation: { targetModelName: null }, description: '', example: '', tupleItems: [] }) }
 function removeField(idx: number) { localFields.value.splice(idx, 1) }
 function moveUp(idx: number) { if (idx <= 0) return; const a = localFields.value; [a[idx-1], a[idx]] = [a[idx], a[idx-1]] }
 function moveDown(idx: number) { const a = localFields.value; if (idx >= a.length - 1) return; [a[idx+1], a[idx]] = [a[idx], a[idx+1]] }
@@ -134,4 +141,7 @@ function removeTupleItem(row: BuilderField, idx: number) {
 .muted { color: var(--el-text-color-secondary); }
 .tuple-editor { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tuple-chip { display: flex; gap: 6px; align-items: center; }
+.ops-col { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; width: 100%; }
+.ops-col .el-button + .el-button { margin-left: 0 !important; }
+.ops-btn { width: 100%; box-sizing: border-box; padding-left: 0; padding-right: 0; display: block; }
 </style> 

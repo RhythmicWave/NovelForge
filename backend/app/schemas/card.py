@@ -80,4 +80,11 @@ class CardRead(CardBase):
     display_order: int
     card_type: CardTypeRead
     # 具体卡片可覆盖类型默认模板
-    ai_context_template: Optional[str] = None 
+    ai_context_template: Optional[str] = None
+
+
+# --- Operations ---
+
+class CardCopyOrMoveRequest(BaseModel):
+    target_project_id: int
+    parent_id: Optional[int] = None 

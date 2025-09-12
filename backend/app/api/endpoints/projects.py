@@ -19,6 +19,11 @@ def get_projects_endpoint(session: Session = Depends(get_session)):
     projects = project_service.get_projects(session=session)
     return ApiResponse(data=projects)
 
+@router.get("/free", response_model=ApiResponse[ProjectRead])
+def get_free_project_endpoint(session: Session = Depends(get_session)):
+    proj = project_service.get_or_create_free_project(session=session)
+    return ApiResponse(data=proj)
+
 @router.get("/{project_id}", response_model=ApiResponse[ProjectRead])
 def get_project_endpoint(project_id: int, session: Session = Depends(get_session)):
     project = project_service.get_project(session=session, project_id=project_id)

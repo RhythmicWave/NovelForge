@@ -47,8 +47,21 @@ export const deleteCard = (id: number): Promise<void> => {
   return request.delete(`/cards/${id}`)
 }
 
+export const copyCard = (id: number, params: { target_project_id: number; parent_id?: number | null }): Promise<CardRead> => {
+  return request.post(`/cards/${id}/copy`, params)
+}
+
+export const moveCard = (id: number, params: { target_project_id: number; parent_id?: number | null }): Promise<CardRead> => {
+  return request.post(`/cards/${id}/move`, params)
+}
+
 // --- AI Content Models API ---
 
 export const getContentModels = (): Promise<string[]> => {
   return request.get('/ai/content-models')
+} 
+
+// --- Card AI Params API ---
+export const getCardAIParams = (cardId: number): Promise<{ ai_params: any; effective_params: any; follow_type: boolean }> => {
+  return request.get(`/cards/${cardId}/ai-params`)
 } 

@@ -80,6 +80,29 @@ function openChapterStudio(projectId: number, chapterCardId: number) {
   }
 }
 
+function openIdeasHome() {
+  const key = `ideas-home`
+  const existing = studioWindows.get(key)
+  if (existing && !existing.isDestroyed()) { existing.focus(); return }
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    show: true,
+    title: 'Novel Forge - 灵感工作台',
+    autoHideMenuBar: true,
+    icon: icon,
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+  })
+  studioWindows.set(key, win)
+  win.on('closed', () => studioWindows.delete(key))
+  const hash = '#/ideas-home'
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'] + hash)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+  }
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -122,6 +145,8 @@ app.whenReady().then(() => {
     openChapterStudio(projectId, chapterCardId)
     return { success: true }
   })
+
+  ipcMain.handle('ideas:open-home', async () => { openIdeasHome(); return { success: true } })
 
   createWindow()
 

@@ -132,52 +132,53 @@ async def run_llm_agent(
     logger.error(f"Agent execution failed after {max_retries} attempts for llm_config_id {llm_config_id}. Last error: {last_exception}")
     raise ValueError(f"调用LLM服务失败，已重试 {max_retries} 次: {str(last_exception)}")
 
-async def generate_continuation(session: Session, request: ContinuationRequest, system_prompt: str) -> Dict[str, Any]:
-    """根据提供的上下文，生成续写内容。system_prompt 由外部显式传入。"""
-    # 若前端已提供上下文，则直接使用；否则回退到服务端装配
-    supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
-    if supplied_ctx:
-        user_prompt = (
-            f"【写作上下文】\n{supplied_ctx}\n\n"
-            f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
-        )
-    else:
-        ctx = assemble_context(session, ContextAssembleParams(
-            project_id=getattr(request, 'project_id', None),
-            volume_number=getattr(request, 'volume_number', None),
-            chapter_number=getattr(request, 'chapter_number', None),
-            participants=getattr(request, 'participants', None),
-            current_draft_tail=request.previous_content,
-        ))
-        user_prompt = (
-            f"【写作上下文】\n{ctx.to_system_prompt_block()}\n\n"
-            f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
-        )
+# async def generate_continuation(session: Session, request: ContinuationRequest, system_prompt: str) -> Dict[str, Any]:
+#     """根据提供的上下文，生成续写内容。system_prompt 由外部显式传入。"""
+#     # 若前端已提供上下文，则直接使用；否则回退到服务端装配
+#     supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
+#     if supplied_ctx:
+#         user_prompt = (
+#             f"【写作上下文】\n{supplied_ctx}\n\n"
+#             f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
+#         )
+#     else:
+#         ctx = assemble_context(session, ContextAssembleParams(
+#             project_id=getattr(request, 'project_id', None),
+#             volume_number=getattr(request, 'volume_number', None),
+#             chapter_number=getattr(request, 'chapter_number', None),
+#             participants=getattr(request, 'participants', None),
+#             current_draft_tail=request.previous_content,
+#         ))
+#         user_prompt = (
+#             f"【写作上下文】\n{ctx.to_system_prompt_block()}\n\n"
+#             f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
+#         )
     
     
 
-    result = await run_llm_agent(
-        session=session,
-        user_prompt=user_prompt,
-        output_type=BaseModel,
-        llm_config_id=request.llm_config_id,
-        system_prompt=system_prompt,
-        max_tokens=request.max_tokens,
-        temperature=request.temperature,
-        timeout=request.timeout,
-    )
+#     result = await run_llm_agent(
+#         session=session,
+#         user_prompt=user_prompt,
+#         output_type=BaseModel,
+#         llm_config_id=request.llm_config_id,
+#         system_prompt=system_prompt,
+#         max_tokens=request.max_tokens,
+#         temperature=request.temperature,
+#         timeout=request.timeout,
+#     )
 
-    if isinstance(result, BaseModel) and hasattr(result, 'text'):
-         return {"content": result.text}  # type: ignore
-    return {"content": str(result)}
+#     if isinstance(result, BaseModel) and hasattr(result, 'text'):
+#          return {"content": result.text}  # type: ignore
+#     return {"content": str(result)}
 
 async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str) -> AsyncGenerator[str, None]:
     """以流式方式生成续写内容。system_prompt 由外部显式传入。"""
     supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
+    directive = "请基于以上上下文继续创作。直接输出连续的小说正文。" if getattr(request, 'append_continuous_novel_directive', True) else ""
     if supplied_ctx:
         user_prompt = (
-            f"【写作上下文】\n{supplied_ctx}\n\n"
-            f"请基于以上上下文继续创作。直接输出连续的小说正文。"
+            f"【上下文】\n{supplied_ctx}\n\n"
+            f"{directive}"
         )
     else:
         ctx = assemble_context(session, ContextAssembleParams(
@@ -188,10 +189,11 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
             current_draft_tail=request.previous_content,
         ))
         user_prompt = (
-            f"【写作上下文】\n{ctx.to_system_prompt_block()}\n\n"
-            f"请基于以上上下文继续创作。直接输出连续的小说正文。"
+            f"【上下文】\n{ctx.to_system_prompt_block()}\n\n"
+            f"{directive}"
         )
 
+    logger.info(f"system_prompt: {system_prompt}")
     logger.info(f"user_prompt: {user_prompt}")
     
     logger.info(f"===========system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}=============")

@@ -7,7 +7,7 @@
         
       </div>
 
-      <!-- 新增：上半区（类型列表） -->
+      <!-- 新增：上半区（类型列表 + 自由卡片库） -->
       <div class="types-pane" :style="{ height: typesPaneHeight + 'px' }" @dragover.prevent @drop="onTypesPaneDrop">
         <div class="pane-title">已有卡片类型</div>
         <el-scrollbar class="types-scroll">
@@ -28,6 +28,7 @@
           <span class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</span>
           <div class="cards-title-actions">
             <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
+            <el-button size="small" @click="openImportFreeCards">导入自由卡</el-button>
           </div>
         </div>
         <el-tree
@@ -44,7 +45,7 @@
         >
           <template #default="{ node, data }">
             <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
-              <div class="custom-tree-node full-row" draggable="true" @dragstart="onCardDragStart(data)" @dragover.prevent @drop="(e:any) => onTypeDropToNode(e, data)">
+              <div class="custom-tree-node full-row" draggable="true" @dragstart="onCardDragStart(data)" @dragover.prevent @drop="(e:any) => onTypeDropToNode(e, data)" @dragenter.prevent>
                 <el-icon class="card-icon"> 
                   <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
                 </el-icon>
@@ -99,6 +100,26 @@
         </el-tab-pane>
       </el-tabs>
     </el-main>
+
+    <!-- 右侧助手面板分隔条与面板 -->
+    <div class="resizer right-resizer" @mousedown="startResizing('right')"></div>
+    <el-aside class="sidebar assistant-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
+      <AssistantPanel
+        :resolved-context="assistantResolvedContext"
+        :llm-config-id="assistantParams.llm_config_id as any"
+        :prompt-name="'灵感对话'"
+        :temperature="assistantParams.temperature as any"
+        :max_tokens="assistantParams.max_tokens as any"
+        :timeout="assistantParams.timeout as any"
+        :effective-schema="assistantEffectiveSchema"
+        :generation-prompt-name="assistantParams.prompt_name as any"
+        :current-card-title="assistantSelectionCleared ? '' : (activeCard?.title as any)"
+        :current-card-content="assistantSelectionCleared ? null : (activeCard?.content as any)"
+        @refresh-context="refreshAssistantContext"
+        @reset-selection="resetAssistantSelection"
+        @finalize="assistantFinalize"
+      />
+    </el-aside>
   </div>
 
   <!-- 新建卡片对话框 -->
@@ -118,20 +139,53 @@
         </el-select>
       </el-form-item>
       <el-form-item label="父级卡片 (可选)">
-        <el-tree-select
-          v-model="newCardForm.parent_id"
-          :data="cardTree"
-          check-strictly
-          :render-after-expand="false"
-          placeholder="选择父级卡片"
-          clearable
-          style="width: 100%"
-        />
+                <el-tree-select
+           v-model="newCardForm.parent_id"
+           :data="cardTree"
+           :props="treeSelectProps"
+           check-strictly
+           :render-after-expand="false"
+           placeholder="选择父级卡片"
+           clearable
+           style="width: 100%"
+         />
       </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="isCreateCardDialogVisible = false">取消</el-button>
       <el-button type="primary" @click="handleCreateCard">创建</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 导入自由卡对话框 -->
+  <el-dialog v-model="importFreeDialog.visible" title="导入自由卡" width="680px" class="nf-import-dialog">
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px;">
+      <el-input v-model="importFreeDialog.search" placeholder="搜索卡片标题..." clearable style="flex:1" />
+      <el-tree-select
+        v-model="importFreeDialog.parentId"
+        :data="cardTree"
+        :props="treeSelectProps"
+        check-strictly
+        :render-after-expand="false"
+        placeholder="目标父级 (可选)"
+        clearable
+        popper-class="nf-tree-select-popper"
+        style="width: 300px"
+      />
+    </div>
+    <el-table :data="filteredFreeCards" height="360px" border @selection-change="onFreeSelectionChange">
+      <el-table-column type="selection" width="48" />
+      <el-table-column label="标题" prop="title" min-width="220" />
+      <el-table-column label="类型" min-width="160">
+        <template #default="{ row }">{{ row.card_type?.name }}</template>
+      </el-table-column>
+      <el-table-column label="创建时间" min-width="160">
+        <template #default="{ row }">{{ (row as any).created_at }}</template>
+      </el-table-column>
+    </el-table>
+    <template #footer>
+      <el-button @click="importFreeDialog.visible = false">取消</el-button>
+      <el-button type="primary" :disabled="!selectedFreeIds.length" @click="confirmImportFreeCards">导入所选</el-button>
     </template>
   </el-dialog>
 
@@ -159,11 +213,15 @@ import {
 } from '@element-plus/icons-vue'
 import type { components } from '@renderer/types/generated'
 import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
+import AssistantPanel from '@renderer/components/assistants/AssistantPanel.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import SchemaStudio from '@renderer/components/shared/SchemaStudio.vue'
 import { getCardSchema, createCardType } from '@renderer/api/setting'
+import { getFreeProject } from '@renderer/api/projects'
+import { getCardsForProject, copyCard, getCardAIParams } from '@renderer/api/cards'
+import { generateAIContent } from '@renderer/api/ai'
  
  // Mock components that will be created later
  const CardEditorHost = defineAsyncComponent(() => import('@renderer/components/cards/CardEditorHost.vue'));
@@ -171,8 +229,47 @@ import { getCardSchema, createCardType } from '@renderer/api/setting'
 
 
  type Project = components['schemas']['ProjectRead']
- type CardRead = components['schemas']['CardRead']
- type CardCreate = components['schemas']['CardCreate']
+type CardRead = components['schemas']['CardRead']
+type CardCreate = components['schemas']['CardCreate']
+
+ // 导入自由卡对话框状态
+ const importFreeDialog = ref<{ visible: boolean; search: string; parentId: number | null }>({ visible: false, search: '', parentId: null })
+ const freeCardsForImport = ref<CardRead[]>([])
+ const selectedFreeIds = ref<number[]>([])
+
+ const filteredFreeCards = computed(() => {
+   const q = (importFreeDialog.value.search || '').trim().toLowerCase()
+   if (!q) return freeCardsForImport.value
+   return (freeCardsForImport.value || []).filter(c => (c.title || '').toLowerCase().includes(q))
+ })
+
+ async function openImportFreeCards() {
+   try {
+     const free = await getFreeProject()
+     freeCardsForImport.value = await getCardsForProject(free.id)
+     importFreeDialog.value = { visible: true, search: '', parentId: null }
+   } catch {
+     ElMessage.error('加载自由卡片失败')
+   }
+ }
+
+ function onFreeSelectionChange(rows: any[]) {
+   selectedFreeIds.value = (rows || []).map(r => Number(r.id)).filter(n => Number.isFinite(n))
+ }
+
+ async function confirmImportFreeCards() {
+   try {
+     const pid = projectStore.currentProject?.id
+     if (!pid) return
+     const targetParent = importFreeDialog.value.parentId || null
+     for (const id of selectedFreeIds.value) {
+       await copyCard(id, { target_project_id: pid, parent_id: targetParent as any })
+     }
+     await cardStore.fetchCards(pid)
+     ElMessage.success('已导入所选自由卡')
+     importFreeDialog.value.visible = false
+   } catch { ElMessage.error('导入失败') }
+ }
 
  // Props
  const props = defineProps<{
@@ -186,13 +283,14 @@ import { getCardSchema, createCardType } from '@renderer/api/setting'
  const { expandedKeys } = storeToRefs(editorStore)
  const projectStore = useProjectStore()
 
- // --- 前端自动分组器 ---
- // 设计（新）：当某节点的直接子卡片中，任一“类型的数量 > 2”时，为该类型创建一个虚拟分组节点；
- // 其余数量 <= 2 的类型保持原样显示（即使整个父节点下只有一种类型，只要该类型数量>2也要分组）。
- // 该结构完全在前端进行，不影响后端数据
- interface TreeNode { id: number | string; title: string; children?: TreeNode[]; card_type?: { name: string }; __isGroup?: boolean; __groupType?: string }
+   // --- 前端自动分组器 ---
+  // 设计（新）：当某节点的直接子卡片中，任一“类型的数量 > 2”时，为该类型创建一个虚拟分组节点；
+  // 其余数量 <= 2 的类型保持原样显示（即使整个父节点下只有一种类型，只要该类型数量>2也要分组）。
+  // 该结构完全在前端进行，不影响后端数据
+  interface TreeNode { id: number | string; title: string; children?: TreeNode[]; card_type?: { name: string }; __isGroup?: boolean; __groupType?: string }
 
- function buildGroupedNodes(nodes: any[]): any[] {
+
+  function buildGroupedNodes(nodes: any[]): any[] {
    return nodes.map(n => {
      const node: TreeNode = { ...n }
      // 分组节点自身不再参与分组逻辑，直接递归其子节点
@@ -260,7 +358,14 @@ import { getCardSchema, createCardType } from '@renderer/api/setting'
  const blankMenuRef = ref<HTMLElement | null>(null)
 
  // Composables
- const { leftSidebarWidth, startResizing } = useSidebarResizer()
+   const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
+  
+  // 统一 TreeSelect 样式/属性，确保选项可见
+  const treeSelectProps = {
+    value: 'id',
+    label: 'title',
+    children: 'children'
+  } as const
   
   // 内部垂直分割：类型/卡片高度
   const typesPaneHeight = ref(180)
@@ -288,18 +393,24 @@ import { getCardSchema, createCardType } from '@renderer/api/setting'
    try { (event as DragEvent).dataTransfer?.setData('application/x-card-type-id', String(t.id)) } catch {}
  }
  function onCardsPaneDrop(e: DragEvent) {
-   try {
-     const typeId = e.dataTransfer?.getData('application/x-card-type-id')
-     if (typeId) {
-       // 在根创建一个该类型的新卡片，标题默认与类型同名（可后续弹框重命名）
-       newCardForm.title = (cardStore.cardTypes.find(ct => ct.id === Number(typeId))?.name || '新卡片')
-       newCardForm.card_type_id = Number(typeId)
-       newCardForm.parent_id = '' as any
-       handleCreateCard()
-       return
-     }
-   } catch {}
- }
+  try {
+    const typeId = e.dataTransfer?.getData('application/x-card-type-id')
+    if (typeId) {
+      // 在根创建一个该类型的新卡片，标题默认与类型同名（可后续弹框重命名）
+      newCardForm.title = (cardStore.cardTypes.find(ct => ct.id === Number(typeId))?.name || '新卡片')
+      newCardForm.card_type_id = Number(typeId)
+      newCardForm.parent_id = '' as any
+      handleCreateCard()
+      return
+    }
+    const movedCardId = e.dataTransfer?.getData('application/x-card-id')
+    if (movedCardId) {
+      // 设为根
+      cardStore.modifyCard(Number(movedCardId), { parent_id: null, display_order: 999999 }, { skipHooks: true })
+      return
+    }
+  } catch {}
+}
 
  // 从卡片实例提升为类型：在上半区松手
 async function onTypesPaneDrop(e: DragEvent) {
@@ -331,8 +442,9 @@ async function onTypesPaneDrop(e: DragEvent) {
 
  // 从卡片到类型区域：派生为新类型（稍后实现完整流程）
  function onCardDragStart(card: any) {
-   try { (event as DragEvent).dataTransfer?.setData('application/x-card-id', String(card?.id || '')) } catch {}
- }
+  try { (event as DragEvent).dataTransfer?.setData('application/x-card-id', String(card?.id || '')) } catch {}
+}
+
 
  // --- 拖拽：从类型列表到卡片树 ---
 function getDraggedTypeId(e: DragEvent): number | null {
@@ -345,10 +457,27 @@ function getDraggedTypeId(e: DragEvent): number | null {
 
 async function onTypeDropToNode(e: DragEvent, nodeData: any) {
   const typeId = getDraggedTypeId(e)
-  if (!typeId) return
-  // 仅对真实卡片节点生效，分组节点不接收
-  if (nodeData?.__isGroup) return
-  await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
+  if (typeId) {
+    // 仅对真实卡片节点生效，分组节点不接收
+    if (nodeData?.__isGroup) return
+    await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
+    return
+  }
+  try {
+    const movedCardId = e.dataTransfer?.getData('application/x-card-id')
+    if (movedCardId) {
+      if (nodeData?.__isGroup) return
+      await cardStore.modifyCard(Number(movedCardId), { parent_id: Number(nodeData?.id) }, { skipHooks: true })
+      return
+    }
+    const freeCardId = e.dataTransfer?.getData('application/x-free-card-id')
+    if (freeCardId) {
+      if (nodeData?.__isGroup) return
+      await copyCard(Number(freeCardId), { target_project_id: projectStore.currentProject!.id, parent_id: Number(nodeData?.id) })
+      await cardStore.fetchCards(projectStore.currentProject!.id)
+      ElMessage.success('已复制自由卡片到该节点下')
+    }
+  } catch {}
 }
 
  // --- Methods ---
@@ -363,6 +492,7 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
      return
    }
    cardStore.setActiveCard(data.id)
+   assistantSelectionCleared.value = false
    activeTab.value = 'editor'
  }
 
@@ -536,19 +666,117 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
    }
  }
 
+ // 助手面板上下文
+ const assistantResolvedContext = ref<string>('')
+ const assistantEffectiveSchema = ref<any>(null)
+ const assistantSelectionCleared = ref<boolean>(false)
+ const assistantParams = ref<{ llm_config_id: number | null; prompt_name: string | null; temperature: number | null; max_tokens: number | null; timeout: number | null }>({ llm_config_id: null, prompt_name: '灵感对话', temperature: null, max_tokens: null, timeout: null })
+
+ async function refreshAssistantContext() {
+   try {
+     const card = assistantSelectionCleared.value ? null : (activeCard.value as any)
+     if (!card) { assistantResolvedContext.value = ''; assistantEffectiveSchema.value = null; return }
+     // 计算上下文（沿用 contextResolver）
+     const { resolveTemplate } = await import('@renderer/services/contextResolver')
+     // 使用卡片当前保存的 ai_context_template 和 content
+     const resolved = resolveTemplate({ template: card.ai_context_template || '', cards: cards.value, currentCard: card })
+     assistantResolvedContext.value = resolved
+     // 读取有效 Schema
+     const resp = await getCardSchema(card.id)
+     assistantEffectiveSchema.value = resp?.effective_schema || resp?.json_schema || null
+     // 读取有效 AI 参数（保障 llm_config_id 存在）
+     try {
+       const ai = await getCardAIParams(card.id)
+       const eff = (ai?.effective_params || {}) as any
+       assistantParams.value = {
+         llm_config_id: eff.llm_config_id ?? null,
+         prompt_name: (eff.prompt_name ?? '灵感对话') as any,
+         temperature: eff.temperature ?? null,
+         max_tokens: eff.max_tokens ?? null,
+         timeout: eff.timeout ?? null,
+       }
+     } catch {
+       // 回退：直接使用卡片上的 ai_params
+       const p = (card?.ai_params || {}) as any
+       assistantParams.value = {
+         llm_config_id: p.llm_config_id ?? null,
+         prompt_name: (p.prompt_name ?? '灵感对话') as any,
+         temperature: p.temperature ?? null,
+         max_tokens: p.max_tokens ?? null,
+         timeout: p.timeout ?? null,
+       }
+     }
+   } catch { assistantResolvedContext.value = '' }
+ }
+
+ watch(activeCard, () => { if (!assistantSelectionCleared.value) refreshAssistantContext() })
+
+ function resetAssistantSelection() {
+   assistantSelectionCleared.value = true
+   assistantResolvedContext.value = ''
+   assistantEffectiveSchema.value = null
+ }
+
+ const assistantFinalize = async (summary: string) => {
+   try {
+     const card = activeCard.value as any
+     if (!card) return
+     const evt = new CustomEvent('nf:assistant-finalize', { detail: { cardId: card.id, summary } })
+     window.dispatchEvent(evt)
+     ElMessage.success('已发送定稿要点到编辑器页')
+   } catch {}
+ }
+
+ async function onAssistantFinalize(e: CustomEvent) {
+   try {
+     const card = activeCard.value as any
+     if (!card) return
+     const summary: string = (e as any)?.detail?.summary || ''
+     const llmId = assistantParams.value.llm_config_id
+     const promptName = (assistantParams.value.prompt_name || '内容生成') as string
+     const schema = assistantEffectiveSchema.value
+     if (!llmId) { ElMessage.warning('请先为该卡片选择模型'); return }
+     if (!schema) { ElMessage.warning('未获取到有效 Schema，无法定稿'); return }
+     // 组装定稿输入：上下文 + 定稿要点
+     const ctx = (assistantResolvedContext.value || '').trim()
+     const inputText = [ctx ? `【上下文】\n${ctx}` : '', summary ? `【定稿要点】\n${summary}` : ''].filter(Boolean).join('\n\n')
+     const result = await generateAIContent({
+       input: { input_text: inputText },
+       llm_config_id: llmId as any,
+       prompt_name: promptName,
+       response_model_schema: schema as any,
+       temperature: assistantParams.value.temperature ?? undefined,
+       max_tokens: assistantParams.value.max_tokens ?? undefined,
+       timeout: assistantParams.value.timeout ?? undefined,
+     } as any)
+     if (result) {
+       await cardStore.modifyCard(card.id, { content: result as any })
+       ElMessage.success('已根据要点生成并写回该卡片')
+     } else {
+       ElMessage.error('定稿生成失败：无返回内容')
+     }
+   } catch (err) {
+     ElMessage.error('定稿生成失败')
+     console.error(err)
+   }
+ }
+
  // --- Lifecycle ---
 
  onMounted(async () => {
-   // Fetch initial data for the card system (like types and models)
-   // Cards will be fetched automatically by the watcher in the card store
-   await cardStore.fetchInitialData()
-   // 保险：进入编辑页时也刷新一次可用模型（处理应用在其他页新增模型的场景）
-   await cardStore.fetchAvailableModels()
-   window.addEventListener('nf:navigate', onNavigate as any)
- })
+  // Fetch initial data for the card system (like types and models)
+  // Cards will be fetched automatically by the watcher in the card store
+  await cardStore.fetchInitialData()
+  // 进入编辑页时也刷新一次可用模型（处理应用在其他页新增模型的场景）
+  await cardStore.fetchAvailableModels()
+  window.addEventListener('nf:navigate', onNavigate as any)
+  window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
+  await refreshAssistantContext()
+})
 
  onBeforeUnmount(() => {
    window.removeEventListener('nf:navigate', onNavigate as any)
+   window.removeEventListener('nf:assistant-finalize', onAssistantFinalize as any)
  })
 
  function onNavigate(e: CustomEvent) {
@@ -687,4 +915,19 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
 .cards-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
 .cards-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cards-title-actions { display: flex; align-items: center; gap: 6px; }
+.assistant-sidebar { border-left: 1px solid var(--el-border-color-light); background: var(--el-bg-color); flex-shrink: 0; }
+.right-resizer { cursor: col-resize; width: 5px; background: transparent; }
+.right-resizer:hover { background: var(--el-color-primary-light-7); }
+.nf-import-dialog :deep(.el-input__wrapper) { font-size: 14px; }
+.nf-import-dialog :deep(.el-input__inner) { font-size: 14px; }
+.nf-import-dialog :deep(.el-table .cell) { font-size: 14px; color: var(--el-text-color-primary); }
+.nf-import-dialog :deep(.el-table__row) { height: 40px; }
+.nf-tree-select-popper { min-width: 320px; }
+.nf-tree-select-popper { background: var(--el-bg-color-overlay, #fff); color: var(--el-text-color-primary); }
+.nf-tree-select-popper :deep(.el-select-dropdown__item) { color: var(--el-text-color-primary); }
+.nf-tree-select-popper :deep(.el-tree) { background: transparent; }
+.nf-tree-select-popper :deep(.el-tree-node__content) { background: transparent; }
+.nf-tree-select-popper :deep(.el-tree-node__label) { font-size: 14px; color: var(--el-text-color-primary); }
+.nf-tree-select-popper :deep(.is-current > .el-tree-node__content),
+.nf-tree-select-popper :deep(.el-tree-node__content:hover) { background: var(--el-fill-color-light); }
 </style>

@@ -27,26 +27,72 @@ MAX_ITEMS_BY_TYPE: dict[str, int] = {
 # 全局权重阈值（默认 0.45）
 WEIGHT_THRESHOLD =0.45
 
-def _next_item_id(items: List[DynamicInfoItem]) -> int:
-    try:
-        return (max([it.id for it in items if isinstance(it.id, int) and it.id >= 1] or [0]) + 1)
-    except Exception:
-        return 1
+# ---- ：子树工具 ----
 
-# 统一键名：对象/其它类型 -> 中文字符串键
-# 由于 DynamicInfoType 已改为 Literal，正常情况下这里直接返回字符串
-# 仍保留容错：若传入对象且具有 value 字段且为字符串，则取其 value
+def _fetch_children(db: Session, parent_ids: List[int]) -> List[Card]:
+    if not parent_ids:
+        return []
+    stmt = select(Card).where(Card.parent_id.in_(parent_ids))
+    return db.exec(stmt).all()
 
-def _normalize_dynamic_type_key(key_obj: object) -> str:
-    try:
-        if isinstance(key_obj, str):
-            return key_obj
-        value_attr = getattr(key_obj, 'value', None)
-        if isinstance(value_attr, str):
-            return value_attr
-    except Exception:
-        pass
-    return str(key_obj)
+
+def _collect_subtree(db: Session, root: Card) -> List[Card]:
+    """按广度优先收集包含 root 在内的整棵子树（返回顺序：父在前、子在后）。"""
+    result: List[Card] = []
+    queue: List[Card] = [root]
+    while queue:
+        node = queue.pop(0)
+        result.append(node)
+        children = _fetch_children(db, [node.id])
+        queue.extend(children)
+    return result
+
+
+def _next_display_order(db: Session, project_id: int, parent_id: Optional[int]) -> int:
+    stmt = select(Card).where(Card.project_id == project_id, Card.parent_id == parent_id)
+    siblings = db.exec(stmt).all()
+    return len(siblings)
+
+
+def _shallow_clone(src: Card, project_id: int, parent_id: Optional[int], display_order: int) -> Card:
+    return Card(
+        title=src.title,
+        model_name=src.model_name,
+        content=dict(src.content or {}),
+        parent_id=parent_id,
+        card_type_id=src.card_type_id,
+        json_schema=dict(src.json_schema or {}) if src.json_schema is not None else None,
+        ai_params=dict(src.ai_params or {}) if src.ai_params is not None else None,
+        project_id=project_id,
+        display_order=display_order,
+        ai_context_template=src.ai_context_template,
+    )
+
+# ---- 标题后缀生成 ----
+
+def _generate_non_conflicting_title(db: Session, project_id: int, base_title: str) -> str:
+    title = (base_title or '').strip() or '新卡片'
+    # 收集同项目内所有以 base_title 开头且形如 base_title(数字) 的标题
+    stmt = select(Card.title).where(Card.project_id == project_id)
+    titles = db.exec(stmt).all() or []
+    existing_titles = set(titles)
+    if title not in existing_titles:
+        return title
+    # 找最大后缀
+    import re
+    pattern = re.compile(rf"^{re.escape(title)}\((\d+)\)$")
+    max_n = 0
+    for t in existing_titles:
+        m = pattern.match(str(t))
+        if m:
+            try:
+                n = int(m.group(1))
+                if n > max_n:
+                    max_n = n
+            except Exception:
+                continue
+    return f"{title}({max_n + 1})"
+
 
 class CardService:
     def __init__(self, db: Session):
@@ -71,7 +117,10 @@ class CardService:
         if not card_type:
              raise HTTPException(status_code=404, detail=f"CardType with id {card_create.card_type_id} not found")
 
-        if card_type.is_singleton:
+        # 单例限制：在保留项目(__free__)中放行
+        proj = self.db.get(Project, project_id)
+        is_free_project = getattr(proj, 'name', None) == "__free__"
+        if card_type.is_singleton and not is_free_project:
             statement = select(Card).where(Card.project_id == project_id, Card.card_type_id == card_create.card_type_id)
             existing_card = self.db.exec(statement).first()
             if existing_card:
@@ -87,11 +136,17 @@ class CardService:
 
         # 如果没有显式提供 ai_context_template，则从卡片类型继承默认模板
         ai_context_template = getattr(card_create, 'ai_context_template', None)
-        if not ai_context_template:
+        # 自由卡默认不注入上下文：强制清空模板
+        if is_free_project:
+            ai_context_template = None
+        elif not ai_context_template:
             ai_context_template = card_type.default_ai_context_template
 
+        # 自动处理标题冲突：相同标题追加 (n)
+        final_title = _generate_non_conflicting_title(self.db, project_id, getattr(card_create, 'title', '') or card_type.name)
+
         card = Card(
-            **card_create.model_dump(),
+            **{ **card_create.model_dump(), 'title': final_title },
             project_id=project_id,
             display_order=display_order,
             ai_context_template=ai_context_template,
@@ -191,164 +246,82 @@ class CardService:
         self.db.commit()
         return True 
 
-    def update_character_dynamic_info(self, project_id: int, update_data: UpdateDynamicInfo, queue_size: int = 5) -> List[Card]:
-        """
-        批量更新多个角色卡的动态信息，并应用上限与权重淘汰：
-        - 新增条目：若 id==-1 则按类别分配自增 id（不重排已有 id）。
-        - 合并后按权重降序保留；若权重相同按较新优先。
-        - 每类上限优先使用 MAX_ITEMS_BY_TYPE，未配置则使用 queue_size。
-        - 支持 modify_info_list 对已有条目权重进行修正。
-        """
-        updated_cards: List[Card] = []
-        character_card_type_name = "角色卡"
+    # ---- 移动与复制 ----
+    def move_card(self, card_id: int, target_project_id: int, parent_id: Optional[int] = None) -> Optional[Card]:
+        root = self.get_by_id(card_id)
+        if not root:
+            return None
+        # 收集子树
+        subtree = _collect_subtree(self.db, root)
+        id_set = {c.id for c in subtree}
+        # 校验：若指定 parent_id，不能把父节点设为子树内部其它节点（避免环）
+        if parent_id and parent_id in id_set and parent_id != root.id:
+            raise HTTPException(status_code=400, detail="Cannot set parent to a descendant of itself")
+        # 目标父节点项目校验
+        if parent_id is not None:
+            parent_card = self.get_by_id(parent_id)
+            if not parent_card:
+                raise HTTPException(status_code=404, detail="Target parent card not found")
+            if parent_card.project_id != target_project_id:
+                raise HTTPException(status_code=400, detail="Target parent card not in target project")
+        # 非保留项目的单例限制（跨项目移动时校验）
+        if target_project_id != root.project_id:
+            target_proj = self.db.get(Project, target_project_id)
+            is_target_free = getattr(target_proj, 'name', None) == "__free__"
+            if root.card_type and getattr(root.card_type, 'is_singleton', False) and not is_target_free:
+                exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == root.card_type_id)
+                exists = self.db.exec(exists_stmt).first()
+                if exists:
+                    raise HTTPException(status_code=409, detail=f"A card of type '{root.card_type.name}' already exists in target project (singleton)")
+        # 更新项目ID（整棵子树）
+        for node in subtree:
+            node.project_id = target_project_id
+        # 调整根的父与显示顺序
+        root.parent_id = parent_id
+        # 单例限制：在保留项目(__free__)内的同类型允许多个，因此 display_order 也允许直接追加
+        root.display_order = _next_display_order(self.db, target_project_id, parent_id)
+        # 提交
+        for node in subtree:
+            self.db.add(node)
+        self.db.commit()
+        self.db.refresh(root)
+        return root
 
-        # 1. 获取"角色卡"的CardType ID
-        card_type_stmt = select(CardType).where(CardType.name == character_card_type_name)
-        character_card_type = self.db.exec(card_type_stmt).first()
-        if not character_card_type:
-            raise HTTPException(status_code=404, detail=f"CardType '{character_card_type_name}' not found.")
-
-        # 2. 遍历待更新的信息列表
-        for info_update in update_data.info_list:
-            char_name = info_update.name
-
-            # 3. 根据名称和类型查找对应的角色卡
-            card_stmt = select(Card).where(
-                Card.project_id == project_id,
-                Card.title == char_name,
-                Card.card_type_id == character_card_type.id
-            )
-            target_card = self.db.exec(card_stmt).first()
-
-            if not target_card:
-                logger.warning(f"在项目中 {project_id} 未找到名为 '{char_name}' 的角色卡，跳过更新。")
-                continue
-
-            try:
-                card_content = target_card.content or {}
-                # 容错读取：只处理 dynamic_info，避免整卡模型校验失败
-                existing_di = dict(card_content.get("dynamic_info") or {})
-
-                # 合并新增
-                for info_type, new_items in (info_update.dynamic_info or {}).items():
-                    if not isinstance(new_items, list):
-                        continue
-                    # 统一将键转为字符串（中文值），与前端 schema 的 properties 对齐
-                    key = _normalize_dynamic_type_key(info_type)
-                    current_items_raw = list(existing_di.get(key, []) or [])
-                    # 将 dict -> DynamicInfoItem（容错）
-                    current_items: List[DynamicInfoItem] = []
-                    for it in current_items_raw:
-                        if isinstance(it, DynamicInfoItem):
-                            current_items.append(it)
-                        elif isinstance(it, dict):
-                            try:
-                                current_items.append(DynamicInfoItem(**it))
-                            except Exception:
-                                continue
-                    next_id = _next_item_id(current_items)
-
-                    # 去重依据：info 文本
-                    seen_info = { (it.info or '').strip(): it for it in current_items }
-                    for it in new_items:
-                        # 支持 dict 与对象两种形式
-                        if isinstance(it, dict):
-                            info_text_raw = it.get('info')
-                            weight_raw = it.get('weight', 0.0)
-                            item_id_raw = it.get('id', -1)
-                        else:
-                            info_text_raw = getattr(it, 'info', None)
-                            weight_raw = getattr(it, 'weight', 0.0)
-                            item_id_raw = getattr(it, 'id', -1)
-                        try:
-                            info_text = (info_text_raw or '').strip()
-                            weight_val = float(weight_raw or 0.0)
-                        except Exception:
-                            info_text = ''
-                            weight_val = 0.0
-                        if not info_text:
-                            continue
-                        # 权重阈值过滤
-                        if weight_val < WEIGHT_THRESHOLD:
-                            continue
-                        if info_text in seen_info:
-                            exist = seen_info[info_text]
-                            if weight_val > (exist.weight or 0.0):
-                                exist.weight = weight_val
-                            continue
-                        # 分配 id（若未指定或为-1）
-                        item_id = item_id_raw if isinstance(item_id_raw, int) else -1
-                        if item_id < 1:
-                            item_id = next_id
-                            next_id += 1
-                        appended_item = DynamicInfoItem(id=item_id, info=info_text, weight=weight_val)
-                        current_items.append(appended_item)
-                        seen_info[info_text] = appended_item
-
-                    # 应用上限：按权重降序、同权重按出现顺序保留
-                    per_limit = MAX_ITEMS_BY_TYPE.get(_normalize_dynamic_type_key(info_type), queue_size)  # 字符串键
-                    if per_limit and len(current_items) > per_limit:
-                        current_items.sort(key=lambda x: (-(x.weight or 0.0), x.id))
-                        current_items = current_items[:per_limit]
-                        current_items.sort(key=lambda x: x.id)
-
-                    existing_di[key] = [ci.model_dump() if hasattr(ci, 'model_dump') else ci for ci in current_items]
-
-                # 应用 modify_info_list 权重修正
-                if getattr(update_data, 'modify_info_list', None):
-                    for mod in (update_data.modify_info_list or []):
-                        if not mod or str(getattr(mod, 'name', '')) != char_name:
-                            continue
-                        t_key = _normalize_dynamic_type_key(getattr(mod, 'dynamic_type', None))
-                        lst_raw = existing_di.get(t_key)
-                        if not lst_raw:
-                            continue
-                        # 统一为对象列表
-                        lst: List[DynamicInfoItem] = []
-                        for it in lst_raw:
-                            if isinstance(it, DynamicInfoItem):
-                                lst.append(it)
-                            elif isinstance(it, dict):
-                                try:
-                                    lst.append(DynamicInfoItem(**it))
-                                except Exception:
-                                    continue
-                        for it in lst:
-                            if it.id == getattr(mod, 'id', None):
-                                try:
-                                    w = float(getattr(mod, 'weight', it.weight))
-                                except Exception:
-                                    w = it.weight
-                                it.weight = max(0.0, min(1.0, w))
-                                break
-                        existing_di[t_key] = [ci.model_dump() if hasattr(ci, 'model_dump') else ci for ci in lst]
-
-                # 写回（只更新 dynamic_info 字段，其它原样保留）
-                card_content["dynamic_info"] = existing_di
-                target_card.content = card_content
-                # 显式 UPDATE，确保 JSON 写入
-                try:
-                    self.db.exec(
-                        sa_update(Card)
-                        .where(Card.id == target_card.id)
-                        .values(content=card_content)
-                    )
-                except Exception:
-                    # 回退到 ORM 方式
-                    self.db.add(target_card)
-                updated_cards.append(target_card)
-
-            except Exception as e:
-                logger.error(f"更新角色卡 '{char_name}' (ID: {target_card.id}) 的动态信息时出错: {e}", exc_info=True)
-                self.db.rollback()
-                continue
-
-        if updated_cards:
+    def copy_card(self, card_id: int, target_project_id: int, parent_id: Optional[int] = None) -> Optional[Card]:
+        src_root = self.get_by_id(card_id)
+        if not src_root:
+            return None
+        # 非保留项目的单例限制（复制到目标时校验根类型）
+        target_proj = self.db.get(Project, target_project_id)
+        is_target_free = getattr(target_proj, 'name', None) == "__free__"
+        if src_root.card_type and getattr(src_root.card_type, 'is_singleton', False) and not is_target_free:
+            exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == src_root.card_type_id)
+            exists = self.db.exec(exists_stmt).first()
+            if exists:
+                raise HTTPException(status_code=409, detail=f"A card of type '{src_root.card_type.name}' already exists in target project (singleton)")
+        # 收集子树，按父在前的顺序复制
+        subtree = _collect_subtree(self.db, src_root)
+        old_to_new_id: dict[int, int] = {}
+        new_nodes_by_old_id: dict[int, Card] = {}
+        for node in subtree:
+            # 计算新父ID
+            if node.id == src_root.id:
+                new_parent_id = parent_id
+                new_order = _next_display_order(self.db, target_project_id, new_parent_id)
+            else:
+                old_parent_id = node.parent_id
+                new_parent_id = old_to_new_id.get(old_parent_id) if old_parent_id is not None else None
+                new_order = _next_display_order(self.db, target_project_id, new_parent_id)
+            clone = _shallow_clone(node, target_project_id, new_parent_id, new_order)
+            # 复制时也避免标题冲突
+            clone.title = _generate_non_conflicting_title(self.db, target_project_id, clone.title)
+            self.db.add(clone)
             self.db.commit()
-            for card in updated_cards:
-                self.db.refresh(card)
+            self.db.refresh(clone)
+            old_to_new_id[node.id] = clone.id
+            new_nodes_by_old_id[node.id] = clone
+        return new_nodes_by_old_id.get(src_root.id)
 
-        return updated_cards
 
 class CardTypeService:
     def __init__(self, db: Session):

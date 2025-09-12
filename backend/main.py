@@ -28,6 +28,7 @@ from app.db import models
 from app.bootstrap.init_app import init_prompts, create_default_card_types
 # 知识库初始化
 from app.bootstrap.init_app import init_knowledge
+from app.bootstrap.init_app import init_reserved_project
  # 初始化项目模板
 from app.bootstrap.init_app import init_project_templates
 
@@ -52,6 +53,8 @@ async def lifespan(app):
         init_knowledge(session)
         # 初始化系统预设项目模板（依赖卡片类型）
         init_project_templates(session)
+        # 初始化保留项目
+        init_reserved_project(session)
     yield
     # 关闭时可添加清理逻辑（如有需要）
 

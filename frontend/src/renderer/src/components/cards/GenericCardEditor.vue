@@ -96,6 +96,8 @@ import { Setting } from '@element-plus/icons-vue'
 import { useAIStore as useAIStoreForOptions } from '@renderer/stores/useAIStore'
 import SchemaStudio from '../shared/SchemaStudio.vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
+// 移除 AssistantSidebar 相关导入与逻辑
+import { resolveTemplate } from '@renderer/services/contextResolver'
 
 const props = defineProps<{ card: CardRead }>()
 
@@ -111,6 +113,24 @@ const openDrawer = ref(false)
 const isSelectorVisible = ref(false)
 const showVersions = ref(false)
 const schemaStudioVisible = ref(false)
+const assistantVisible = ref(false)
+const assistantResolvedContext = ref<string>('')
+const assistantEffectiveSchema = ref<any>(null)
+
+function openAssistant() {
+  const editingContent = wrapperName.value ? innerData.value : localData.value
+  const currentCardForResolve = { ...props.card, content: editingContent }
+  const resolved = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+  assistantResolvedContext.value = resolved
+  // 读取有效 Schema 作为对话指导
+  import('@renderer/api/setting').then(async ({ getCardSchema }) => {
+    try {
+      const resp = await getCardSchema(props.card.id)
+      assistantEffectiveSchema.value = resp?.effective_schema || resp?.json_schema || null
+    } catch { assistantEffectiveSchema.value = null }
+  })
+  assistantVisible.value = true
+}
 
 const isSaving = ref(false)
 const localData = ref<any>({})
@@ -354,6 +374,10 @@ function keyHandler(e: KeyboardEvent) {
     e.preventDefault()
     openDrawer.value = true
   }
+  if ((e.altKey || e.metaKey) && (e.key === 'j' || e.key === 'J')) {
+    e.preventDefault()
+    openAssistant()
+  }
 }
 
 onMounted(() => { window.addEventListener('keydown', keyHandler) })
@@ -437,7 +461,6 @@ async function handleDelete() {
 async function handleGenerate() {
   const p = perCardStore.getByCardId(props.card.id) || editingParams.value
   if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
-  const { resolveTemplate } = await import('@renderer/services/contextResolver')
   const editingContent = wrapperName.value ? innerData.value : localData.value
   const currentCardForResolve = { ...props.card, content: editingContent }
   const resolvedContext = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
@@ -449,7 +472,23 @@ async function handleGenerate() {
     if (!effective) { ElMessage.error('未找到此卡片的结构（Schema）。'); return }
     const sampling = { temperature: p.temperature, max_tokens: p.max_tokens, timeout: p.timeout }
     const result = await aiStore.generateContentWithSchema(effective as any, resolvedContext, p.llm_config_id!, p.prompt_name ?? undefined, sampling)
-    if (result) { localData.value = result; ElMessage.success('内容生成成功！') }
+    if (result) {
+      const { mergeWith, isArray } = await import('lodash-es')
+      const arrayOverwrite = (objValue: any, srcValue: any) => {
+        if (isArray(objValue) || isArray(srcValue)) {
+          return srcValue
+        }
+        return undefined
+      }
+      if (wrapperName.value) {
+        const mergedInner = mergeWith({}, innerData.value || {}, result, arrayOverwrite)
+        innerData.value = mergedInner
+      } else {
+        const merged = mergeWith({}, localData.value || {}, result, arrayOverwrite)
+        localData.value = merged
+      }
+      ElMessage.success('内容生成成功！')
+    }
   } catch (e) { console.error('AI generation failed:', e) }
 }
 
@@ -473,6 +512,43 @@ function openStudio() {
 async function onSchemaSaved() {
   // 保存结构后刷新 schema 并重算分区
   await loadSchemaForCard(props.card)
+}
+
+async function handleAssistantFinalize(summary: string) {
+  try {
+    const p = perCardStore.getByCardId(props.card.id) || editingParams.value
+    if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
+    // 将对话要点与上下文合并，作为输入文本（不再附加卡片提示词模板）
+    const editingContent = wrapperName.value ? innerData.value : localData.value
+    const currentCardForResolve = { ...props.card, content: editingContent }
+    const resolvedContextText = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+    const inputText = `${resolvedContextText}\n\n[对话要点]\n${summary}`
+    // 读取有效 Schema
+    const { getCardSchema } = await import('@renderer/api/setting')
+    const resp = await getCardSchema(props.card.id)
+    const effective = resp?.effective_schema || resp?.json_schema
+    if (!effective) { ElMessage.error('未找到此卡片的结构（Schema）。'); return }
+    const sampling = { temperature: p.temperature, max_tokens: p.max_tokens, timeout: p.timeout }
+    const result = await aiStore.generateContentWithSchema(effective as any, inputText, p.llm_config_id!, p.prompt_name ?? undefined, sampling)
+    if (result) {
+      const { mergeWith, isArray } = await import('lodash-es')
+      const arrayOverwrite = (objValue: any, srcValue: any) => {
+        if (isArray(objValue) || isArray(srcValue)) {
+          return srcValue
+        }
+        return undefined
+      }
+      if (wrapperName.value) {
+        const mergedInner = mergeWith({}, innerData.value || {}, result, arrayOverwrite)
+        innerData.value = mergedInner
+      } else {
+        const merged = mergeWith({}, localData.value || {}, result, arrayOverwrite)
+        localData.value = merged
+      }
+      assistantVisible.value = false
+      ElMessage.success('定稿生成完成！')
+    }
+  } catch (e) { console.error('Finalize generate failed:', e) }
 }
 </script>
 

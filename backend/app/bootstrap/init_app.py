@@ -7,6 +7,8 @@ from app.api.endpoints.ai import RESPONSE_MODEL_MAP
 from app.db.models import Knowledge, LLMConfig
 # 项目模板
 from app.db.models import ProjectTemplate, ProjectTemplateItem
+from app.db.models import Project
+from sqlmodel import select as _select
 
 def _parse_prompt_file(file_path: str):
     """解析单个提示词文件，支持frontmatter元数据"""
@@ -342,3 +344,18 @@ def init_project_templates(db: Session):
         db.add(existing)
         db.commit()
         logger.info("系统预设项目模板已更新")
+
+# 初始化保留项目（__free__）
+def init_reserved_project(db: Session):
+    """确保存在一个保留项目，用于跨项目的自由卡片归档。"""
+    FREE_NAME = "__free__"
+    exists = db.exec(_select(Project).where(Project.name == FREE_NAME)).first()
+    if not exists:
+        p = Project(name=FREE_NAME, description="系统保留项目：存放自由卡片")
+        db.add(p)
+        db.commit()
+        db.refresh(p)
+        logger.info(f"已创建保留项目: {FREE_NAME} (id={p.id})")
+    else:
+        # 可在此处做增量更新（如描述字段）
+        pass

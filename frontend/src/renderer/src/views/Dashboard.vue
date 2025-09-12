@@ -79,6 +79,8 @@ const sortKey = ref<SortKey>('created-desc')
 const displayProjects = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   let data = projects.value.slice()
+  // 隐藏系统保留项目
+  data = data.filter(p => (p.name || '') !== '__free__')
   if (q) {
     data = data.filter(p => (p.name || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q))
   }
@@ -102,6 +104,7 @@ async function handleProjectCreate(projectData: any) {
 }
 
 function handleProjectEdit(project: Project) {
+  if ((project.name || '') === '__free__') return
   createDialogRef.value?.open(project)
 }
 
@@ -115,6 +118,7 @@ async function handleProjectUpdate(projectId: number, projectData: any) {
 
 async function handleProjectDelete(project: Project) {
   try {
+    if ((project.name || '') === '__free__') return
     await ElMessageBox.confirm(
       `确定要删除项目 "${project.name}" 吗？此操作将永久删除该项目及其所有内容，且无法恢复。`,
       '警告',

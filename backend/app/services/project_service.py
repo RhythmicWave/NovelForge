@@ -8,6 +8,20 @@ from app.services.card_service import CardService
 from app.services.kg_provider import get_provider
 
 
+FREE_PROJECT_NAME = "__free__"
+
+# 获取或创建保留项目（__free__）
+def get_or_create_free_project(session: Session) -> Project:
+    proj = session.exec(select(Project).where(Project.name == FREE_PROJECT_NAME)).first()
+    if proj:
+        return proj
+    proj = Project(name=FREE_PROJECT_NAME, description="系统保留项目：存放自由卡片")
+    session.add(proj)
+    session.commit()
+    session.refresh(proj)
+    return proj
+
+
 def get_projects(session: Session) -> List[Project]:
     statement = select(Project).order_by(Project.id.desc())
     return session.exec(statement).all()
@@ -73,6 +87,9 @@ def update_project(session: Session, project_id: int, project_in: ProjectUpdate)
 def delete_project(session: Session, project_id: int) -> bool:
     project = session.get(Project, project_id)
     if not project:
+        return False
+    # 保留项目禁止删除
+    if getattr(project, 'name', None) == FREE_PROJECT_NAME:
         return False
     # 先删除数据库中的项目记录
     session.delete(project)

@@ -8,6 +8,8 @@ from app.schemas.card import CardRead, CardCreate, CardUpdate, CardTypeRead, Car
 from app.db.models import Card, CardType, LLMConfig
 from loguru import logger
 
+from app.schemas.card import CardCopyOrMoveRequest
+
 router = APIRouter()
 
 # --- helpers ---
@@ -166,7 +168,23 @@ def delete_card(card_id: int, db: Session = Depends(get_session)):
     service = CardService(db)
     if not service.delete(card_id):
         raise HTTPException(status_code=404, detail="Card not found")
-    return {"ok": True} 
+    return {"ok": True}
+
+@router.post("/cards/{card_id}/copy", response_model=CardRead)
+def copy_card_endpoint(card_id: int, payload: CardCopyOrMoveRequest, db: Session = Depends(get_session)):
+    service = CardService(db)
+    copied = service.copy_card(card_id, payload.target_project_id, payload.parent_id)
+    if not copied:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return copied
+
+@router.post("/cards/{card_id}/move", response_model=CardRead)
+def move_card_endpoint(card_id: int, payload: CardCopyOrMoveRequest, db: Session = Depends(get_session)):
+    service = CardService(db)
+    moved = service.move_card(card_id, payload.target_project_id, payload.parent_id)
+    if not moved:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return moved 
 
 # --- Card Schema Endpoints ---
 

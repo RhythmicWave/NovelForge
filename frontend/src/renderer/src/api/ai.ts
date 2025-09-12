@@ -5,6 +5,9 @@ export type GeneralAIRequest = components['schemas']['GeneralAIRequest']
 export type ContinuationRequest = components['schemas']['ContinuationRequest']
 export type ContinuationResponse = components['schemas']['ContinuationResponse']
 
+// append_continuous_novel_directive（用于控制是否追加“连续小说正文”指令）
+export type ContinuationRequestExtended = ContinuationRequest & { append_continuous_novel_directive?: boolean }
+
 // Manually define AIConfigOptions if it's not in generated types
 export interface AIConfigOptions {
   llm_configs: Array<{ id: number; display_name: string }>
@@ -17,6 +20,9 @@ export interface AIConfigOptions {
 export type AssembleContextRequest = components['schemas']['AssembleContextRequest']
 export type AssembleContextResponse = components['schemas']['AssembleContextResponse']
 
+export function renderPromptWithKnowledge(name: string): Promise<{ text: string }> {
+  return aiHttpClient.get<{ text: string }>(`/ai/prompts/render?name=${encodeURIComponent(name)}`)
+}
 
 export function assembleContext(body: AssembleContextRequest): Promise<AssembleContextResponse> {
   return aiHttpClient.post<AssembleContextResponse>('/context/assemble', body, '/api', { showLoading: false })
@@ -32,12 +38,12 @@ export function getAIConfigOptions(): Promise<AIConfigOptions> {
   return aiHttpClient.get<AIConfigOptions>('/ai/config-options')
 }
 
-export function generateContinuation(params: ContinuationRequest): Promise<ContinuationResponse> {
+export function generateContinuation(params: ContinuationRequestExtended): Promise<ContinuationResponse> {
   return aiHttpClient.post<ContinuationResponse>('/ai/generate/continuation', params, '/api', { showLoading: false })
 }
 
 export function generateContinuationStreaming(
-    params: ContinuationRequest, 
+    params: ContinuationRequestExtended, 
     onData: (data: string) => void, 
     onClose: () => void,
     onError?: (err: any) => void
@@ -67,9 +73,7 @@ export function generateContinuationStreaming(
       reader.read().then(({ done, value }) => {
         if (done) { onClose(); return }
         buffer += decoder.decode(value, { stream: true })
-        // 按行解析标准 SSE：可能出现 data: 多行，空行表示一次事件结束
         const events = buffer.split('\n\n')
-        // 保留最后一个不完整事件在 buffer
         buffer = events.pop() || ''
         for (const evt of events) {
           const lines = evt.split('\n').map(l => l.trim())
@@ -82,7 +86,6 @@ export function generateContinuationStreaming(
         }
         pump()
       }).catch(err => { 
-        // fetch 中断时，reader.read 会抛异常；此时视为正常关闭
         if ((err as any)?.name === 'AbortError') { onClose(); return }
         if (onError) onError(err) 
       })

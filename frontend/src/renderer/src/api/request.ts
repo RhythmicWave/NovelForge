@@ -99,8 +99,8 @@ class HttpClient {
              ElMessage.error('发生了一个未知的校验错误')
           }
         } else {
-          // 对其他类型的错误使用通用处理
-          const errorMessage = error.response?.data?.message || error.message || '请求失败'
+          // 对其他类型的错误使用通用处理（优先后端 detail 信息）
+          const errorMessage = error.response?.data?.message || error.response?.data?.detail || error.message || '请求失败'
           ElMessage.error(errorMessage)
         }
 
