@@ -4,7 +4,6 @@
       <span class="title">灵感助手</span>
       <el-tag v-if="currentCardTitle" size="small" type="info" class="card-tag" effect="plain">{{ currentCardTitle }}</el-tag>
       <div class="spacer"></div>
-      <el-switch v-model="injectContentJson" active-text="卡片数据" inline-prompt size="small" />
       <el-button size="small" text type="danger" @click="$emit('reset-selection')">重置选中</el-button>
       <el-button size="small" @click="$emit('refresh-context')">刷新上下文</el-button>
       <el-popover placement="bottom" width="480" trigger="hover">
@@ -27,21 +26,48 @@
     </div>
 
     <div class="composer">
+      <div class="inject-toolbar">
+        <div class="chips">
+          <el-tag v-for="(r, idx) in assistantStore.injectedRefs" :key="r.projectId + '-' + r.cardId" closable @close="removeInjectedRef(idx)" size="small" effect="plain">
+            {{ r.projectName }} / {{ r.cardTitle }}
+          </el-tag>
+        </div>
+        <el-button size="small" :icon="Plus" @click="openInjectSelector">添加引用</el-button>
+      </div>
       <el-input v-model="draft" type="textarea" :rows="3" placeholder="输入你的想法、约束或追问" :disabled="isStreaming" />
       <div class="composer-actions">
         <el-button @click="handleReset" :disabled="isStreaming">重置对话</el-button>
         <el-button :disabled="!isStreaming" @click="handleCancel">中止</el-button>
         <el-button :disabled="!canRegenerate" @click="handleRegenerate">重新生成</el-button>
         <el-button type="success" :disabled="isStreaming || !messages.length" @click="handleFinalize">定稿生成</el-button>
-        <el-button type="primary" :disabled="isStreaming || !canSend" @click="handleSend">发送</el-button>
+        <el-button type="primary" :icon="Promotion" circle :disabled="isStreaming || !canSend" @click="handleSend" title="发送" />
       </div>
     </div>
+
+    <!-- 选择器对话框 -->
+    <el-dialog v-model="selectorVisible" title="添加引用卡片" width="760px">
+      <div style="display:flex; gap:12px; align-items:center; margin-bottom:10px;">
+        <el-select v-model="selectorSourcePid" placeholder="来源项目" style="width: 260px" @change="onSelectorProjectChange($event as any)">
+          <el-option v-for="p in assistantStore.projects" :key="p.id" :label="p.name" :value="p.id" />
+        </el-select>
+        <el-input v-model="selectorSearch" placeholder="搜索标题..." clearable style="flex:1" />
+      </div>
+      <el-tree :data="selectorTreeData" :props="{ label: 'label', children: 'children' }" node-key="key" show-checkbox highlight-current :default-expand-all="false" :check-strictly="false" @check="onTreeCheck" style="max-height:360px; overflow:auto; border:1px solid var(--el-border-color-light); padding:8px; border-radius:6px;" />
+      <template #footer>
+        <el-button @click="selectorVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!selectorSelectedIds.length || !selectorSourcePid" @click="confirmAddInjectedRefs">添加</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue'
 import { generateContinuationStreaming, renderPromptWithKnowledge } from '@renderer/api/ai'
+import { getProjects } from '@renderer/api/projects'
+import { getCardsForProject, type CardRead } from '@renderer/api/cards'
+import { Plus, Promotion } from '@element-plus/icons-vue'
+import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 
 const props = defineProps<{ resolvedContext: string; llmConfigId?: number | null; promptName?: string | null; temperature?: number | null; max_tokens?: number | null; timeout?: number | null; effectiveSchema?: any; generationPromptName?: string | null; currentCardTitle?: string | null; currentCardContent?: any }>()
 const emit = defineEmits<{ 'finalize': [string]; 'refresh-context': []; 'reset-selection': [] }>()
@@ -67,49 +93,107 @@ async function loadInjectedCardPrompt() {
 
 watch(() => props.generationPromptName, async () => { await loadInjectedCardPrompt() }, { immediate: true })
 
-const canSend = computed(() => !!draft.value.trim() && !!props.llmConfigId)
+const canSend = computed(() => {
+  const hasDraft = !!draft.value.trim()
+  const hasRefs = assistantStore.injectedRefs.length > 0
+  return !!props.llmConfigId && (hasDraft || hasRefs)
+})
 
-// === 注入内容JSON 开关（默认开启，记忆到本地存储） ===
-const LS_KEY_INJECT = 'nf.assistant.injectContentJson'
-const initialInject = (() => { try { const raw = localStorage.getItem(LS_KEY_INJECT); return raw === null ? true : raw === '1' } catch { return true } })()
-const injectContentJson = ref<boolean>(initialInject)
-watch(injectContentJson, (v) => { try { localStorage.setItem(LS_KEY_INJECT, v ? '1' : '0') } catch {} })
-
-// 已移除复杂剪裁工具，仅保留屏蔽 x-ai-exclude 的最小逻辑
-
-function buildConversationText() { return messages.value.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n') }
-
-function maskBySchema(value: any, schema: any): any {
-  if (value === null || value === undefined) return value
-  const t = typeof value
-  if (t !== 'object') return value
-  if (Array.isArray(value)) {
-    const schItems = (schema && (schema.items || schema.prefixItems)) || {}
-    return (value as any[]).map((it) => maskBySchema(it, schItems))
+// ---- 多卡片数据引用（跨项目，使用 Pinia） ----
+const assistantStore = useAssistantStore()
+const selectorVisible = ref(false)
+const selectorSourcePid = ref<number | null>(null)
+const selectorCards = ref<CardRead[]>([])
+const selectorSearch = ref('')
+const selectorSelectedIds = ref<number[]>([])
+const filteredSelectorCards = computed(() => {
+  const q = (selectorSearch.value || '').trim().toLowerCase()
+  if (!q) return selectorCards.value
+  return (selectorCards.value || []).filter(c => (c.title || '').toLowerCase().includes(q))
+})
+const selectorTreeData = computed(() => {
+  const byType: Record<string, any[]> = {}
+  for (const c of filteredSelectorCards.value || []) {
+    const tn = c.card_type?.name || '未分类'
+    if (!byType[tn]) byType[tn] = []
+    byType[tn].push({ id: c.id, title: c.title, label: c.title, key: `card:${c.id}`, isLeaf: true })
   }
-  const schProps = (schema && schema.properties) || {}
+  return Object.keys(byType).sort().map((t, idx) => ({ key: `type:${idx}`, label: t, children: byType[t] }))
+})
+const selectorCheckedKeys = ref<string[]>([])
+
+async function openInjectSelector() {
+  try {
+    await assistantStore.loadProjects()
+    selectorSourcePid.value = assistantStore.projects[0]?.id ?? null
+    if (selectorSourcePid.value) selectorCards.value = await assistantStore.loadCardsForProject(selectorSourcePid.value)
+    selectorSelectedIds.value = []
+    selectorSearch.value = ''
+    selectorVisible.value = true
+  } catch {}
+}
+
+async function onSelectorProjectChange(pid: number | null) {
+  selectorCards.value = []
+  if (!pid) return
+  selectorCards.value = await assistantStore.loadCardsForProject(pid)
+}
+
+function onTreeCheck(_: any, meta: any) {
+  // meta.checkedKeys: string[]
+  const keys: string[] = (meta?.checkedKeys || []) as string[]
+  selectorCheckedKeys.value = keys
+  const ids = keys.filter(k => k.startsWith('card:')).map(k => Number(k.split(':')[1])).filter(n => Number.isFinite(n))
+  selectorSelectedIds.value = ids
+}
+
+function removeInjectedRef(idx: number) { assistantStore.removeInjectedRefAt(idx) }
+
+async function confirmAddInjectedRefs() {
+  try {
+    const pid = selectorSourcePid.value as number
+    const pname = assistantStore.projects.find(p => p.id === pid)?.name || ''
+    assistantStore.addInjectedRefs(pid, pname, selectorSelectedIds.value)
+  } finally { selectorVisible.value = false }
+}
+
+function pruneEmpty(val: any): any {
+  if (val == null) return val
+  if (typeof val === 'string') return val.trim() === '' ? undefined : val
+  if (typeof val !== 'object') return val
+  if (Array.isArray(val)) {
+    const arr = val.map(pruneEmpty).filter(v => v !== undefined)
+    return arr
+  }
   const out: Record<string, any> = {}
-  for (const [k, v] of Object.entries(value as Record<string, any>)) {
-    const propSchema = schProps[k] || {}
-    if (propSchema && propSchema['x-ai-exclude'] === true) continue
-    out[k] = maskBySchema(v, propSchema)
+  for (const [k, v] of Object.entries(val)) {
+    const pv = pruneEmpty(v)
+    if (pv === undefined) continue
+    if (typeof pv === 'object' && !Array.isArray(pv) && Object.keys(pv).length === 0) continue
+    if (Array.isArray(pv) && pv.length === 0) continue
+    out[k] = pv
   }
   return out
 }
+
+function buildConversationText() { return messages.value.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n') }
 
 function buildDraftTail() {
   const parts: string[] = []
   if (injectedCardPrompt.value) parts.push(`【卡片提示词】\n${injectedCardPrompt.value}`)
   if (props.effectiveSchema) { try { parts.push(`【JSON Schema】\n\n\`\`\`json\n${JSON.stringify(props.effectiveSchema, null, 2)}\n\`\`\``) } catch {} }
-  // 注入“卡片数据（JSON，仅供参考）”：直接拼接，尊重 x-ai-exclude，整体限长
-  if (injectContentJson.value && props.currentCardContent) {
-    try {
-      const masked = props.effectiveSchema ? maskBySchema(props.currentCardContent, props.effectiveSchema) : props.currentCardContent
-      const jsonText = JSON.stringify(masked ?? {}, null, 2)
-      // 限长保护（整体最长注入约 8000 字符）
-      const clipped = jsonText.length > 8000 ? jsonText.slice(0, 8000) + '\n/* 其余已截断 */' : jsonText
-      parts.push(`【该卡片已有数据（仅供参考）】\n\n\`\`\`json\n${clipped}\n\`\`\``)
-    } catch {}
+  // 注入“引用卡片数据”（跨项目，多条）
+  if (assistantStore.injectedRefs.length) {
+    const blocks: string[] = []
+    for (const ref of assistantStore.injectedRefs) {
+      try {
+        const cleaned = pruneEmpty(ref.content)
+        const text = JSON.stringify(cleaned ?? {}, null, 2)
+        const clipped = text.length > 6000 ? text.slice(0, 6000) + '\n/* 其余已截断 */' : text
+        blocks.push(`【引用】项目：${ref.projectName} / 卡片：${ref.cardTitle}\n\n\`\`\`json\n${clipped}\n\`\`\``)
+      } catch {}
+    }
+    if (blocks.length) parts.push(blocks.join('\n\n'))
   }
   const activeCtx = props.resolvedContext || ''
   if (activeCtx) parts.push(`【上下文】\n${activeCtx}`)
@@ -180,6 +264,8 @@ function handleReset() { try { streamCtl?.cancel() } catch {}; isStreaming.value
 .msg.user .bubble-text { color: var(--el-color-white); }
 .streaming-tip { color: var(--el-text-color-secondary); padding-left: 4px; font-size: 12px; }
 .composer { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--el-border-color-light); }
+.inject-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; }
+.inject-toolbar .chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .composer-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
 :deep(.composer .el-button) { padding: 6px 8px; font-size: 12px; }
 </style> 

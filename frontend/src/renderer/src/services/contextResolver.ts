@@ -711,7 +711,7 @@ export function resolveTemplate(ctx: ResolveContext): string {
     i = j + 1
   }
 
-  // 反向替换
+  // 反向替换（仅使用内置解析，不支持跨项目 @）
   let result = s
   for (let k = tokens.length - 1; k >= 0; k--) {
     const t = tokens[k]

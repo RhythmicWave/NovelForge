@@ -7,7 +7,7 @@
         
       </div>
 
-      <!-- 新增：上半区（类型列表 + 自由卡片库） -->
+      <!-- 上半区（类型列表 + 自由卡片库） -->
       <div class="types-pane" :style="{ height: typesPaneHeight + 'px' }" @dragover.prevent @drop="onTypesPaneDrop">
         <div class="pane-title">已有卡片类型</div>
         <el-scrollbar class="types-scroll">
@@ -25,10 +25,10 @@
       <!-- 下半区：项目卡片树 -->
       <div class="cards-pane" :style="{ height: `calc(100% - ${typesPaneHeight + innerResizerThickness}px)` }" @dragover.prevent @drop="onCardsPaneDrop">
         <div class="cards-title">
-          <span class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</span>
+          <div class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</div>
           <div class="cards-title-actions">
             <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
-            <el-button size="small" @click="openImportFreeCards">导入自由卡</el-button>
+            <el-button v-if="!isFreeProject" size="small" @click="openImportFreeCards">导入卡片</el-button>
           </div>
         </div>
         <el-tree
@@ -157,12 +157,15 @@
     </template>
   </el-dialog>
 
-  <!-- 导入自由卡对话框 -->
-  <el-dialog v-model="importFreeDialog.visible" title="导入自由卡" width="680px" class="nf-import-dialog">
+  <!-- 导入卡片对话框 -->
+  <el-dialog v-model="importDialog.visible" title="导入卡片" width="760px" class="nf-import-dialog">
     <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px;">
-      <el-input v-model="importFreeDialog.search" placeholder="搜索卡片标题..." clearable style="flex:1" />
+      <el-select v-model="importDialog.sourcePid" placeholder="来源项目" style="width:260px" @change="onImportSourceChange($event as any)">
+        <el-option v-for="p in importDialog.projects" :key="p.id" :label="p.name" :value="p.id" />
+      </el-select>
+      <el-input v-model="importDialog.search" placeholder="搜索来源卡片标题..." clearable style="flex:1" />
       <el-tree-select
-        v-model="importFreeDialog.parentId"
+        v-model="importDialog.parentId"
         :data="cardTree"
         :props="treeSelectProps"
         check-strictly
@@ -173,7 +176,7 @@
         style="width: 300px"
       />
     </div>
-    <el-table :data="filteredFreeCards" height="360px" border @selection-change="onFreeSelectionChange">
+    <el-table :data="filteredImportCards" height="360px" border @selection-change="onImportSelectionChange">
       <el-table-column type="selection" width="48" />
       <el-table-column label="标题" prop="title" min-width="220" />
       <el-table-column label="类型" min-width="160">
@@ -184,8 +187,8 @@
       </el-table-column>
     </el-table>
     <template #footer>
-      <el-button @click="importFreeDialog.visible = false">取消</el-button>
-      <el-button type="primary" :disabled="!selectedFreeIds.length" @click="confirmImportFreeCards">导入所选</el-button>
+      <el-button @click="importDialog.visible = false">取消</el-button>
+      <el-button type="primary" :disabled="!selectedImportIds.length" @click="confirmImportCards">导入所选</el-button>
     </template>
   </el-dialog>
 
@@ -217,9 +220,10 @@ import AssistantPanel from '@renderer/components/assistants/AssistantPanel.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
+import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import SchemaStudio from '@renderer/components/shared/SchemaStudio.vue'
 import { getCardSchema, createCardType } from '@renderer/api/setting'
-import { getFreeProject } from '@renderer/api/projects'
+import { getProjects } from '@renderer/api/projects'
 import { getCardsForProject, copyCard, getCardAIParams } from '@renderer/api/cards'
 import { generateAIContent } from '@renderer/api/ai'
  
@@ -232,44 +236,52 @@ import { generateAIContent } from '@renderer/api/ai'
 type CardRead = components['schemas']['CardRead']
 type CardCreate = components['schemas']['CardCreate']
 
- // 导入自由卡对话框状态
- const importFreeDialog = ref<{ visible: boolean; search: string; parentId: number | null }>({ visible: false, search: '', parentId: null })
- const freeCardsForImport = ref<CardRead[]>([])
- const selectedFreeIds = ref<number[]>([])
+ // 导入卡片对话框状态
+const importDialog = ref<{ visible: boolean; search: string; parentId: number | null; sourcePid: number | null; projects: Array<{id:number; name:string}> }>({ visible: false, search: '', parentId: null, sourcePid: null, projects: [] })
+const importSourceCards = ref<CardRead[]>([])
+const selectedImportIds = ref<number[]>([])
 
- const filteredFreeCards = computed(() => {
-   const q = (importFreeDialog.value.search || '').trim().toLowerCase()
-   if (!q) return freeCardsForImport.value
-   return (freeCardsForImport.value || []).filter(c => (c.title || '').toLowerCase().includes(q))
- })
+const filteredImportCards = computed(() => {
+  const q = (importDialog.value.search || '').trim().toLowerCase()
+  if (!q) return importSourceCards.value
+  return (importSourceCards.value || []).filter(c => (c.title || '').toLowerCase().includes(q))
+})
 
- async function openImportFreeCards() {
-   try {
-     const free = await getFreeProject()
-     freeCardsForImport.value = await getCardsForProject(free.id)
-     importFreeDialog.value = { visible: true, search: '', parentId: null }
-   } catch {
-     ElMessage.error('加载自由卡片失败')
-   }
- }
+async function openImportFreeCards() {
+  try {
+    const list = await getProjects()
+    const currentId = projectStore.currentProject?.id
+    importDialog.value.projects = (list || []).filter(p => p.id !== currentId).map(p => ({ id: p.id!, name: p.name! }))
+    importDialog.value.sourcePid = importDialog.value.projects[0]?.id ?? null
+    selectedImportIds.value = []
+    await onImportSourceChange(importDialog.value.sourcePid as any)
+    importDialog.value.visible = true
+  } catch { ElMessage.error('加载来源项目失败') }
+}
 
- function onFreeSelectionChange(rows: any[]) {
-   selectedFreeIds.value = (rows || []).map(r => Number(r.id)).filter(n => Number.isFinite(n))
- }
+async function onImportSourceChange(pid: number | null) {
+  importSourceCards.value = []
+  if (!pid) return
+  try { importSourceCards.value = await getCardsForProject(pid) } catch { importSourceCards.value = [] }
+}
 
- async function confirmImportFreeCards() {
-   try {
-     const pid = projectStore.currentProject?.id
-     if (!pid) return
-     const targetParent = importFreeDialog.value.parentId || null
-     for (const id of selectedFreeIds.value) {
-       await copyCard(id, { target_project_id: pid, parent_id: targetParent as any })
-     }
-     await cardStore.fetchCards(pid)
-     ElMessage.success('已导入所选自由卡')
-     importFreeDialog.value.visible = false
-   } catch { ElMessage.error('导入失败') }
- }
+function onImportSelectionChange(rows: any[]) {
+  selectedImportIds.value = (rows || []).map(r => Number(r.id)).filter(n => Number.isFinite(n))
+}
+
+async function confirmImportCards() {
+  try {
+    const pid = projectStore.currentProject?.id
+    if (!pid) return
+    const targetParent = importDialog.value.parentId || null
+    for (const id of selectedImportIds.value) {
+      await copyCard(id, { target_project_id: pid, parent_id: targetParent as any })
+    }
+    await cardStore.fetchCards(pid)
+    ElMessage.success('已导入所选卡片')
+    importDialog.value.visible = false
+  } catch { ElMessage.error('导入失败') }
+}
 
  // Props
  const props = defineProps<{
@@ -282,6 +294,8 @@ type CardCreate = components['schemas']['CardCreate']
  const editorStore = useEditorStore()
  const { expandedKeys } = storeToRefs(editorStore)
  const projectStore = useProjectStore()
+ const assistantStore = useAssistantStore()
+ const isFreeProject = computed(() => (projectStore.currentProject?.name || '') === '__free__')
 
    // --- 前端自动分组器 ---
   // 设计（新）：当某节点的直接子卡片中，任一“类型的数量 > 2”时，为该类型创建一个虚拟分组节点；
@@ -494,7 +508,27 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
    cardStore.setActiveCard(data.id)
    assistantSelectionCleared.value = false
    activeTab.value = 'editor'
+   try {
+     const pid = projectStore.currentProject?.id as number
+     const pname = projectStore.currentProject?.name || ''
+     const full = (cards.value || []).find((c:any) => c.id === data.id)
+     const title = (full?.title || data.title || '') as string
+     const content = (full?.content || (data as any).content || {})
+     if (pid && data?.id) {
+       assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: data.id, cardTitle: title, content })
+     }
+   } catch {}
  }
+
+ // 兜底：当 activeCard 改变时也自动注入一次
+watch(activeCard, (c) => {
+  try {
+    if (!c) return
+    const pid = projectStore.currentProject?.id as number
+    const pname = projectStore.currentProject?.name || ''
+    assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: (c as any).id, cardTitle: (c as any).title || '', content: (c as any).content || {} })
+  } catch {}
+})
 
  function onNodeExpand(_: any, node: any) {
    editorStore.addExpandedKey(String(node.key))
@@ -912,8 +946,8 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
 .inner-resizer:hover { height: 8px; background: var(--el-fill-color); border-top: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); }
 /* 下半区：标题置顶并设置滚动容器 */
 .cards-pane { position: relative; padding-top: 8px; overflow: auto; }
-.cards-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
-.cards-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards-title { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
+.cards-title-text { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cards-title-actions { display: flex; align-items: center; gap: 6px; }
 .assistant-sidebar { border-left: 1px solid var(--el-border-color-light); background: var(--el-bg-color); flex-shrink: 0; }
 .right-resizer { cursor: col-resize; width: 5px; background: transparent; }
