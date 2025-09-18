@@ -11,7 +11,7 @@ const projectStore = useProjectStore()
 const { currentProject } = storeToRefs(projectStore)
 
 const cardStore = useCardStore()
-const { cardTree, cardTypes } = storeToRefs(cardStore)
+const { cardTree } = storeToRefs(cardStore)
 
 onMounted(async () => {
   // 若未加载或不是保留项目，则加载保留项目
