@@ -290,11 +290,11 @@ npm run dev
 
 ### 工作流（实验性）
 
-*   工作流工作室（Workflow Studio）：可视化编排多步流程，包含画布（Vue Flow）、参数侧栏、节点库与触发器管理。
-*   节点库（最小集）：Card.Read / UpsertChildByTitle / ModifyContent / List.ForEach / List.ForEachRange；节点支持插入/删除与快捷工具栏。
+*   工作流工作室）：可视化编排多步流程，包含画布（Vue Flow）、参数侧栏、节点库与触发器管理。
+*   节点库：Card.Read / UpsertChildByTitle / ModifyContent / List.ForEach / List.ForEachRange；节点支持插入/删除与快捷工具栏。
 *   参数侧栏：模板/简单模式双向编辑，修改实时写回 DSL；保存后回读后端确保一致。
-*   运行与事件：可触发运行并订阅 SSE；完成事件携带 `affected_card_ids`，前端按卡片粒度精准刷新。
-*   状态说明：当前为实验性功能，DSL/校验/Runner/触发器保护仍在完善，随版本演进。
+*   运行与事件：可触发运行并订阅 SSE；前端按卡片粒度精准刷新。
+*   注意：当前为实验性功能，DSL/校验/Runner/触发器保护仍在完善，随版本演进。
 
 ---
 
