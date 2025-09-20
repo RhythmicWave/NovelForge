@@ -11,6 +11,10 @@ const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'close': [] }>()
 
 const activeTab = ref('llm')
+// 读取全局 store 预设的初始 tab
+import { useAppStore } from '@renderer/stores/useAppStore'
+const appStore = useAppStore()
+activeTab.value = appStore.settingsInitialTab || 'llm'
 
 function handleClose() {
   emit('update:modelValue', false)

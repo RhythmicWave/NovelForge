@@ -10,10 +10,11 @@ import {
   type CardRead,
   type CardTypeRead,
   type CardCreate,
-  type CardUpdate
+  type CardUpdate,
 } from '@renderer/api/cards'
 import { useProjectStore } from './useProjectStore'
 import { ElMessage } from 'element-plus'
+import { BASE_URL } from '@renderer/api/request'
 
 // Helper function to build a tree from a flat list of cards
 // 为了避免直接在 CardRead 上添加 children 属性，这里定义本地扩展类型
@@ -156,23 +157,109 @@ export const useCardStore = defineStore('card', () => {
   // 增加可选参数：skipHooks 用于内部更新时跳过“保存后钩子”
   async function modifyCard(cardId: number, cardData: { content: Record<string, any> | null } | CardUpdate, options?: { skipHooks?: boolean }) {
     try {
-      const updatedCard = await updateCard(cardId, cardData as CardUpdate)
-      // 若层级或顺序变动，刷新列表
+      console.log('[CardStore] 准备更新卡片:', cardId, cardData)
+      // 使用原始响应以读取头部 X-Workflows-Started
+      const axiosResp: any = await (await import('@renderer/api/cards')).updateCardRaw(cardId, cardData as CardUpdate)
+      const updatedCard: CardRead = axiosResp.data
+      console.log('[CardStore] 更新卡片成功，检查工作流回执响应头:', axiosResp.headers)
+
+      // 本地同步更新
       if ('parent_id' in cardData || 'display_order' in cardData) {
         if (currentProject.value?.id) await fetchCards(currentProject.value.id)
       } else {
         const index = cards.value.findIndex((c) => c.id === cardId)
         if (index !== -1) {
           const existingCard = cards.value[index]
-          // 注意：避免在部分更新时将内容误置为 undefined
-          // 后端通常返回完整的 updatedCard；若未返回 content，则保留本地 existingCard.content
           const newContent = (cardData as any).content !== undefined ? (cardData as any).content : existingCard.content
           cards.value[index] = { ...existingCard, ...updatedCard, content: newContent }
         }
       }
       ElMessage.success(`Card "${updatedCard.title}" updated.`)
 
-      // 触发通用保存后钩子（除非被请求显式跳过）
+      // 读取工作流运行回执并订阅事件，完成后刷新
+      const hdr = axiosResp.headers || {}
+      const runHeader: string | undefined = hdr['x-workflows-started'] || hdr['X-Workflows-Started'] || hdr['x-workflows-started'.toLowerCase()]
+      const runIds: number[] = typeof runHeader === 'string' && runHeader.trim()
+        ? runHeader.split(',').map((s: string) => Number(s.trim())).filter((n: number) => Number.isFinite(n))
+        : []
+      console.log('[Workflow] 工作流启动回执 runIds =', runIds)
+
+      // 兜底轮询函数
+      const pollUntilDone = async (runId: number, maxSecs = 30) => {
+        const start = Date.now()
+        while (Date.now() - start < maxSecs * 1000) {
+          try {
+            const resp = await fetch(`${BASE_URL}/api/workflows/runs/${runId}`, { method: 'GET' })
+            const json = await resp.json()
+            const st = json?.status
+            console.log(`[Workflow] 轮询状态 run_id=${runId} status=${st}`)
+            if (st === 'succeeded' || st === 'failed' || st === 'cancelled') {
+              if (currentProject.value?.id) await fetchCards(currentProject.value.id)
+              return
+            }
+          } catch (e) { console.warn('[Workflow] 轮询异常，将继续重试', e) }
+          await new Promise(r => setTimeout(r, 1000))
+        }
+      }
+
+      if (runIds.length && currentProject.value?.id) {
+        for (const rid of runIds) {
+          try {
+            console.log(`[Workflow] 开始订阅 SSE 事件 run_id=${rid} ...`)
+            const es = new EventSource(`${BASE_URL}/api/workflows/runs/${rid}/events`)
+            let finished = false
+            es.onopen = () => console.log(`[Workflow] SSE 已连接 run_id=${rid}`)
+            es.onmessage = (evt) => console.log(`[Workflow] 默认消息 run_id=${rid}:`, evt.data)
+            es.addEventListener('step_started', (evt: MessageEvent) => console.log(`[Workflow] 步骤开始 run_id=${rid}:`, evt.data))
+            es.addEventListener('step_succeeded', (evt: MessageEvent) => console.log(`[Workflow] 步骤成功 run_id=${rid}:`, evt.data))
+            es.addEventListener('step_failed', (evt: MessageEvent) => console.warn(`[Workflow] 步骤失败 run_id=${rid}:`, evt.data))
+            es.addEventListener('run_completed', async (evt: MessageEvent) => {
+              console.log(`[Workflow] 运行完成 run_id=${rid}:`, evt.data)
+              finished = true
+              try {
+                const payload = (() => { try { return JSON.parse(String(evt.data || '{}')) } catch { return {} } })()
+                const affected: number[] = Array.isArray(payload?.affected_card_ids) ? payload.affected_card_ids.filter((n: any) => Number.isFinite(Number(n))).map((n: any) => Number(n)) : []
+                if (affected.length > 0) {
+                  // 精准刷新：按受影响卡片拉取详情并合并到本地
+                  for (const cid of affected) {
+                    try {
+                      const resp = await fetch(`${BASE_URL}/api/cards/${cid}`, { method: 'GET' })
+                      if (resp.ok) {
+                        const updated = await resp.json()
+                        const i = cards.value.findIndex(c => c.id === cid)
+                        if (i >= 0) {
+                          const prev = cards.value[i]
+                          cards.value[i] = { ...prev, ...updated, content: updated?.content ?? prev.content }
+                        } else {
+                          // 若本地列表没有该卡，退化为全量刷新
+                          if (currentProject.value?.id) await fetchCards(currentProject.value.id)
+                        }
+                      }
+                    } catch (e) { console.warn('[Workflow] 刷新受影响卡片失败', cid, e) }
+                  }
+                } else {
+                  // 没有携带受影响集合，回退为全量刷新
+                  if (currentProject.value?.id) await fetchCards(currentProject.value.id)
+                }
+              } finally { es.close() }
+            })
+            es.onerror = async (err) => {
+              if (finished) {
+                console.log(`[Workflow] SSE 已正常结束 run_id=${rid}`)
+                es.close()
+                return
+              }
+              console.warn(`[Workflow] SSE 出错/断开 run_id=${rid}，启动轮询兜底`, err)
+              es.close()
+              await pollUntilDone(rid)
+            }
+          } catch (e) {
+            console.warn('[Workflow] 打开 SSE 失败，将直接轮询', e)
+            await pollUntilDone(rid)
+          }
+        }
+      }
+
       if (!options?.skipHooks) {
         const card = cards.value.find(c => c.id === cardId) || updatedCard
         await runAfterSaveHooks(card as CardRead)

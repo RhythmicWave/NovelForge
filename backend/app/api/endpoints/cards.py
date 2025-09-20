@@ -9,6 +9,8 @@ from app.db.models import Card, CardType, LLMConfig
 from loguru import logger
 
 from app.schemas.card import CardCopyOrMoveRequest
+from app.services.workflow_triggers import trigger_on_card_save
+from fastapi import Response
 
 router = APIRouter()
 
@@ -134,11 +136,15 @@ def update_card_type_ai_params(card_type_id: int, payload: Dict[str, Any], db: S
 # --- Card Endpoints ---
 
 @router.post("/projects/{project_id}/cards", response_model=CardRead)
-def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session)):
+def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session), response: Response = None):
     service = CardService(db)
     created = service.create(card, project_id)
-    # 入图（创建时）
-    # 创建/更新卡片不再自动入图
+    try:
+        run_ids = trigger_on_card_save(db, created)
+        if response is not None and run_ids:
+            response.headers["X-Workflows-Started"] = ",".join(str(r) for r in run_ids)
+    except Exception:
+        logger.exception("OnSave workflow trigger failed")
     return created
 
 @router.get("/projects/{project_id}/cards", response_model=List[CardRead])
@@ -155,12 +161,17 @@ def get_card(card_id: int, db: Session = Depends(get_session)):
     return db_card
 
 @router.put("/cards/{card_id}", response_model=CardRead)
-def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session)):
+def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session), response: Response = None):
     service = CardService(db)
     db_card = service.update(card_id, card)
     if db_card is None:
         raise HTTPException(status_code=404, detail="Card not found")
-    # 创建/更新卡片不再自动入图
+    try:
+        run_ids = trigger_on_card_save(db, db_card)
+        if response is not None and run_ids:
+            response.headers["X-Workflows-Started"] = ",".join(str(r) for r in run_ids)
+    except Exception:
+        logger.exception("OnSave workflow trigger failed")
     return db_card
 
 @router.delete("/cards/{card_id}", status_code=204)

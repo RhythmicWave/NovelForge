@@ -12,6 +12,7 @@ import { schemaService } from './api/schema'
 
 const ChapterStudio = defineAsyncComponent(() => import('./views/ChapterStudio.vue'))
 const IdeasHome = defineAsyncComponent(() => import('./views/IdeasHome.vue'))
+const WorkflowStudio = defineAsyncComponent(() => import('./views/WorkflowStudio.vue'))
 
 type Project = components['schemas']['ProjectRead']
 
@@ -51,6 +52,9 @@ async function syncViewFromHash() {
     appStore.goToIdeas()
     try { await projectStore.loadFreeProject() } catch {}
   }
+  if (hash.startsWith('#/workflows')) {
+    appStore.goToWorkflows()
+  }
 }
 
 // 初始化主题和加载全局资源
@@ -79,6 +83,7 @@ onBeforeUnmount(() => {
           @back-to-dashboard="handleBackToDashboard"
         />
         <IdeasHome v-else-if="currentView === 'ideas'" />
+        <WorkflowStudio v-else-if="currentView === 'workflows'" />
       </template>
     </main>
     <SettingsDialog 

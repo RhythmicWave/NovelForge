@@ -3,13 +3,14 @@ import { ref, computed } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   // 当前视图
-  const currentView = ref<'dashboard' | 'editor' | 'ideas'>('dashboard')
+  const currentView = ref<'dashboard' | 'editor' | 'ideas' | 'workflows'>('dashboard')
   
   // 主题状态
   const isDarkMode = ref(false)
   
   // 设置对话框状态
   const settingsDialogVisible = ref(false)
+  const settingsInitialTab = ref<string>('llm')
   
   // 全局加载状态
   const globalLoading = ref(false)
@@ -20,9 +21,10 @@ export const useAppStore = defineStore('app', () => {
   // Computed
   const isDashboard = computed(() => currentView.value === 'dashboard')
   const isEditor = computed(() => currentView.value === 'editor')
+  const isWorkflows = computed(() => currentView.value === 'workflows')
 
   // Actions
-  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas') {
+  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas' | 'workflows') {
     currentView.value = view
   }
 
@@ -36,6 +38,10 @@ export const useAppStore = defineStore('app', () => {
 
   function goToIdeas() {
     currentView.value = 'ideas'
+  }
+
+  function goToWorkflows() {
+    currentView.value = 'workflows'
   }
 
   function toggleTheme() {
@@ -65,7 +71,8 @@ export const useAppStore = defineStore('app', () => {
     applyTheme()
   }
 
-  function openSettings() {
+  function openSettings(tab?: string) {
+    if (tab) settingsInitialTab.value = tab
     settingsDialogVisible.value = true
   }
 
@@ -97,18 +104,21 @@ export const useAppStore = defineStore('app', () => {
     currentView,
     isDarkMode,
     settingsDialogVisible,
+    settingsInitialTab,
     globalLoading,
     globalError,
     
     // Computed
     isDashboard,
     isEditor,
+    isWorkflows,
     
     // Actions
     setCurrentView,
     goToDashboard,
     goToEditor,
     goToIdeas,
+    goToWorkflows,
     toggleTheme,
     setTheme,
     applyTheme,

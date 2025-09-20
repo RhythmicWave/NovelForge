@@ -168,3 +168,57 @@ class ProjectTemplateItem(SQLModel, table=True):
     display_order: int = Field(default=0)
     # 可选的标题覆写；为空则使用 CardType.name
     title_override: Optional[str] = None 
+
+
+# 工作流系统
+class Workflow(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    description: Optional[str] = None
+    version: int = Field(default=1)
+    dsl_version: int = Field(default=1)
+    is_built_in: bool = Field(default=False)
+    is_active: bool = Field(default=True)
+    definition_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+    # Relations
+    triggers: List["WorkflowTrigger"] = Relationship(back_populates="workflow", sa_relationship_kwargs={
+        "cascade": "all, delete-orphan"
+    })
+    runs: List["WorkflowRun"] = Relationship(back_populates="workflow", sa_relationship_kwargs={
+        "cascade": "all, delete-orphan"
+    })
+
+
+class WorkflowTrigger(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workflow_id: int = Field(foreign_key="workflow.id")
+    workflow: Workflow = Relationship(back_populates="triggers")
+
+    # onsave | ongenfinish | manual
+    trigger_on: str = Field(default="manual", index=True)
+    # 可选：限定卡片类型（按名称存储，避免循环依赖）
+    card_type_name: Optional[str] = None
+    # 过滤规则（JSON）
+    filter_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    is_active: bool = Field(default=True)
+
+
+class WorkflowRun(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workflow_id: int = Field(foreign_key="workflow.id")
+    workflow: Workflow = Relationship(back_populates="runs")
+
+    definition_version: int = Field(default=1)
+    # queued | running | succeeded | failed | cancelled | partial
+    status: str = Field(default="queued", index=True)
+    scope_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    params_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    idempotency_key: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    summary_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    error_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))

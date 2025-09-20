@@ -20,6 +20,7 @@ from app.services.knowledge_service import KnowledgeService
 import re
 from app.schemas.entity import DYNAMIC_INFO_TYPES
 from app.schemas import entity as entity_schemas
+from app.services.workflow_triggers import trigger_on_generate_finish
 
 router = APIRouter()
 
@@ -442,6 +443,20 @@ async def generate_ai_content(
         timeout=request.timeout,
         deps=deps_str,
     )
+    # 触发 OnGenerateFinish（若能定位 card）
+    card: Card | None = None
+    try:
+        card_id = None
+        if isinstance(request.input, dict):
+            card_id = request.input.get('card_id')
+        if card_id:
+            card = session.get(Card, int(card_id))
+        project_id = None
+        if isinstance(request.input, dict):
+            project_id = request.input.get('project_id') or (card.project_id if card else None)
+        trigger_on_generate_finish(session, card, int(project_id) if project_id else (card.project_id if card else None))
+    except Exception:
+        pass
     return ApiResponse(data=result)
 
 @router.post("/generate/continuation", 
@@ -471,10 +486,23 @@ async def generate_continuation(
         system_prompt = _inject_knowledge(session, str(p.template))
 
         if request.stream:
-            stream_generator = agent_service.generate_continuation_streaming(session, request, system_prompt)
-            return StreamingResponse(stream_wrapper(stream_generator), media_type="text/event-stream")
+            async def _stream_and_trigger():
+                content_acc = []
+                async for chunk in agent_service.generate_continuation_streaming(session, request, system_prompt):
+                    content_acc.append(chunk)
+                    yield chunk
+                try:
+                    # 续写结束后触发
+                    trigger_on_generate_finish(session, None, request.project_id)
+                except Exception:
+                    pass
+            return StreamingResponse(stream_wrapper(_stream_and_trigger()), media_type="text/event-stream")
         else:
             result = await agent_service.generate_continuation(session, request, system_prompt)
+            try:
+                trigger_on_generate_finish(session, None, request.project_id)
+            except Exception:
+                pass
             return ApiResponse(data=result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -18,6 +18,11 @@ function openSettingsDialog() {
   appStore.openSettings()
 }
 
+function openWorkflowManager() {
+  appStore.goToWorkflows()
+  window.location.hash = '#/workflows'
+}
+
 function handleLogoClick() {
   if (currentView.value !== 'dashboard') {
     appStore.goToDashboard()
@@ -46,6 +51,7 @@ function openIdeasWorkbench() {
         <el-icon><Document /></el-icon>
         <span style="margin-left:6px;">灵感</span>
       </el-button>
+      <el-button type="primary" plain title="工作流" @click="openWorkflowManager">工作流</el-button>
       <el-button :icon="isDarkMode ? Moon : Sunny" @click="toggleTheme" circle title="切换主题" />
       <el-button :icon="Setting" @click="openSettingsDialog" circle title="设置" />
     </div>

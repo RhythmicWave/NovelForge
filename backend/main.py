@@ -29,6 +29,7 @@ from app.bootstrap.init_app import init_prompts, create_default_card_types
 # 知识库初始化
 from app.bootstrap.init_app import init_knowledge
 from app.bootstrap.init_app import init_reserved_project
+from app.bootstrap.init_app import init_workflows
  # 初始化项目模板
 from app.bootstrap.init_app import init_project_templates
 
@@ -55,6 +56,8 @@ async def lifespan(app):
         init_project_templates(session)
         # 初始化保留项目
         init_reserved_project(session)
+        # 初始化内置工作流
+        init_workflows(session)
     yield
     # 关闭时可添加清理逻辑（如有需要）
 
@@ -76,6 +79,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # 允许所有方法
     allow_headers=["*"],  # 允许所有头部
+    expose_headers=["X-Workflows-Started"],  # 允许浏览器读取此自定义响应头
 )
 
 # 包含API路由
@@ -97,3 +101,4 @@ if __name__ == "__main__":
         reload=True,
         timeout_graceful_shutdown=1,
     )
+
