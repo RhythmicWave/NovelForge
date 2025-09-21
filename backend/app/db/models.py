@@ -1,5 +1,6 @@
 
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
+import sqlalchemy as sa
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -35,6 +36,36 @@ class LLMConfig(SQLModel, table=True):
     api_base: Optional[str] = None
     api_key: str
     base_url: Optional[str] = None
+    # 统计与配额（-1 表示不限）——在 DB 层也设置 server_default，便于 Alembic 自动包含
+    token_limit: int = Field(
+        default=-1,
+        sa_column=Column(sa.Integer, nullable=False, server_default='-1')
+    )
+    call_limit: int = Field(
+        default=-1,
+        sa_column=Column(sa.Integer, nullable=False, server_default='-1')
+    )
+    used_tokens_input: int = Field(
+        default=0,
+        sa_column=Column(sa.Integer, nullable=False, server_default='0')
+    )
+    used_tokens_output: int = Field(
+        default=0,
+        sa_column=Column(sa.Integer, nullable=False, server_default='0')
+    )
+    used_calls: int = Field(
+        default=0,
+        sa_column=Column(sa.Integer, nullable=False, server_default='0')
+    )
+    # RPM/TPM 仅占位，暂不实现
+    rpm_limit: int = Field(
+        default=-1,
+        sa_column=Column(sa.Integer, nullable=False, server_default='-1')
+    )
+    tpm_limit: int = Field(
+        default=-1,
+        sa_column=Column(sa.Integer, nullable=False, server_default='-1')
+    )
 
 
 class Prompt(SQLModel, table=True):
@@ -45,18 +76,6 @@ class Prompt(SQLModel, table=True):
     version: int = 1
     built_in: bool = Field(default=False)
 
-
-# 输出模型库
-# class OutputModel(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     # 模型唯一名称（作为 response_model_name）
-#     name: str = Field(unique=True, index=True)
-#     description: Optional[str] = None
-#     # 存储完整 JSON Schema（解引用可在前端完成）
-#     json_schema: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-#     built_in: bool = Field(default=False)
-#     version: int = Field(default=1)
-#     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 class CardType(SQLModel, table=True):
@@ -111,7 +130,7 @@ class Card(SQLModel, table=True):
     project_id: int = Field(foreign_key="project.id")
     project: "Project" = Relationship(back_populates="cards")
 
-    # Foreign key to CardType 卡片类型外键
+    # 卡片类型外键
     card_type_id: int = Field(foreign_key="cardtype.id")
     card_type: "CardType" = Relationship(back_populates="cards")
 

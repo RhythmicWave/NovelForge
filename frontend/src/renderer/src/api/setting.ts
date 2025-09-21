@@ -30,6 +30,7 @@ export async function deleteKnowledge(id: number): Promise<{ message: string }> 
 export type LLMConfigRead = components['schemas']['LLMConfigRead']
 export type LLMConfigCreate = components['schemas']['LLMConfigCreate']
 export type LLMConfigUpdate = components['schemas']['LLMConfigUpdate']
+export type LLMConnectionTest = components['schemas']['LLMConnectionTest']
 
 export async function listLLMConfigs(): Promise<LLMConfigRead[]> {
   return await request.get<LLMConfigRead[]>('/llm-configs/')
@@ -42,6 +43,15 @@ export async function updateLLMConfig(id: number, body: LLMConfigUpdate): Promis
 }
 export async function deleteLLMConfig(id: number): Promise<void> {
   await request.delete(`/llm-configs/${id}`)
+}
+
+export async function testLLMConnection(body: LLMConnectionTest): Promise<{ message?: string }> {
+  const resp = await request.post<{ message?: string }>(`/llm-configs/test`, body)
+  return resp
+}
+
+export async function resetLLMUsage(id: number): Promise<void> {
+  await request.post(`/llm-configs/${id}/reset-usage`, {})
 }
 
 // --- 提示词 API ---

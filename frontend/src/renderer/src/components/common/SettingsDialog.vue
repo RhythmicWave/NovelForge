@@ -20,6 +20,19 @@ function handleClose() {
   emit('update:modelValue', false)
   emit('close')
 }
+
+// 当切到 LLM 标签或首次显示时，让子组件刷新
+import { onMounted, watch, nextTick } from 'vue'
+const llmManagerRef = ref()
+function emitRefreshIfLLM() {
+  if (activeTab.value === 'llm' && llmManagerRef.value?.refresh) {
+    llmManagerRef.value.refresh()
+  }
+}
+onMounted(() => emitRefreshIfLLM())
+watch(() => activeTab.value, () => emitRefreshIfLLM())
+// 对话框每次打开也刷新一次（等待子组件渲染完成）
+watch(() => props.modelValue, async (open) => { if (open) { await nextTick(); emitRefreshIfLLM() } })
 </script>
 
 <template>
@@ -34,7 +47,7 @@ function handleClose() {
     <div class="settings-container">
       <el-tabs v-model="activeTab" tab-position="left" class="settings-tabs">
         <el-tab-pane label="LLM 配置" name="llm">
-          <LLMConfigManager />
+          <LLMConfigManager ref="llmManagerRef" />
         </el-tab-pane>
         <el-tab-pane label="知识库" name="knowledge">
           <KnowledgeManager />

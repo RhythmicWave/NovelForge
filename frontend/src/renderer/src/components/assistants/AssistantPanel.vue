@@ -21,7 +21,7 @@
             <pre class="bubble-text">{{ m.content }}</pre>
           </div>
           <div v-if="m.role==='assistant'" class="msg-toolbar">
-            <el-button :icon="Refresh" circle size="small" :disabled="isStreaming || !m.content" @click="handleRegenerateAt(idx)" title="重新生成" />
+            <el-button :icon="Refresh" circle size="small" :disabled="isStreaming" @click="handleRegenerateAt(idx)" title="重新生成" />
             <el-button :icon="DocumentCopy" circle size="small" :disabled="isStreaming || !m.content" @click="handleCopy(idx)" title="复制内容" />
           </div>
         </div>
@@ -76,6 +76,7 @@ import { getProjects } from '@renderer/api/projects'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
 import { Plus, Promotion, Refresh, DocumentCopy } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 
@@ -250,7 +251,7 @@ function startStreaming(prev: string, tail: string, targetIdx: number) {
   }, () => {
     isStreaming.value = false; streamCtl = null
     try { const pid = projectStore.currentProject?.id; if (pid) assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content }) } catch {}
-  }, () => { isStreaming.value = false; streamCtl = null }) as any
+  }, (err) => { ElMessage.error(err?.message || '生成失败'); isStreaming.value = false; streamCtl = null }) as any
 }
 
 function handleSend() {
@@ -369,7 +370,14 @@ onMounted(async () => {
   } catch {}
 })
 
-async function handleCopy(idx: number) { try { await navigator.clipboard.writeText(messages.value[idx]?.content || '') } catch {} }
+async function handleCopy(idx: number) {
+  try {
+    await navigator.clipboard.writeText(messages.value[idx]?.content || '')
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
 </script>
 
 <style scoped>

@@ -59,9 +59,22 @@ export function generateContinuationStreaming(
     },
     body: JSON.stringify(params),
     signal,
-  }).then(response => {
+  }).then(async response => {
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      try {
+        const ct = response.headers.get('content-type') || ''
+        if (ct.includes('application/json')) {
+          const data = await response.json()
+          const msg = data?.message || data?.detail || `请求失败（${response.status}）`
+          throw new Error(msg)
+        } else {
+          const text = await response.text()
+          const msg = text || `请求失败（${response.status}）`
+          throw new Error(msg)
+        }
+      } catch (e:any) {
+        throw new Error(e?.message || `请求失败（${response.status}）`)
+      }
     }
     if (!response.body) {
         throw new Error('Response body is null');

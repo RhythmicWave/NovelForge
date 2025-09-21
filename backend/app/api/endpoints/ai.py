@@ -21,6 +21,8 @@ import re
 from app.schemas.entity import DYNAMIC_INFO_TYPES
 from app.schemas import entity as entity_schemas
 from app.services.workflow_triggers import trigger_on_generate_finish
+from app.services.context_service import assemble_context, ContextAssembleParams
+from app.services import llm_config_service as _llm_svc
 
 router = APIRouter()
 
@@ -432,17 +434,20 @@ async def generate_ai_content(
     user_prompt = request.input['input_text']
     deps_str = request.deps or ""
 
-    result = await agent_service.run_llm_agent(
-        session=session,
-        user_prompt=user_prompt,
-        system_prompt=system_prompt,
-        output_type=resp_model,
-        llm_config_id=request.llm_config_id, 
-        max_tokens=request.max_tokens,
-        temperature=request.temperature,
-        timeout=request.timeout,
-        deps=deps_str,
-    )
+    try:
+        result = await agent_service.run_llm_agent(
+            session=session,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            output_type=resp_model,
+            llm_config_id=request.llm_config_id, 
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            timeout=request.timeout,
+            deps=deps_str,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     # 触发 OnGenerateFinish（若能定位 card）
     card: Card | None = None
     try:
@@ -486,6 +491,10 @@ async def generate_continuation(
         system_prompt = _inject_knowledge(session, str(p.template))
 
         if request.stream:
+            # 先做一次配额预检，避免流式过程中才抛错
+            ok, reason = _llm_svc.can_consume(session, request.llm_config_id, 0, 0, 1)
+            if not ok:
+                raise HTTPException(status_code=400, detail=f"LLM 配额不足：{reason}")
             async def _stream_and_trigger():
                 content_acc = []
                 async for chunk in agent_service.generate_continuation_streaming(session, request, system_prompt):

@@ -20,7 +20,53 @@ import json
 from app.services.context_service import assemble_context, ContextAssembleParams
 # 导入需要校验的模型
 from app.schemas.wizard import StageLine, ChapterOutline, Chapter
+import re
 
+
+_TOKEN_REGEX = re.compile(
+    r"""
+    ([A-Za-z]+)               # 英文单词（连续字母算 1）
+    |([0-9])                 # 1个数字算 1
+    |([\u4E00-\u9FFF])       # 单个中文汉字算 1
+    |(\S)                     # 其它非空白符号/标点算 1
+    """,
+    re.VERBOSE,
+)
+
+def _estimate_tokens(text: str) -> int:
+    """按规则估算 token：
+    - 1 个中文 = 1
+    - 1 个英文单词 = 1
+    - 1 个数字 = 1
+    - 1 个符号 = 1
+    空白不计。
+    """
+    if not text:
+        return 0
+    try:
+        return sum(1 for _ in _TOKEN_REGEX.finditer(text))
+    except Exception:
+        # 退化：按非空白字符计数
+        return sum(1 for ch in (text or "") if not ch.isspace())
+
+from app.services import llm_config_service as _llm_svc
+
+def _calc_input_tokens(system_prompt: Optional[str], user_prompt: Optional[str]) -> int:
+    sys_part = system_prompt or ""
+    usr_part = user_prompt or ""
+    return _estimate_tokens(sys_part+usr_part) 
+
+
+def _precheck_quota(session: Session, llm_config_id: int, input_tokens: int, need_calls: int = 1) -> None:
+    ok, reason = _llm_svc.can_consume(session, llm_config_id, input_tokens, 0, need_calls)
+    return ok,reason
+
+
+def _record_usage(session: Session, llm_config_id: int, input_tokens: int, output_tokens: int, calls: int = 1, aborted: bool = False) -> None:
+    try:
+        _llm_svc.accumulate_usage(session, llm_config_id, max(0, input_tokens), max(0, output_tokens), max(0, calls), aborted=aborted)
+    except Exception as stat_e:
+        logger.warning(f"记录 LLM 统计失败: {stat_e}")
 
 def _get_agent(
     session: Session,
@@ -83,6 +129,7 @@ async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
     然后返回最终的完整结果。避免直接返回结果时出现网络波动导致生成失败
     """
     async with agent.run_stream(*args, **kwargs) as stream:
+        
         return await stream.get_output()
 
 async def run_llm_agent(
@@ -96,11 +143,18 @@ async def run_llm_agent(
     max_retries: int = 3,
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
+    track_stats: bool = True,
 ) -> BaseModel:
     """
     运行LLM Agent的核心封装。
     支持温度/最大tokens/超时（通过 ModelSettings 注入）。
     """
+    # 限额预检（按估算的输入 tokens + 1 次调用）
+    if track_stats:
+        ok, reason = _precheck_quota(session, llm_config_id, _calc_input_tokens(system_prompt, user_prompt), need_calls=1)
+        if not ok:
+            raise ValueError(f"LLM 配额不足:{reason}")
+
     agent = _get_agent(
         session,
         llm_config_id,
@@ -118,12 +172,27 @@ async def run_llm_agent(
             logger.info(f"llm_config_id: {llm_config_id}")
             # max_tokens 已在 ModelSettings 中设置
             # response = (await agent.run(user_prompt,deps=deps)).output
-            logger.info(f"system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}")
+            len_system_prompt = _estimate_tokens(system_prompt)
+            len_user_prompt = _estimate_tokens(user_prompt)
+            len_total = len_system_prompt + len_user_prompt
+            logger.info(f"system_prompt token长度:{len_system_prompt},user_prompt token长度:{len_user_prompt},总token 长度:{len_total}")
             response = await run_agent_with_streaming(agent, user_prompt, deps=deps) #为避免生成内容过长时容易出现网络中断问题，这里都用流式结果，只不过run_agent_with_streaming会将流式输出结果全部接收完成后整合起来返回
-            
+
+            # 统计：输入/输出 tokens 与调用次数
+            if track_stats:
+                in_tokens = _calc_input_tokens(system_prompt, user_prompt)
+                try:
+                    out_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
+                except Exception:
+                    out_text = str(response)
+                out_tokens = _estimate_tokens(out_text)
+                _record_usage(session, llm_config_id, in_tokens, out_tokens, calls=1, aborted=False)
             return response
         except asyncio.CancelledError:
             logger.info("LLM 调用被取消（CancelledError），立即中止，不再重试。")
+            if track_stats:
+                in_tokens = _calc_input_tokens(system_prompt, user_prompt)
+                _record_usage(session, llm_config_id, in_tokens, 0, calls=1, aborted=True)
             raise
         except Exception as e:
             last_exception = e
@@ -132,46 +201,8 @@ async def run_llm_agent(
     logger.error(f"Agent execution failed after {max_retries} attempts for llm_config_id {llm_config_id}. Last error: {last_exception}")
     raise ValueError(f"调用LLM服务失败，已重试 {max_retries} 次: {str(last_exception)}")
 
-# async def generate_continuation(session: Session, request: ContinuationRequest, system_prompt: str) -> Dict[str, Any]:
-#     """根据提供的上下文，生成续写内容。system_prompt 由外部显式传入。"""
-#     # 若前端已提供上下文，则直接使用；否则回退到服务端装配
-#     supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
-#     if supplied_ctx:
-#         user_prompt = (
-#             f"【写作上下文】\n{supplied_ctx}\n\n"
-#             f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
-#         )
-#     else:
-#         ctx = assemble_context(session, ContextAssembleParams(
-#             project_id=getattr(request, 'project_id', None),
-#             volume_number=getattr(request, 'volume_number', None),
-#             chapter_number=getattr(request, 'chapter_number', None),
-#             participants=getattr(request, 'participants', None),
-#             current_draft_tail=request.previous_content,
-#         ))
-#         user_prompt = (
-#             f"【写作上下文】\n{ctx.to_system_prompt_block()}\n\n"
-#             f"请基于以上上下文继续写下去。不要编号，不要小标题，不要列表格式；直接输出连续的小说正文。"
-#         )
-    
-    
 
-#     result = await run_llm_agent(
-#         session=session,
-#         user_prompt=user_prompt,
-#         output_type=BaseModel,
-#         llm_config_id=request.llm_config_id,
-#         system_prompt=system_prompt,
-#         max_tokens=request.max_tokens,
-#         temperature=request.temperature,
-#         timeout=request.timeout,
-#     )
-
-#     if isinstance(result, BaseModel) and hasattr(result, 'text'):
-#          return {"content": result.text}  # type: ignore
-#     return {"content": str(result)}
-
-async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str) -> AsyncGenerator[str, None]:
+async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str, track_stats: bool = True) -> AsyncGenerator[str, None]:
     """以流式方式生成续写内容。system_prompt 由外部显式传入。"""
     supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
     directive = "请基于以上上下文继续创作。直接输出连续的小说正文。" if getattr(request, 'append_continuous_novel_directive', True) else ""
@@ -198,6 +229,12 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
     
     logger.info(f"===========system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}=============")
     
+    # 限额预检
+    if track_stats:
+        ok, reason = _precheck_quota(session, request.llm_config_id, _calc_input_tokens(system_prompt, user_prompt), need_calls=1)
+        if not ok:
+            raise ValueError(f"LLM 配额不足:{reason}")
+
     agent = _get_agent(
         session,
         request.llm_config_id,
@@ -212,6 +249,8 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
         logger.debug(f"正在以流式模式运行 agent")
         async with agent.run_stream(user_prompt) as result:
             accumulated: str = ""
+            # 统计用：累积输出字符数
+            out_chars: int = 0
             async for text_chunk in result.stream():
                 try:
                     chunk = str(text_chunk)
@@ -226,15 +265,28 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
                     # 回退：无法判断前缀时，直接把本次 chunk 作为增量
                     delta = chunk
                 if delta:
+                    out_chars += len(delta)
                     yield delta
                 if len(chunk) > len(accumulated):
                     accumulated = chunk
     except asyncio.CancelledError:
         logger.info("流式 LLM 调用被取消（CancelledError），停止推送。")
+        if track_stats:
+            in_tokens = _calc_input_tokens(system_prompt, user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=True)
         return
     except Exception as e:
         logger.error(f"流式 LLM 调用失败: {e}")
         raise
+    # 正常结束后统计
+    try:
+        if track_stats:
+            in_tokens = _calc_input_tokens(system_prompt, user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=False)
+    except Exception as stat_e:
+        logger.warning(f"记录 LLM 流式统计失败: {stat_e}")
 
 
 def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaitable[BaseModel]]:

@@ -20,9 +20,18 @@
     <el-form-item label="API Key" prop="api_key">
       <el-input type="password" v-model="form.api_key" placeholder="API密钥将直接保存在后端" show-password />
     </el-form-item>
+    <el-form-item label="Token上限" prop="token_limit">
+      <el-input-number v-model="form.token_limit" :min="-1" :step="1000" />
+      <span style="margin-left:8px;color:#888">-1 表示不限</span>
+    </el-form-item>
+    <el-form-item label="调用次数上限" prop="call_limit">
+      <el-input-number v-model="form.call_limit" :min="-1" />
+      <span style="margin-left:8px;color:#888">-1 表示不限</span>
+    </el-form-item>
     <el-form-item>
       <el-button @click="handleCancel">取消</el-button>
       <el-button type="primary" @click="handleSubmit">保存</el-button>
+      <el-button @click="handleTest">测试连接</el-button>
     </el-form-item>
   </el-form>
 </template>
@@ -31,6 +40,8 @@
 import { ref, reactive, watch } from 'vue'
 import type { components } from '@renderer/types/generated'
 import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import { testLLMConnection } from '@renderer/api/setting'
 
 type LLMConfig = components['schemas']['LLMConfigRead']
 
@@ -47,7 +58,9 @@ const form = reactive({
   display_name: '',
   model_name: '',
   api_base: '',
-  api_key: ''
+  api_key: '',
+  token_limit: -1 as number,
+  call_limit: -1 as number,
 })
 
 const rules = reactive<FormRules>({
@@ -65,6 +78,8 @@ watch(() => props.initialData, (newData) => {
     form.model_name = newData.model_name;
     form.api_base = newData.api_base || '';
     form.api_key = newData.api_key || '';
+    form.token_limit = (newData as any).token_limit ?? -1;
+    form.call_limit = (newData as any).call_limit ?? -1;
   } else {
     // 新增配置，重置表单
     form.id = null;
@@ -73,6 +88,8 @@ watch(() => props.initialData, (newData) => {
     form.model_name = '';
     form.api_base = '';
     form.api_key = '';
+    form.token_limit = -1;
+    form.call_limit = -1;
   }
 }, { immediate: true })
 
@@ -87,6 +104,20 @@ async function handleSubmit() {
 
 function handleCancel() {
   emit('cancel')
+}
+
+async function handleTest() {
+  try {
+    await testLLMConnection({
+      provider: form.provider,
+      model_name: form.model_name,
+      api_base: form.api_base || undefined,
+      api_key: form.api_key
+    } as any)
+    ElMessage.success('连接成功')
+  } catch (e:any) {
+    ElMessage.error(`连接失败：${e?.message || e}`)
+  }
 }
 
 </script> 
