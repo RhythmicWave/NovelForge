@@ -21,6 +21,7 @@ backend/alembic/versions/*.py
 *.md
 !README.md
 !README.MD
+!CLA.md
 
 # 忽略primitive_models整个文件夹
 primitive_models/
