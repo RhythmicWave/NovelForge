@@ -41,26 +41,29 @@ def delete_llm_config_endpoint(config_id: int, session: Session = Depends(get_se
 async def test_llm_connection_endpoint(connection_data: LLMConnectionTest, session: Session = Depends(get_session)):
     """使用传入参数临时构造一个 Agent 并发起一次最小调用以验证连通性。"""
     try:
-        # 临时保存配置到内存对象，不落库：走 provider/openai 风格
-        # 复用 _get_agent 能力，传入一个极简输出类型
-        class _PingModel(BaseModel):
-            ok: bool = True
-
-        # 临时将参数注入到 session 的 get_llm_config 逻辑不可行，这里直接构造 provider
-        # 简单走 openai 兼容路径：在 Agent 层会使用 provider/base_url
-        # 因 _get_agent 依赖后端存储的 LLMConfig，此处提供一个简易直连测试：
-        from pydantic_ai.models.openai import OpenAIModel
-        from pydantic_ai.providers.openai import OpenAIProvider
+        # 复用 pydantic-ai Provider/Model，按 provider 分支进行最小连通性测试
         from pydantic_ai import Agent
         from pydantic_ai.settings import ModelSettings
 
-        provider_cfg = {"api_key": connection_data.api_key}
-        if connection_data.api_base:
-            provider_cfg["base_url"] = connection_data.api_base
-        provider = OpenAIProvider(**provider_cfg)
-        model = OpenAIModel(connection_data.model_name, provider=provider)
+        provider = None
+        model = None
+        if connection_data.provider == 'google':
+            # Google Generative Language API（API Key）
+            from pydantic_ai.models.google import GoogleModel
+            from pydantic_ai.providers.google import GoogleProvider
+            provider = GoogleProvider(api_key=connection_data.api_key)
+            model = GoogleModel(connection_data.model_name, provider=provider)
+        else:
+            # 默认走 OpenAI 兼容路径（包含 custom/base_url）
+            from pydantic_ai.models.openai import OpenAIModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+            provider_cfg = {"api_key": connection_data.api_key}
+            if connection_data.api_base:
+                provider_cfg["base_url"] = connection_data.api_base
+            provider = OpenAIProvider(**provider_cfg)
+            model = OpenAIModel(connection_data.model_name, provider=provider)
+
         agent = Agent(model, system_prompt="你是一个助手。", model_settings=ModelSettings(timeout=15))
-        # 发送最小请求
         await agent.run("ping")
         return ApiResponse(message="Connection successful")
     except Exception as e:

@@ -5,6 +5,7 @@
       <el-select v-model="form.provider" placeholder="请选择提供商">
         <el-option label="OpenAI" value="openai" />
         <!-- <el-option label="Anthropic" value="anthropic" /> -->
+        <el-option label="Google" value="google" />
         <el-option label="自定义" value="custom" />
       </el-select>
     </el-form-item>

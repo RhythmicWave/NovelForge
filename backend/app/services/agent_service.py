@@ -7,6 +7,8 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.settings import ModelSettings
 from sqlmodel import Session
 from app.services import llm_config_service
@@ -87,7 +89,7 @@ def _get_agent(
 
     if not llm_config.api_key:
         raise ValueError(f"未找到LLM配置 {llm_config.display_name or llm_config.model_name} 的API密钥")
-
+    print(f"=======llm_config.provider:{llm_config.provider}=========")
     # Provider & Model 创建（不再在此处设置温度/超时）
     if llm_config.provider == "openai":
         provider_config = {"api_key": llm_config.api_key}
@@ -101,6 +103,10 @@ def _get_agent(
             provider_config["base_url"] = llm_config.api_base
         provider = AnthropicProvider(**provider_config)
         model = AnthropicModel(llm_config.model_name, provider=provider)
+    elif llm_config.provider == "google":
+
+        provider = GoogleProvider(api_key=llm_config.api_key)
+        model = GoogleModel(llm_config.model_name, provider=provider)
     elif llm_config.provider == "custom":
         provider_config = {"api_key": llm_config.api_key}
         if llm_config.api_base:
@@ -129,7 +135,6 @@ async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
     然后返回最终的完整结果。避免直接返回结果时出现网络波动导致生成失败
     """
     async with agent.run_stream(*args, **kwargs) as stream:
-        
         return await stream.get_output()
 
 async def run_llm_agent(

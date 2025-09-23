@@ -6,7 +6,10 @@ import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 export type InjectRef = { projectId: number; projectName: string; cardId: number; cardTitle: string; content: any; source?: 'auto' | 'manual' }
 export type AssistantMessage = { role: 'user' | 'assistant'; content: string; ts?: number }
 
-const HISTORY_KEY_PREFIX = 'nf:assistant:history:'
+// 为避免开发/打包共用本地缓存，对话历史 key 加上环境前缀
+// dev → 'development'，打包 → 'production'
+const ENV_PREFIX = (import.meta as any)?.env?.MODE || 'production'
+const HISTORY_KEY_PREFIX = `nf:${ENV_PREFIX}:assistant:history:`
 function projectHistoryKey(projectId: number) { return `${HISTORY_KEY_PREFIX}${projectId}` }
 
 export const useAssistantStore = defineStore('assistant', () => {
