@@ -142,7 +142,7 @@
 **1. 后端 (Python / FastAPI)**
 ```bash
 # 克隆仓库
-git clone <your-repo-url>
+git clone https://github.com/RhythmicWave/NovelForge.git
 cd NovelForge/backend
 
 # 安装依赖
