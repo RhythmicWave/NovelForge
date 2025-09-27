@@ -52,8 +52,8 @@
 ## 📅 更新日志
 
 <details>
-<summary>v0.7.7</summary>
 
+<summary>v0.7.7</summary>
 - 优化作品标签卡片
   - 增加标签项、选项数据
   - 将标签项类别数据抽离出来，设置为知识库文件存储，可在设置-知识库中编辑作品标签，自由的修改标签项类别
@@ -61,6 +61,8 @@
 - 优化代码
 
 </details>
+
+<details>
 
 <summary>v0.7.6</summary>
 
