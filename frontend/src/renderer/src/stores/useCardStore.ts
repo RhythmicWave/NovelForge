@@ -88,24 +88,6 @@ export const useCardStore = defineStore('card', () => {
     return parseInt(m[1], 10)
   }
 
-  // --- 内部：保存后钩子 ---
-  async function runAfterSaveHooks(updatedCard: CardRead) {
-    try {
-      if (!currentProject.value?.id) return
-      // 交给统一 hooks 分发器
-      const { cardHooks } = await import('@renderer/services/cardHooks')
-      await cardHooks.runAfterSave(updatedCard, {
-        getCardTypeIdByName,
-        cards,
-        currentProjectId: currentProject.value?.id,
-        addCard,
-        modifyCard,
-      })
-    } catch (err) {
-      console.error('[CardStore] 执行保存后钩子失败：', err)
-    }
-  }
-
   // --- Actions ---
 
   async function fetchInitialData() {
@@ -258,11 +240,6 @@ export const useCardStore = defineStore('card', () => {
             await pollUntilDone(rid)
           }
         }
-      }
-
-      if (!options?.skipHooks) {
-        const card = cards.value.find(c => c.id === cardId) || updatedCard
-        await runAfterSaveHooks(card as CardRead)
       }
     } catch (error) {
       ElMessage.error('Failed to update card.')

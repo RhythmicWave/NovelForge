@@ -14,7 +14,7 @@
         <el-scrollbar>
           <div class="category-block">
             <div class="category-header">
-              <h3>主题标签 (单选)</h3>
+              <h3>主题标签</h3>
               <el-button @click="randomizeTheme" type="primary" plain size="small">随机灵感</el-button>
             </div>
             <el-cascader
@@ -124,7 +124,7 @@ const isSaving = ref(false)
 // 本地可编辑数据
 const localData = reactive<Tags>({
   theme: '',
-  audience: '男频' as any,
+  audience: '通用' as any,
   narrative_person: '第三人称' as any,
   story_tags: [],
   affection: ''
@@ -330,7 +330,7 @@ function parseKnowledge(text: string) {
   themeOptions.value = Object.keys(themes).map(k => ({ value: k, label: k, children: (themes[k] || []).map(s => ({ value: s, label: s })) }))
   categoryOptions.value = categories
   relationshipOptions.value = relationships
-  audienceOptions.value = audiences.length ? audiences : ['男频','女频']
+  audienceOptions.value = audiences.length ? audiences : ['通用','男生','女生']
   personOptions.value = persons.length ? persons : ['第一人称','第三人称']
 }
 

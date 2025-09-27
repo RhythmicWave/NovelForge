@@ -2148,11 +2148,11 @@ export interface components {
             theme: string;
             /**
              * Audience
-             * @description 读者频道分类（男频/女频）
-             * @default 男频
+             * @description 目标读者
+             * @default 通用
              * @enum {string}
              */
-            audience: "男频" | "女频";
+            audience: "通用" | "男生" | "女生";
             /**
              * Narrative Person
              * @description 写作人称（第一人称/第三人称）

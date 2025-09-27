@@ -14,7 +14,7 @@ class Tags(BaseModel):
     统一的标签模型。
     """
     theme: str = Field(default="", description="主题类别，格式: 大类-子类")
-    audience: Literal['男频', '女频'] = Field(default='男频', description="读者频道分类（男频/女频）")
+    audience: Literal['通用','男生', '女生'] = Field(default='通用', description="目标读者")
     narrative_person: Literal['第一人称', '第三人称'] = Field(default='第三人称', description="写作人称（第一人称/第三人称）")
     story_tags: List[Tuple[str, Literal['低权重', '中权重', '高权重']]] = Field(default=[], description="类别标签及权重档位（低/中/高）")
     affection: str = Field(default="", description="情感关系标签")

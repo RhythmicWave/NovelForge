@@ -51,3 +51,4 @@ backend/dist
 backend/build
 *.spec
 *.sh
+*.mako
