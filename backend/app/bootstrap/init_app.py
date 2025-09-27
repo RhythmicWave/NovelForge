@@ -43,7 +43,10 @@ def get_all_prompt_files():
     return prompt_files
 
 def init_prompts(db: Session):
-    """初始化默认提示词（支持增量更新）"""
+    """初始化默认提示词。
+    行为受环境变量 BOOTSTRAP_OVERWRITE 控制：
+    """
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
     existing_prompts = db.exec(select(Prompt)).all()
     existing_names = {p.name for p in existing_prompts}
 
@@ -51,15 +54,19 @@ def init_prompts(db: Session):
 
     new_count = 0
     updated_count = 0
+    skipped_count = 0
     prompts_to_add = []
     
     for name, prompt_data in all_prompts_data.items():
         if name in existing_names:
-            existing_prompt = next(p for p in existing_prompts if p.name == name)
-            existing_prompt.template = prompt_data['template']
-            existing_prompt.description = prompt_data.get('description')
-            existing_prompt.built_in = True
-            updated_count += 1
+            if overwrite:
+                existing_prompt = next(p for p in existing_prompts if p.name == name)
+                existing_prompt.template = prompt_data['template']
+                existing_prompt.description = prompt_data.get('description')
+                existing_prompt.built_in = True
+                updated_count += 1
+            else:
+                skipped_count += 1
         else:
             prompts_to_add.append(Prompt(**prompt_data, built_in=True))
             new_count += 1
@@ -69,9 +76,9 @@ def init_prompts(db: Session):
 
     if new_count > 0 or updated_count > 0:
         db.commit()
-        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个。")
+        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
     else:
-        logger.info("所有提示词已是最新状态。")
+        logger.info(f"所有提示词已是最新状态（overwrite={overwrite}，跳过 {skipped_count} 个）。")
 
 
 
@@ -261,6 +268,8 @@ def init_knowledge(db: Session):
     existing = {k.name: k for k in db.exec(select(Knowledge)).all()}
     created = 0
     updated = 0
+    skipped = 0
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
 
     for filename in os.listdir(knowledge_dir):
         if not filename.lower().endswith(('.txt', '.md')):
@@ -275,20 +284,23 @@ def init_knowledge(db: Session):
             continue
         description = f"预置知识库：{name}"
         if name in existing:
-            kb = existing[name]
-            kb.content = content
-            kb.description = description
-            kb.built_in = True
-            updated += 1
+            if overwrite:
+                kb = existing[name]
+                kb.content = content
+                kb.description = description
+                kb.built_in = True
+                updated += 1
+            else:
+                skipped += 1
         else:
             db.add(Knowledge(name=name, description=description, content=content, built_in=True))
             created += 1
 
     if created or updated:
         db.commit()
-        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}")
+        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}（overwrite={overwrite}，跳过 {skipped}）")
     else:
-        logger.info("知识库已是最新状态。")
+        logger.info(f"知识库已是最新状态（overwrite={overwrite}，跳过 {skipped}）。")
 
 
 def init_project_templates(db: Session):
