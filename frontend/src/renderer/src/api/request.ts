@@ -96,24 +96,24 @@ class HttpClient {
     return this.instance.request(config)
   }
 
-  public get<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
+  public get<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean, signal?: AbortSignal }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'GET', url: fullUrl, params, ...(options || {}) })
+    return this.request<T>({ method: 'GET', url: fullUrl, params, signal: options?.signal, ...(options || {}) })
   }
 
-  public post<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
+  public post<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean, signal?: AbortSignal }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'POST', url: fullUrl, data, ...(options || {}) })
+    return this.request<T>({ method: 'POST', url: fullUrl, data, signal: options?.signal, ...(options || {}) })
   }
 
-  public put<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean, rawResponse?: boolean }): Promise<T> {
+  public put<T>(url: string, data?: object, prefix: string = '/api', options?: { showLoading?: boolean, rawResponse?: boolean, signal?: AbortSignal }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'PUT', url: fullUrl, data, ...(options || {}) })
+    return this.request<T>({ method: 'PUT', url: fullUrl, data, signal: options?.signal, ...(options || {}) })
   }
 
-  public delete<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean }): Promise<T> {
+  public delete<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean, signal?: AbortSignal }): Promise<T> {
     const fullUrl = prefix ? `${prefix}${url}` : url
-    return this.request<T>({ method: 'DELETE', url: fullUrl, params, ...(options || {}) })
+    return this.request<T>({ method: 'DELETE', url: fullUrl, params, signal: options?.signal, ...(options || {}) })
   }
 }
 
@@ -128,10 +128,3 @@ export const aiHttpClient = new HttpClient({
   timeout: 300000,
   headers: { 'Content-Type': 'application/json' }
 })
-
-// --- 调用示例 ---
-// 普通业务接口（自动加/api）
-// http.get('/projects')  // 实际请求 /api/projects
-// http.post('/ai/generate', data) // 实际请求 /api/ai/generate
-// 特殊接口（不加前缀）
-// http.get('/openapi.json', undefined, '') // 实际请求 /openapi.json

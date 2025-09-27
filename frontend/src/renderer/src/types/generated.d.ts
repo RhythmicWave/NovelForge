@@ -22,6 +22,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/free": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Free Project Endpoint */
+        get: operations["get_free_project_endpoint_api_projects_free_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -86,8 +103,28 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Test Llm Connection Endpoint */
+        /**
+         * 测试 LLM 连接
+         * @description 使用传入参数临时构造一个 Agent 并发起一次最小调用以验证连通性。
+         */
         post: operations["test_llm_connection_endpoint_api_llm_configs_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm-configs/{config_id}/reset-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 重置统计（输入/输出token与调用次数清零） */
+        post: operations["reset_llm_usage_api_llm_configs__config_id__reset_usage_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -102,8 +139,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 获取所有输出模型的JSON Schema（内置+自定义）
-         * @description 返回内置模型和数据库 OutputModel 的 schema 聚合，键为模型名称。
+         * 获取所有输出模型的JSON Schema（仅内置）
+         * @description 返回内置 pydantic 模型的 schema 聚合，键为模型名称。
          */
         get: operations["get_all_schemas_api_ai_schemas_get"];
         put?: never;
@@ -151,6 +188,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/prompts/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 渲染并注入知识库的提示词模板 */
+        get: operations["render_prompt_with_knowledge_api_ai_prompts_render_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ai/generate": {
         parameters: {
             query?: never;
@@ -162,8 +216,7 @@ export interface paths {
         put?: never;
         /**
          * 通用AI生成接口
-         * @description 一个通用的AI内容生成端点。
-         *     它接收一个输入、LLM配置、提示词和响应模型，然后返回结构化的输出。
+         * @description 通用的AI内容生成端点：前端必须提供 response_model_schema。
          */
         post: operations["generate_ai_content_api_ai_generate_post"];
         delete?: never;
@@ -295,6 +348,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/card-types/{card_type_id}/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Card Type Schema */
+        get: operations["get_card_type_schema_api_card_types__card_type_id__schema_get"];
+        /** Update Card Type Schema */
+        put: operations["update_card_type_schema_api_card_types__card_type_id__schema_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/card-types/{card_type_id}/ai-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Card Type Ai Params */
+        get: operations["get_card_type_ai_params_api_card_types__card_type_id__ai_params_get"];
+        /** Update Card Type Ai Params */
+        put: operations["update_card_type_ai_params_api_card_types__card_type_id__ai_params_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/cards": {
         parameters: {
             query?: never;
@@ -332,25 +421,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/output-models/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Output Models */
-        get: operations["list_output_models_api_output_models__get"];
-        put?: never;
-        /** Create Output Model */
-        post: operations["create_output_model_api_output_models__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/output-models/{model_id}": {
+    "/api/cards/{card_id}/copy": {
         parameters: {
             query?: never;
             header?: never;
@@ -358,11 +429,97 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Update Output Model */
-        put: operations["update_output_model_api_output_models__model_id__put"];
+        put?: never;
+        /** Copy Card Endpoint */
+        post: operations["copy_card_endpoint_api_cards__card_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/{card_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move Card Endpoint */
+        post: operations["move_card_endpoint_api_cards__card_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/{card_id}/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Card Schema */
+        get: operations["get_card_schema_api_cards__card_id__schema_get"];
+        /** Update Card Schema */
+        put: operations["update_card_schema_api_cards__card_id__schema_put"];
         post?: never;
-        /** Delete Output Model */
-        delete: operations["delete_output_model_api_output_models__model_id__delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/{card_id}/schema/apply-to-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Card Schema To Type */
+        post: operations["apply_card_schema_to_type_api_cards__card_id__schema_apply_to_type_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/{card_id}/ai-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Card Ai Params */
+        get: operations["get_card_ai_params_api_cards__card_id__ai_params_get"];
+        /** Update Card Ai Params */
+        put: operations["update_card_ai_params_api_cards__card_id__ai_params_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/{card_id}/ai-params/apply-to-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Card Ai Params To Type */
+        post: operations["apply_card_ai_params_to_type_api_cards__card_id__ai_params_apply_to_type_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -613,6 +770,204 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-templates/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取项目模板列表 */
+        get: operations["list_templates_api_project_templates__get"];
+        put?: never;
+        /** 创建项目模板 */
+        post: operations["create_template_api_project_templates__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-templates/{tid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取单个项目模板 */
+        get: operations["get_template_api_project_templates__tid__get"];
+        /** 更新项目模板 */
+        put: operations["update_template_api_project_templates__tid__put"];
+        post?: never;
+        /** 删除项目模板 */
+        delete: operations["delete_template_api_project_templates__tid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workflows */
+        get: operations["list_workflows_api_workflows_get"];
+        put?: never;
+        /** Create Workflow */
+        post: operations["create_workflow_api_workflows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Triggers
+         * @description 返回所有工作流触发器列表（独立资源路径，避免与 /workflows/{workflow_id} 冲突）。
+         */
+        get: operations["list_triggers_api_workflow_triggers_get"];
+        put?: never;
+        /** Create Trigger */
+        post: operations["create_trigger_api_workflow_triggers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-triggers/{trigger_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Trigger */
+        put: operations["update_trigger_api_workflow_triggers__trigger_id__put"];
+        post?: never;
+        /** Delete Trigger */
+        delete: operations["delete_trigger_api_workflow_triggers__trigger_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workflow */
+        get: operations["get_workflow_api_workflows__workflow_id__get"];
+        /** Update Workflow */
+        put: operations["update_workflow_api_workflows__workflow_id__put"];
+        post?: never;
+        /** Delete Workflow */
+        delete: operations["delete_workflow_api_workflows__workflow_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Workflow */
+        post: operations["run_workflow_api_workflows__workflow_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_workflows_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate Workflow */
+        post: operations["validate_workflow_api_workflows__workflow_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Run */
+        post: operations["cancel_run_api_workflows_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Events */
+        get: operations["stream_events_api_workflows_runs__run_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/": {
         parameters: {
             query?: never;
@@ -715,6 +1070,18 @@ export interface components {
             /** Message */
             message?: string | null;
         };
+        /** ApiResponse[List[ProjectTemplateRead]] */
+        ApiResponse_List_ProjectTemplateRead__: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /** Data */
+            data?: components["schemas"]["ProjectTemplateRead"][] | null;
+            /** Message */
+            message?: string | null;
+        };
         /** ApiResponse[List[PromptRead]] */
         ApiResponse_List_PromptRead__: {
             /**
@@ -735,6 +1102,17 @@ export interface components {
              */
             status: string;
             data?: components["schemas"]["ProjectRead"] | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApiResponse[ProjectTemplateRead] */
+        ApiResponse_ProjectTemplateRead_: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            data?: components["schemas"]["ProjectTemplateRead"] | null;
             /** Message */
             message?: string | null;
         };
@@ -805,10 +1183,26 @@ export interface components {
             /** @description 结构化事实子图 */
             facts_structured?: components["schemas"]["FactsStructured"] | null;
         };
+        /** CancelResponse */
+        CancelResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Message */
+            message?: string | null;
+        };
+        /** CardCopyOrMoveRequest */
+        CardCopyOrMoveRequest: {
+            /** Target Project Id */
+            target_project_id: number;
+            /** Parent Id */
+            parent_id?: number | null;
+        };
         /** CardCreate */
         CardCreate: {
             /** Title */
             title: string;
+            /** Model Name */
+            model_name?: string | null;
             /** Content */
             content?: {
                 [key: string]: unknown;
@@ -817,11 +1211,21 @@ export interface components {
             parent_id?: number | null;
             /** Card Type Id */
             card_type_id: number;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** CardRead */
         CardRead: {
             /** Title */
             title: string;
+            /** Model Name */
+            model_name?: string | null;
             /** Content */
             content?: {
                 [key: string]: unknown;
@@ -830,6 +1234,14 @@ export interface components {
             parent_id?: number | null;
             /** Card Type Id */
             card_type_id: number;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
             /** Id */
             id: number;
             /** Project Id */
@@ -849,10 +1261,18 @@ export interface components {
         CardTypeCreate: {
             /** Name */
             name: string;
+            /** Model Name */
+            model_name?: string | null;
             /** Description */
             description?: string | null;
-            /** Output Model Name */
-            output_model_name?: string | null;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
             /** Editor Component */
             editor_component?: string | null;
             /**
@@ -876,10 +1296,18 @@ export interface components {
         CardTypeRead: {
             /** Name */
             name: string;
+            /** Model Name */
+            model_name?: string | null;
             /** Description */
             description?: string | null;
-            /** Output Model Name */
-            output_model_name?: string | null;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
             /** Editor Component */
             editor_component?: string | null;
             /**
@@ -910,10 +1338,18 @@ export interface components {
         CardTypeUpdate: {
             /** Name */
             name?: string | null;
+            /** Model Name */
+            model_name?: string | null;
             /** Description */
             description?: string | null;
-            /** Output Model Name */
-            output_model_name?: string | null;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
             /** Editor Component */
             editor_component?: string | null;
             /** Is Ai Enabled */
@@ -931,6 +1367,8 @@ export interface components {
         CardUpdate: {
             /** Title */
             title?: string | null;
+            /** Model Name */
+            model_name?: string | null;
             /** Content */
             content?: {
                 [key: string]: unknown;
@@ -941,6 +1379,14 @@ export interface components {
             display_order?: number | null;
             /** Ai Context Template */
             ai_context_template?: string | null;
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ai Params */
+            ai_params?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -986,6 +1432,12 @@ export interface components {
              * @description 参数卡选择的提示词名称
              */
             prompt_name?: string | null;
+            /**
+             * Append Continuous Novel Directive
+             * @description 是否追加连续小说正文指令
+             * @default true
+             */
+            append_continuous_novel_directive: boolean;
         };
         /** ContinuationResponse */
         ContinuationResponse: {
@@ -1286,6 +1738,41 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /**
+             * Token Limit
+             * @default -1
+             */
+            token_limit: number | null;
+            /**
+             * Call Limit
+             * @default -1
+             */
+            call_limit: number | null;
+            /**
+             * Rpm Limit
+             * @default -1
+             */
+            rpm_limit: number | null;
+            /**
+             * Tpm Limit
+             * @default -1
+             */
+            tpm_limit: number | null;
+            /**
+             * Used Tokens Input
+             * @default 0
+             */
+            used_tokens_input: number | null;
+            /**
+             * Used Tokens Output
+             * @default 0
+             */
+            used_tokens_output: number | null;
+            /**
+             * Used Calls
+             * @default 0
+             */
+            used_calls: number | null;
         };
         /** LLMConfigRead */
         LLMConfigRead: {
@@ -1299,6 +1786,41 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /**
+             * Token Limit
+             * @default -1
+             */
+            token_limit: number | null;
+            /**
+             * Call Limit
+             * @default -1
+             */
+            call_limit: number | null;
+            /**
+             * Rpm Limit
+             * @default -1
+             */
+            rpm_limit: number | null;
+            /**
+             * Tpm Limit
+             * @default -1
+             */
+            tpm_limit: number | null;
+            /**
+             * Used Tokens Input
+             * @default 0
+             */
+            used_tokens_input: number | null;
+            /**
+             * Used Tokens Output
+             * @default 0
+             */
+            used_tokens_output: number | null;
+            /**
+             * Used Calls
+             * @default 0
+             */
+            used_calls: number | null;
             /** Id */
             id: number;
         };
@@ -1314,6 +1836,20 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /** Token Limit */
+            token_limit?: number | null;
+            /** Call Limit */
+            call_limit?: number | null;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+            /** Used Tokens Input */
+            used_tokens_input?: number | null;
+            /** Used Tokens Output */
+            used_tokens_output?: number | null;
+            /** Used Calls */
+            used_calls?: number | null;
         };
         /** LLMConnectionTest */
         LLMConnectionTest: {
@@ -1325,34 +1861,6 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key: string;
-        };
-        /** OutputModel */
-        OutputModel: {
-            /** Id */
-            id?: number | null;
-            /** Name */
-            name: string;
-            /** Description */
-            description?: string | null;
-            /** Json Schema */
-            json_schema?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Built In
-             * @default false
-             */
-            built_in: boolean;
-            /**
-             * Version
-             * @default 1
-             */
-            version: number;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at?: string;
         };
         /** ParticipantTyped */
         ParticipantTyped: {
@@ -1367,6 +1875,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /** Template Id */
+            template_id?: number | null;
         };
         /** ProjectRead */
         ProjectRead: {
@@ -1376,6 +1886,77 @@ export interface components {
             description?: string | null;
             /** Id */
             id: number;
+        };
+        /** ProjectTemplateCreate */
+        ProjectTemplateCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProjectTemplateItemCreate"][];
+        };
+        /** ProjectTemplateItemCreate */
+        ProjectTemplateItemCreate: {
+            /** Card Type Id */
+            card_type_id: number;
+            /**
+             * Display Order
+             * @default 0
+             */
+            display_order: number;
+            /** Title Override */
+            title_override?: string | null;
+        };
+        /** ProjectTemplateItemRead */
+        ProjectTemplateItemRead: {
+            /** Card Type Id */
+            card_type_id: number;
+            /**
+             * Display Order
+             * @default 0
+             */
+            display_order: number;
+            /** Title Override */
+            title_override?: string | null;
+            /** Id */
+            id: number;
+        };
+        /** ProjectTemplateRead */
+        ProjectTemplateRead: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Built In
+             * @default false
+             */
+            built_in: boolean;
+            /** Id */
+            id: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProjectTemplateItemRead"][];
+        };
+        /** ProjectTemplateUpdate */
+        ProjectTemplateUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Items */
+            items?: components["schemas"]["ProjectTemplateItemCreate"][] | null;
         };
         /** ProjectUpdate */
         ProjectUpdate: {
@@ -1524,6 +2105,19 @@ export interface components {
              */
             stance?: ("友好" | "中立" | "敌意") | null;
         };
+        /** RunRequest */
+        RunRequest: {
+            /** Scope Json */
+            scope_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Params Json */
+            params_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
         /** SuggestRequest */
         SuggestRequest: {
             /**
@@ -1553,13 +2147,27 @@ export interface components {
              */
             theme: string;
             /**
+             * Audience
+             * @description 读者频道分类（男频/女频）
+             * @default 男频
+             * @enum {string}
+             */
+            audience: "男频" | "女频";
+            /**
+             * Narrative Person
+             * @description 写作人称（第一人称/第三人称）
+             * @default 第三人称
+             * @enum {string}
+             */
+            narrative_person: "第一人称" | "第三人称";
+            /**
              * Story Tags
-             * @description 小说类别标签,每个标签带有权重(0.4-1.0)
+             * @description 类别标签及权重档位（低/中/高）
              * @default []
              */
             story_tags: [
                 string,
-                number
+                "低权重" | "中权重" | "高权重"
             ][];
             /**
              * Affection
@@ -1621,6 +2229,167 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WorkflowCreate */
+        WorkflowCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean | null;
+            /**
+             * Is Built In
+             * @default false
+             */
+            is_built_in: boolean | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number | null;
+            /**
+             * Dsl Version
+             * @default 1
+             */
+            dsl_version: number | null;
+            /** Definition Json */
+            definition_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** WorkflowRead */
+        WorkflowRead: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean | null;
+            /**
+             * Is Built In
+             * @default false
+             */
+            is_built_in: boolean | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number | null;
+            /**
+             * Dsl Version
+             * @default 1
+             */
+            dsl_version: number | null;
+            /** Definition Json */
+            definition_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: number;
+        };
+        /** WorkflowRunRead */
+        WorkflowRunRead: {
+            /** Id */
+            id: number;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Definition Version */
+            definition_version: number;
+            /** Status */
+            status: string;
+            /** Scope Json */
+            scope_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Params Json */
+            params_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Summary Json */
+            summary_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error Json */
+            error_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** WorkflowTriggerCreate */
+        WorkflowTriggerCreate: {
+            /** Workflow Id */
+            workflow_id: number;
+            /** Trigger On */
+            trigger_on: string;
+            /** Card Type Name */
+            card_type_name?: string | null;
+            /** Filter Json */
+            filter_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean | null;
+        };
+        /** WorkflowTriggerRead */
+        WorkflowTriggerRead: {
+            /** Workflow Id */
+            workflow_id: number;
+            /** Trigger On */
+            trigger_on: string;
+            /** Card Type Name */
+            card_type_name?: string | null;
+            /** Filter Json */
+            filter_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean | null;
+            /** Id */
+            id: number;
+        };
+        /** WorkflowTriggerUpdate */
+        WorkflowTriggerUpdate: {
+            /** Trigger On */
+            trigger_on?: string | null;
+            /** Card Type Name */
+            card_type_name?: string | null;
+            /** Filter Json */
+            filter_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /** WorkflowUpdate */
+        WorkflowUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Version */
+            version?: number | null;
+            /** Dsl Version */
+            dsl_version?: number | null;
+            /** Definition Json */
+            definition_json?: {
+                [key: string]: unknown;
+            } | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1679,6 +2448,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_free_project_endpoint_api_projects_free_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ProjectRead_"];
                 };
             };
         };
@@ -1932,6 +2721,37 @@ export interface operations {
             };
         };
     };
+    reset_llm_usage_api_llm_configs__config_id__reset_usage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                config_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_all_schemas_api_ai_schemas_get: {
         parameters: {
             query?: never;
@@ -1990,6 +2810,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    render_prompt_with_knowledge_api_ai_prompts_render_get: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2391,6 +3242,150 @@ export interface operations {
             };
         };
     };
+    get_card_type_schema_api_card_types__card_type_id__schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_card_type_schema_api_card_types__card_type_id__schema_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_card_type_ai_params_api_card_types__card_type_id__ai_params_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_card_type_ai_params_api_card_types__card_type_id__ai_params_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_all_cards_for_project_api_projects__project_id__cards_get: {
         parameters: {
             query?: never;
@@ -2552,36 +3547,18 @@ export interface operations {
             };
         };
     };
-    list_output_models_api_output_models__get: {
+    copy_card_endpoint_api_cards__card_id__copy_post: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutputModel"][];
-                };
+            path: {
+                card_id: number;
             };
-        };
-    };
-    create_output_model_api_output_models__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["OutputModel"];
+                "application/json": components["schemas"]["CardCopyOrMoveRequest"];
             };
         };
         responses: {
@@ -2591,7 +3568,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutputModel"];
+                    "application/json": components["schemas"]["CardRead"];
                 };
             };
             /** @description Validation Error */
@@ -2605,18 +3582,18 @@ export interface operations {
             };
         };
     };
-    update_output_model_api_output_models__model_id__put: {
+    move_card_endpoint_api_cards__card_id__move_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                model_id: number;
+                card_id: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["OutputModel"];
+                "application/json": components["schemas"]["CardCopyOrMoveRequest"];
             };
         };
         responses: {
@@ -2626,7 +3603,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutputModel"];
+                    "application/json": components["schemas"]["CardRead"];
                 };
             };
             /** @description Validation Error */
@@ -2640,12 +3617,12 @@ export interface operations {
             };
         };
     };
-    delete_output_model_api_output_models__model_id__delete: {
+    get_card_schema_api_cards__card_id__schema_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                model_id: number;
+                card_id: number;
             };
             cookie?: never;
         };
@@ -2657,7 +3634,186 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_card_schema_api_cards__card_id__schema_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_card_schema_to_type_api_cards__card_id__schema_apply_to_type_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_card_ai_params_api_cards__card_id__ai_params_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_card_ai_params_api_cards__card_id__ai_params_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_card_ai_params_to_type_api_cards__card_id__ai_params_apply_to_type_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -3207,6 +4363,584 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_project_templates__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_List_ProjectTemplateRead__"];
+                };
+            };
+        };
+    };
+    create_template_api_project_templates__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTemplateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_template_api_project_templates__tid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_api_project_templates__tid__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTemplateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_template_api_project_templates__tid__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflows_api_workflows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"][];
+                };
+            };
+        };
+    };
+    create_workflow_api_workflows_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_triggers_api_workflow_triggers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTriggerRead"][];
+                };
+            };
+        };
+    };
+    create_trigger_api_workflow_triggers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowTriggerCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTriggerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_trigger_api_workflow_triggers__trigger_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowTriggerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTriggerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_trigger_api_workflow_triggers__trigger_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_api_workflows__workflow_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_workflow_api_workflows__workflow_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workflow_api_workflows__workflow_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_workflow_api_workflows__workflow_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_workflows_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_workflow_api_workflows__workflow_id__validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_api_workflows_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_events_api_workflows_runs__run_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

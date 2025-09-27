@@ -29,9 +29,10 @@ export function assembleContext(body: AssembleContextRequest): Promise<AssembleC
 }
 
 export function generateAIContent(
-  params: GeneralAIRequest
+  params: GeneralAIRequest,
+  options?: { signal?: AbortSignal }
 ): Promise<any> { // The response can be any of the Pydantic models
-  return aiHttpClient.post<any>('/ai/generate', params)
+  return aiHttpClient.post<any>('/ai/generate', params, '/api', { showLoading: true, signal: options?.signal })
 }
 
 export function getAIConfigOptions(): Promise<AIConfigOptions> {
