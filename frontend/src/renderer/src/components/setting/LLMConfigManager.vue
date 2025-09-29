@@ -23,14 +23,19 @@
                 - 英文单词计 1<br/>
                 - 每个数字计 1<br/>
                 - 非空白符号各计 1<br/>
-                注意：不同模型 token 计算不同，此为粗略估算，仅供参考。
+                注意：不同模型 token 计算不同，此为粗略估算，仅供参考。<br/>
+                <br/>
+                显示格式：<br/>
+                - ≥1万：显示为 X.XXX 万<br/>
+                - ≥1百万：显示为 X.XXX 百万<br/>
+                - 最多保留3位小数，自动去除末尾0
               </template>
               <el-icon style="margin-left:4px; cursor: help;"><QuestionFilled /></el-icon>
             </el-tooltip>
           </span>
         </template>
         <template #default="{ row }">
-          {{ (row as any).used_tokens_input || 0 }}/{{ (row as any).used_tokens_output || 0 }} / {{ (row as any).used_calls || 0 }}
+          {{ formatNumber((row as any).used_tokens_input || 0) }} / {{ formatNumber((row as any).used_tokens_output || 0) }} / {{ formatNumber((row as any).used_calls || 0) }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200">
@@ -66,6 +71,32 @@ type LLMConfig = components['schemas']['LLMConfigRead']
 const llmConfigs = ref<LLMConfig[]>([])
 const editDialogVisible = ref(false)
 const editConfig = ref<LLMConfig | null>(null)
+
+/**
+ * 格式化数字显示
+ * @param num 数字
+ * @returns 格式化后的字符串
+ */
+function formatNumber(num: number): string {
+  if (num >= 1000000) {
+    // 大于等于1百万，显示为 X.XXX 百万
+    const millions = num / 1000000
+    const formatted = millions.toFixed(3)
+    // 去除末尾的0
+    const trimmed = parseFloat(formatted).toString()
+    return `${trimmed} 百万`
+  } else if (num >= 10000) {
+    // 大于等于1万，显示为 X.XXX 万
+    const tenThousands = num / 10000
+    const formatted = tenThousands.toFixed(3)
+    // 去除末尾的0
+    const trimmed = parseFloat(formatted).toString()
+    return `${trimmed} 万`
+  } else {
+    // 小于1万，直接显示原数字
+    return num.toString()
+  }
+}
 
 async function loadLLMConfigs() {
   try {
@@ -143,9 +174,6 @@ onMounted(loadLLMConfigs)
 </script>
 
 <style scoped>
-.llm-config-manager {
-  /* padding: 16px; */
-}
 .header {
   display: flex;
   justify-content: space-between;

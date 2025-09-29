@@ -52,6 +52,7 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { schemaService, type JSONSchema } from '@renderer/api/schema'
 import { Delete, Plus } from '@element-plus/icons-vue'
+import { resolveActualSchema } from '@renderer/services/schemaFieldParser'
 
 const ModelDrivenForm = defineAsyncComponent(() => import('../ModelDrivenForm.vue'))
 const StringField = defineAsyncComponent(() => import('./StringField.vue'))
@@ -73,26 +74,11 @@ const emit = defineEmits(['update:modelValue'])
 /**
  * 递归地解析 schema，处理 $ref 和 anyOf (Optional)
  */
-function resolveActualSchema(schema: JSONSchema): JSONSchema {
-  if (schema.$ref) {
-    const refName = schema.$ref.split('/').pop() || ''
-    const resolved = schemaService.getSchema(refName)
-    if (resolved) {
-      return { ...resolved, title: schema.title || resolved.title, description: schema.description || resolved.description };
-    }
-  }
-  if (schema.anyOf) {
-    const nonNullSchema = schema.anyOf.find(s => s.type !== 'null');
-    if (nonNullSchema) {
-      return resolveActualSchema({ ...nonNullSchema, title: schema.title, description: schema.description });
-    }
-  }
-  return schema;
-}
+// 移除重复的resolveActualSchema函数，使用公共服务
 
 const itemSchema = computed((): JSONSchema => {
   if (props.schema.items) {
-    return resolveActualSchema(props.schema.items)
+    return resolveActualSchema(props.schema.items, props.schema)
   }
   return { type: 'string', title: '项目' }
 })
@@ -101,7 +87,7 @@ function getItemSchemaForIndex(index: number): JSONSchema {
   const base = itemSchema.value
   const value = (props.modelValue || [])[index]
   if ((base as any).anyOf) {
-    const matched = resolveAnyOfForValue(base, value)
+    const matched = resolveAnyOfForValue(base, value, props.schema)
     if (matched) return matched
   }
   return base
@@ -158,100 +144,35 @@ function addItem() {
 /**
  * 智能地为任何 schema 创建一个有效的默认值，能够处理嵌套对象。
  */
-function createDefaultValue(schema: JSONSchema): any {
-  const actualSchema = resolveActualSchema(schema)
-
-  if (actualSchema.default) {
-    return actualSchema.default
-  }
-  if (actualSchema.enum && actualSchema.enum.length > 0) {
-    return actualSchema.enum[0];
-  }
-
-  switch (actualSchema.type) {
-    case 'object': {
-      const obj: { [key: string]: any } = {}
-      if (actualSchema.properties) {
-        for (const key in actualSchema.properties) {
-          obj[key] = createDefaultValue(actualSchema.properties[key])
-        }
-      }
-      return obj
-    }
-    case 'array':
-      if (actualSchema.prefixItems) {
-        return actualSchema.prefixItems.map(item => createDefaultValue(item));
-      }
-      return []
-    case 'string':
-      return ''
-    case 'number':
-    case 'integer':
-      return 0
-    case 'boolean':
-      return false
-    default:
-      return null
-  }
-}
+// 移除重复的createDefaultValue函数，使用公共服务
 
 /**
  * 为数组项创建默认值，确保与ModelDrivenForm兼容
  */
 function createArrayItemDefaultValue(schema: JSONSchema): any {
-  const actualSchema = resolveActualSchema(schema)
+  const actualSchema = resolveActualSchema(schema, props.schema)
   
-  // 如果是对象类型，需要创建完整的对象结构
-  if (actualSchema.type === 'object') {
-    const obj: { [key:string]: any } = {}
-    if (actualSchema.properties) {
-      for (const key in actualSchema.properties) {
-        obj[key] = createDefaultValue(actualSchema.properties[key])
-      }
-    }
-    return obj
+  if (actualSchema.default !== undefined) {
+    return actualSchema.default
   }
   
-  // 对于其他类型，直接使用createDefaultValue
-  return createDefaultValue(actualSchema)
+  switch (actualSchema.type) {
+    case 'string': return ''
+    case 'number':
+    case 'integer': return 0
+    case 'boolean': return false
+    case 'array': return []
+    case 'object': return {}
+    default: return null
+  }
 }
 
 function resolveAnyOfForValue(base: JSONSchema, value: any): JSONSchema | null {
   if (!base.anyOf) return null
-  const options = (base.anyOf as JSONSchema[]).map(o => resolveActualSchema(o))
-
-  // 当前值中的实体类型（兼容多种命名）
-  const et: string | undefined = value && typeof value === 'object' ? (value.entity_type || (value as any).type || (value as any).entityType) : undefined
-
-  // 1) 按 schema 内的 entity_type 常量/枚举精确匹配
-  if (et) {
-    const hitByConst = options.find((opt: any) => {
-      const etSchema = opt?.properties?.entity_type
-      const constVal = etSchema?.const
-      const enumArr = Array.isArray(etSchema?.enum) ? etSchema.enum : undefined
-      if (typeof constVal === 'string') return constVal === et
-      if (enumArr && enumArr.length === 1 && typeof enumArr[0] === 'string') return enumArr[0] === et
-      return false
-    })
-    if (hitByConst) return hitByConst
-  }
-
-  // 2) 回退：依据 $ref 名称（若 schemaService 解析保留了标题/名称）
-  if (et) {
-    const targetRefName = et === 'character' ? 'CharacterCard'
-      : et === 'scene' ? 'SceneCard'
-      : et === 'organization' ? 'OrganizationCard'
-      : undefined
-    if (targetRefName) {
-      // 由于 resolveActualSchema 已经展开，尝试用 title 或 $id 等元信息匹配
-      const hitByTitle = options.find((opt: any) => typeof opt?.title === 'string' && String(opt.title).includes(targetRefName))
-      if (hitByTitle) return hitByTitle
-    }
-  }
-
-  // 3) 最终回退：第一个非 null 的候选
-  const rawNonNull = (base.anyOf as any[]).find(s => s && s.type !== 'null') as JSONSchema | undefined
-  return rawNonNull ? resolveActualSchema(rawNonNull) : null
+  
+  // 简单实现：找到第一个非null的Schema
+  const nonNullSchema = base.anyOf.find((s: any) => s && s.type !== 'null')
+  return nonNullSchema ? resolveActualSchema(nonNullSchema as JSONSchema, props.schema) : null
 }
 </script>
 

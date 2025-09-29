@@ -2,7 +2,8 @@
 from typing import List, Optional
 from sqlmodel import Session, select
 
-from app.db.models import Project, Chapter, ProjectTemplate, ProjectTemplateItem
+from app.db.models import Project, Chapter, ProjectTemplate, ProjectTemplateItem, Workflow
+from app.services import workflow_triggers
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
 from app.services.kg_provider import get_provider
@@ -61,9 +62,25 @@ def create_project(session: Session, project_in: ProjectCreate) -> Project:
     session.commit()
     session.refresh(db_project)
     
-    # 从模板创建初始卡片（若提供 template_id），否则回退到默认内置集合
-    template_items = _load_template_items(session, getattr(project_in, 'template_id', None))
-    CardService.create_initial_cards_for_project(session, db_project.id, template_items=template_items)
+    # 方案A：如果传入的是 workflow_id（前端可切换为基于 onprojectcreate 工作流的“模板”），则直接运行该工作流
+    workflow_id = getattr(project_in, 'workflow_id', None)
+    if isinstance(workflow_id, int) and workflow_id > 0:
+        wf = session.get(Workflow, workflow_id)
+        if wf:
+            # 直接创建一次运行，作用域仅携带 project_id
+            from app.services.workflow_engine import engine as wf_engine
+            run = wf_engine.create_run(session, wf, scope_json={"project_id": db_project.id}, params_json={}, idempotency_key=f"proj-init:{db_project.id}:{workflow_id}")
+            wf_engine.run(session, run)
+    else:
+        # 方案B：兼容旧的模板机制：从模板创建初始卡片（若提供 template_id），否则回退到默认内置集合
+        template_items = _load_template_items(session, getattr(project_in, 'template_id', None))
+        CardService.create_initial_cards_for_project(session, db_project.id, template_items=template_items)
+        # 同时触发所有 onprojectcreate 工作流（作为额外增强，可选）
+        try:
+            workflow_triggers.trigger_on_project_create(session, db_project.id)
+        except Exception:
+            # 不阻断项目创建
+            pass
     
     # 刷新以加载新创建的卡片到项目关系中
     session.refresh(db_project)

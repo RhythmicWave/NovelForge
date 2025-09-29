@@ -2,8 +2,10 @@
 import { computed, reactive, ref, watch, nextTick } from 'vue'
 import type { CardTypeRead } from '@renderer/api/cards'
 import { getCardTypes } from '@renderer/api/cards'
-import FieldSelector from './FieldSelector.vue'
-import { QuestionFilled } from '@element-plus/icons-vue'
+// import FieldTreeNode from './FieldTreeNode.vue' // 暂时注释，可能是 TypeScript 缓存问题
+import { QuestionFilled, DocumentCopy } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { parseSchemaFields, toggleFieldExpanded, extractFieldPathOptions, type ParsedField } from '@renderer/services/schemaFieldParser'
 
 const props = defineProps<{ node: any | null; contextTypeName?: string }>()
 const emit = defineEmits<{ 'update-params': [any] }>()
@@ -27,6 +29,191 @@ function update(key: string, value: any) {
   ;(next as any)[key] = value
   emit('update-params', next)
 }
+
+// 智能建议功能
+const suggestions = computed(() => {
+  const nodeType = typeName.value
+  const currentParams = params.value || {}
+  const hints: Array<{key: string, value: any, description: string}> = []
+  
+  // 根据节点类型提供智能建议
+  switch (nodeType) {
+    case 'Card.Read':
+      if (!currentParams.target) {
+        hints.push({ key: 'target', value: '$self', description: '读取当前卡片' })
+      }
+      break
+    case 'Card.UpsertChildByTitle':
+      if (!currentParams.cardType && props.contextTypeName) {
+        const suggestedTypes = ['章节大纲', '章节正文', '角色卡', '场景卡']
+        for (const type of suggestedTypes) {
+          if (type !== props.contextTypeName) {
+            hints.push({ key: 'cardType', value: type, description: `创建${type}子卡` })
+            break
+          }
+        }
+      }
+      if (!currentParams.title) {
+        hints.push({ key: 'title', value: '{item.name}', description: '使用item.name作为标题' })
+        hints.push({ key: 'title', value: '第{item.chapter_number}章', description: '使用章节号作为标题' })
+      }
+      break
+    case 'List.ForEach':
+      if (!currentParams.listPath) {
+        hints.push({ key: 'listPath', value: '$.content.character_cards', description: '遍历角色卡列表' })
+        hints.push({ key: 'listPath', value: '$.content.scene_cards', description: '遍历场景卡列表' })
+        hints.push({ key: 'listPath', value: '$.content.chapter_outline_list', description: '遍历章节大纲列表' })
+      }
+      break
+    case 'List.ForEachRange':
+      if (!currentParams.countPath) {
+        hints.push({ key: 'countPath', value: '$.content.volume_count', description: '遍历卷数' })
+        hints.push({ key: 'countPath', value: '$.content.stage_count', description: '遍历阶段数' })
+      }
+      if (!currentParams.start) {
+        hints.push({ key: 'start', value: 1, description: '从1开始遍历' })
+      }
+      break
+    case 'Card.ClearFields':
+      if (!currentParams.fields || (Array.isArray(currentParams.fields) && currentParams.fields.length === 0)) {
+        hints.push({ key: 'fields', value: ['$.content.character_cards'], description: '清空角色卡列表' })
+        hints.push({ key: 'fields', value: ['$.content.scene_cards'], description: '清空场景卡列表' })
+      }
+      break
+    case 'Card.ModifyContent':
+      if (currentParams.contentMerge) {
+        // 合并模式建议
+        if (!currentParams.contentMerge || Object.keys(currentParams.contentMerge).length === 0) {
+          hints.push({ key: 'contentMerge', value: { character_cards: [] }, description: '清空角色卡列表' })
+          hints.push({ key: 'contentMerge', value: { scene_cards: [] }, description: '清空场景卡列表' })
+          hints.push({ key: 'contentMerge', value: { status: 'completed' }, description: '设置状态为已完成' })
+        }
+      } else {
+        // 路径模式建议
+        if (!currentParams.setPath) {
+          hints.push({ key: 'setPath', value: '$.content.status', description: '设置状态字段' })
+          hints.push({ key: 'setValue', value: 'completed', description: '设置为已完成' })
+        }
+      }
+      break
+  }
+  
+  return hints.slice(0, 3) // 最多显示3个建议
+})
+
+// 应用建议
+function applySuggestion(suggestion: {key: string, value: any, description: string}) {
+  update(suggestion.key, suggestion.value)
+}
+
+// 字段路径选项（用于替代 FieldSelector）
+const fieldPathOptions = computed(() => {
+  const typeName = props.contextTypeName
+  if (!typeName) return []
+  
+  const selectedType = state.types.find(t => t.name === typeName)
+  if (!selectedType?.json_schema) return []
+  
+  const fields = parseSchemaFields(selectedType.json_schema)
+  return extractFieldPathOptions(fields)
+})
+
+// Card.ModifyContent 模式判断
+const modifyContentMode = computed(() => {
+  const currentParams = params.value || {}
+  // 如果有 contentMerge 参数，使用合并模式
+  if (currentParams.contentMerge) return 'merge'
+  // 否则使用路径模式
+  return 'path'
+})
+
+// contentMerge 的文本表示
+const contentMergeText = computed(() => {
+  const contentMerge = params.value?.contentMerge
+  if (!contentMerge) return ''
+  try {
+    return JSON.stringify(contentMerge, null, 2)
+  } catch {
+    return String(contentMerge)
+  }
+})
+
+// 切换 ModifyContent 模式
+function switchModifyContentMode(mode: 'path' | 'merge') {
+  const currentParams = { ...(params.value || {}) }
+  if (mode === 'path') {
+    // 切换到路径模式，清除 contentMerge
+    delete currentParams.contentMerge
+    if (!currentParams.setPath) currentParams.setPath = ''
+    if (!currentParams.setValue) currentParams.setValue = ''
+  } else {
+    // 切换到合并模式，清除路径参数
+    delete currentParams.setPath
+    delete currentParams.setValue
+    if (!currentParams.contentMerge) currentParams.contentMerge = {}
+  }
+  emit('update-params', currentParams)
+}
+
+// 更新 contentMerge
+function updateContentMerge(text: string) {
+  try {
+    const parsed = text.trim() ? JSON.parse(text) : {}
+    update('contentMerge', parsed)
+  } catch (e) {
+    // JSON 解析失败时，保持文本状态，不更新参数
+    console.warn('Invalid JSON in contentMerge:', e)
+  }
+}
+
+// 参数校验
+const paramErrors = computed(() => {
+  const nodeType = typeName.value
+  const currentParams = params.value || {}
+  const errors: string[] = []
+  
+  // 必填参数检查
+  switch (nodeType) {
+    case 'List.ForEach':
+      if (!currentParams.listPath) {
+        errors.push('listPath 是必填参数')
+      }
+      break
+    case 'List.ForEachRange':
+      if (!currentParams.countPath) {
+        errors.push('countPath 是必填参数')
+      }
+      break
+    case 'Card.UpsertChildByTitle':
+      if (!currentParams.cardType) {
+        errors.push('cardType 是必填参数')
+      }
+      if (!currentParams.title) {
+        errors.push('title 是必填参数')
+      }
+      break
+    case 'Card.ModifyContent':
+      if (currentParams.contentMerge) {
+        // 合并模式：检查 contentMerge 是否为有效对象
+        if (!currentParams.contentMerge || typeof currentParams.contentMerge !== 'object') {
+          errors.push('contentMerge 必须是有效的对象')
+        }
+      } else {
+        // 路径模式：检查 setPath 是否存在
+        if (!currentParams.setPath) {
+          errors.push('路径模式下 setPath 是必填参数')
+        }
+      }
+      break
+    case 'Card.ClearFields':
+      if (!currentParams.fields || !Array.isArray(currentParams.fields) || currentParams.fields.length === 0) {
+        errors.push('fields 必须是非空数组')
+      }
+      break
+  }
+  
+  return errors
+})
 
 // contentTemplate 文本编辑辅助：对象 <-> JSON 字符串
 function formatTemplate(val: any): string {
@@ -208,13 +395,32 @@ const selectedTypeName = computed(() => {
 })
 const selectedType = computed(() => state.types.find(t => t.name === selectedTypeName.value))
 const fieldSuggestions = computed(() => extractContentPaths((selectedType.value as any)?.json_schema || {}))
-// 针对“子卡内容键名”的建议：来自子卡类型 schema 的根部一级 keys
+// 针对"子卡内容键名"的建议：来自子卡类型 schema 的根部一级 keys
 function extractContentKeys(schema: any): string[] {
   try {
     const props = (schema?.properties || {}) as Record<string, any>
     return Object.keys(props)
   } catch { return [] }
 }
+
+// 数组编辑辅助函数
+function addField() {
+  const fields = params.value.fields || []
+  update('fields', [...fields, ''])
+}
+
+function removeField(index: number) {
+  const fields = [...(params.value.fields || [])]
+  fields.splice(index, 1)
+  update('fields', fields)
+}
+
+function updateFieldsArray() {
+  // 触发响应式更新
+  const fields = [...(params.value.fields || [])]
+  update('fields', fields)
+}
+
 const childType = computed(() => state.types.find(t => t.name === (params.value as any)?.cardType))
 const childContentKeys = computed(() => extractContentKeys((childType.value as any)?.json_schema || {}))
 // 父卡（当前上下文）类型，用于“来源=卡片字段”的字段建议
@@ -226,21 +432,119 @@ watch(() => (params.value?.title ?? params.value?.titlePath ?? ''), (v) => {
   titleLocal.value = String(v ?? '')
 }, { immediate: true })
 watch(titleLocal, (v) => { update('title', v) })
+
+// Card.Read 节点增强功能
+const selectedCardType = computed(() => {
+  const typeName = params.value?.type_name
+  return typeName ? state.types.find(t => t.name === typeName) : null
+})
+
+const parsedFields = ref<ParsedField[]>([])
+
+// 监听卡片类型变化，重新解析字段
+watch(selectedCardType, (newType) => {
+  if (newType?.json_schema) {
+    parsedFields.value = parseSchemaFields(newType.json_schema)
+  } else {
+    parsedFields.value = []
+  }
+}, { immediate: true })
+
+function handleTypeChange(typeName: string) {
+  update('type_name', typeName)
+}
+
+function handleFieldSelect(fieldPath: string) {
+  // 复制字段路径到剪贴板
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(fieldPath).then(() => {
+      ElMessage.success(`已复制路径: ${fieldPath}`)
+    }).catch(() => {
+      console.log(`已复制路径: ${fieldPath}`)
+    })
+  } else {
+    console.log(`路径: ${fieldPath}`)
+  }
+}
+
+function handleFieldToggle(fieldPath: string) {
+  toggleFieldExpanded(parsedFields.value, fieldPath)
+}
+
 </script>
 
 <template>
   <div class="panel" v-if="node">
     <div class="panel-title">参数 · {{ typeName }}</div>
+    
+    <!-- 错误提示 -->
+    <div v-if="paramErrors.length > 0" class="error-alert">
+      <el-alert 
+        type="error" 
+        :title="`参数错误 (${paramErrors.length})`" 
+        :closable="false"
+        show-icon
+      >
+        <ul class="error-list">
+          <li v-for="error in paramErrors" :key="error">{{ error }}</li>
+        </ul>
+      </el-alert>
+    </div>
+    
+    <!-- 智能建议 -->
+    <div v-if="suggestions.length > 0" class="suggestions">
+      <div class="suggestions-title">
+        <el-icon><QuestionFilled /></el-icon>
+        智能建议
+      </div>
+      <div class="suggestions-list">
+        <div 
+          v-for="(suggestion, index) in suggestions" 
+          :key="index"
+          class="suggestion-item"
+          @click="applySuggestion(suggestion)"
+        >
+          <div class="suggestion-content">
+            <code class="suggestion-key">{{ suggestion.key }}</code>
+            <span class="suggestion-desc">{{ suggestion.description }}</span>
+          </div>
+          <el-button size="small" type="primary" plain>应用</el-button>
+        </div>
+      </div>
+    </div>
 
     <!-- Card.Read（绑定卡片类型作为工作流上下文） -->
     <template v-if="typeName === 'Card.Read'">
       <el-form label-width="110px" size="small">
+        <el-form-item label="目标卡片">
+          <el-input :model-value="params.target || '$self'" @update:model-value="v=>update('target', v)" placeholder="$self" />
+        </el-form-item>
         <el-form-item label="卡片类型">
-          <el-select :model-value="params.type_name || selectedTypeName" @update:model-value="v=>update('type_name', v)" placeholder="请选择此工作流绑定的卡片类型">
+          <el-select :model-value="params.type_name || selectedTypeName" @update:model-value="handleTypeChange" placeholder="请选择此工作流绑定的卡片类型" clearable>
             <el-option v-for="t in state.types" :key="t.id" :label="t.name" :value="t.name" />
           </el-select>
         </el-form-item>
-        <div class="tip">说明：工作流绑定到某个卡片类型后，后续节点会使用该类型的字段进行路径选择与校验。</div>
+        
+        <!-- 字段结构展示 - 暂时注释等待 TypeScript 缓存问题解决
+        <div v-if="selectedCardType && parsedFields.length > 0" class="field-structure">
+          <div class="field-structure-title">
+            <el-icon><DocumentCopy /></el-icon>
+            字段结构
+          </div>
+          <div class="field-tree">
+            <FieldTreeNode 
+              v-for="field in parsedFields" 
+              :key="field.path"
+              :field="field"
+              :level="0"
+              @select-field="handleFieldSelect"
+              @toggle-expand="handleFieldToggle"
+            />
+          </div>
+        </div>
+        -->
+        
+        <div class="tip">说明：选择卡片类型后可查看其字段结构，点击字段可复制路径。后续节点会使用该类型进行路径选择与校验。</div>
       </el-form>
     </template>
 
@@ -250,7 +554,9 @@ watch(titleLocal, (v) => { update('title', v) })
         <el-form-item label="listPath">
           <div class="horiz">
             <el-input class="flex1" :model-value="params.listPath || params.list" @update:model-value="v=>update('listPath', v)" placeholder="如：$.content.xxx" />
-             <FieldSelector :schema="(selectedType as any)?.json_schema || null" basePrefix="$.content" @update:modelValue="(v:string)=>update('listPath', v)" />
+            <el-select style="width: 180px" :model-value="params.listPath" @update:model-value="v=>update('listPath', v)" filterable clearable placeholder="选择字段">
+              <el-option v-for="option in fieldPathOptions" :key="option.value" :label="option.label" :value="option.value" />
+            </el-select>
           </div>
         </el-form-item>
       </el-form>
@@ -328,7 +634,9 @@ watch(titleLocal, (v) => { update('title', v) })
           <template v-else>
             <div class="horiz">
               <el-input class="flex1" type="textarea" :rows="6" :model-value="exprText" @update:model-value="v=>updateExprOrTemplate(v)" :placeholder="templatePlaceholder" />
-              <FieldSelector :schema="(selectedType as any)?.json_schema || null" basePrefix="$.content" @update:modelValue="(v:string)=>updateExprOrTemplate(v)" />
+              <el-select style="width: 180px" :model-value="''" @update:model-value="v=>updateExprOrTemplate(v)" filterable clearable placeholder="插入字段">
+                <el-option v-for="option in fieldPathOptions" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
             </div>
           </template>
         </el-form-item>
@@ -338,17 +646,81 @@ watch(titleLocal, (v) => { update('title', v) })
     <!-- Card.ModifyContent -->
     <template v-else-if="typeName === 'Card.ModifyContent'">
       <el-form label-width="110px" size="small">
-        <el-form-item label="setPath">
-          <div class="horiz">
-            <el-input class="flex1" :model-value="params.setPath" @update:model-value="v=>update('setPath', v)" placeholder="$.content.xxx" />
-             <FieldSelector :schema="(selectedType as any)?.json_schema || null" basePrefix="$.content" @update:modelValue="(v:string)=>update('setPath', v)" />
-          </div>
+        <!-- 上下文说明 -->
+        <el-alert 
+          title="作用目标：当前卡片 (state.card)" 
+          description="此节点会修改由 Card.Read 节点读取的卡片，而不是连接线上游的卡片。" 
+          type="info" 
+          :closable="false" 
+          show-icon
+          style="margin-bottom: 16px;"
+        />
+        
+        <!-- 模式选择 -->
+        <el-form-item label="修改模式">
+          <el-radio-group :model-value="modifyContentMode" @update:model-value="switchModifyContentMode">
+            <el-radio value="path">路径设置</el-radio>
+            <el-radio value="merge">内容合并</el-radio>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="setValue">
-          <el-input :model-value="params.setValue" @update:model-value="v=>update('setValue', v)" placeholder="可用 {item.xxx}" />
+        
+        <!-- 路径设置模式 -->
+        <template v-if="modifyContentMode === 'path'">
+          <el-form-item label="setPath">
+            <div class="horiz">
+              <el-input class="flex1" :model-value="params.setPath" @update:model-value="v=>update('setPath', v)" placeholder="$.content.xxx" />
+              <el-select style="width: 180px" :model-value="params.setPath" @update:model-value="v=>update('setPath', v)" filterable clearable placeholder="选择字段">
+                <el-option v-for="option in fieldPathOptions" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
+            </div>
+          </el-form-item>
+          <el-form-item label="setValue">
+            <el-input :model-value="params.setValue" @update:model-value="v=>update('setValue', v)" placeholder="可用 {item.xxx}" />
+          </el-form-item>
+        </template>
+        
+        <!-- 内容合并模式 -->
+        <template v-else>
+          <el-form-item label="contentMerge">
+            <el-input 
+              type="textarea" 
+              :rows="6" 
+              :model-value="contentMergeText" 
+              @update:model-value="updateContentMerge" 
+              placeholder='JSON格式，如：{"field1": "value1", "field2": []}'
+            />
+          </el-form-item>
+        </template>
+      </el-form>
+    </template>
+
+    <!-- Card.ClearFields -->
+    <template v-else-if="typeName === 'Card.ClearFields'">
+      <el-form label-width="110px" size="small">
+        <el-form-item label="目标卡片">
+          <el-input v-model="params.target" placeholder="$self" />
+        </el-form-item>
+        <el-form-item label="清空字段">
+          <div class="fields-editor">
+            <div v-for="(field, index) in (params.fields || [])" :key="index" class="field-row">
+              <el-input 
+                v-model="params.fields[index]" 
+                placeholder="$.content.field_name"
+                @input="updateFieldsArray"
+              />
+              <el-button 
+                size="small" 
+                type="danger" 
+                @click="removeField(index)"
+                :icon="'Delete'"
+              />
+            </div>
+            <el-button size="small" type="primary" @click="addField">添加字段</el-button>
+          </div>
         </el-form-item>
       </el-form>
     </template>
+
 
     <template v-else>
       <div class="empty">暂不支持该节点的参数编辑</div>
@@ -357,7 +729,166 @@ watch(titleLocal, (v) => { update('title', v) })
 </template>
 
 <style scoped>
-.panel { padding: 8px; border-left: 1px solid var(--el-border-color); height: 60vh; overflow: auto; background: var(--el-bg-color); color: var(--el-text-color-primary); }
+.panel { 
+  padding: 8px; 
+  border-left: 1px solid var(--el-border-color); 
+  height: 60vh; 
+  overflow: auto; 
+  background: var(--el-bg-color); 
+  color: var(--el-text-color-primary); 
+}
+
+/* 错误提示样式 */
+.error-alert {
+  margin-bottom: 16px;
+}
+
+.error-list {
+  margin: 8px 0 0 0;
+  padding-left: 16px;
+}
+
+.error-list li {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+/* 智能建议样式 */
+.suggestions {
+  margin-bottom: 20px;
+  background: #f0f9ff;
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.suggestions-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suggestion-item:hover {
+  border-color: #3b82f6;
+  background: #fefefe;
+}
+
+.suggestion-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.suggestion-key {
+  font-size: 12px;
+  color: #059669;
+  background: #ecfdf5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  align-self: flex-start;
+}
+
+.suggestion-desc {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.suggestion-item .el-button {
+  margin-left: 8px;
+  opacity: 0.7;
+}
+
+.suggestion-item:hover .el-button {
+  opacity: 1;
+}
+
+/* 数组编辑器样式 */
+.fields-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field-row .el-input {
+  flex: 1;
+}
+
+/* 字段结构样式 */
+.field-structure {
+  margin-top: 12px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 6px;
+  background: var(--el-bg-color-page, #fafafa);
+  overflow: hidden;
+}
+
+.field-structure-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--el-color-primary-light-9, #f0f9ff);
+  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
+  font-weight: 500;
+  color: var(--el-text-color-primary, #303133);
+  font-size: 12px;
+}
+
+.field-tree {
+  padding: 4px 6px;
+  max-height: 350px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+
+/* 优化滚动条样式 */
+.field-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.field-tree::-webkit-scrollbar-track {
+  background: var(--el-border-color-extra-light, #f2f6fc);
+  border-radius: 3px;
+}
+
+.field-tree::-webkit-scrollbar-thumb {
+  background: var(--el-border-color, #dcdfe6);
+  border-radius: 3px;
+}
+
+.field-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--el-text-color-secondary, #909399);
+}
+
 .panel-title { font-weight: 600; margin-bottom: 8px; }
 .empty { color: var(--el-text-color-secondary); }
 .horiz { display: flex; gap: 6px; align-items: center; }

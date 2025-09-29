@@ -374,199 +374,249 @@ def init_reserved_project(db: Session):
         pass
 
 
+def _create_or_update_workflow(db: Session, name: str, description: str, dsl: dict, trigger_card_type: str, overwrite: bool):
+    """创建或更新单个工作流及其触发器的辅助函数"""
+    created_count = updated_count = skipped_count = 0
+    
+    # 处理工作流
+    wf = db.exec(select(Workflow).where(Workflow.name == name)).first()
+    if not wf:
+        wf = Workflow(name=name, description=description, is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl)
+        db.add(wf)
+        db.commit()
+        db.refresh(wf)
+        created_count += 1
+        logger.info(f"已创建内置工作流: {name} (id={wf.id})")
+    else:
+        if overwrite:
+            wf.definition_json = dsl
+            wf.is_built_in = True
+            wf.is_active = True
+            wf.version = 1
+            db.add(wf)
+            db.commit()
+            updated_count += 1
+            logger.info(f"已更新内置工作流: {name} (id={wf.id})")
+        else:
+            skipped_count += 1
+    
+    # 处理触发器
+    tg = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf.id, WorkflowTrigger.trigger_on == "onsave")).first()
+    if not tg:
+        tg = WorkflowTrigger(workflow_id=wf.id, trigger_on="onsave", card_type_name=trigger_card_type, is_active=True)
+        db.add(tg)
+        db.commit()
+        created_count += 1
+        logger.info(f"已创建触发器: onsave -> {name}")
+    else:
+        if overwrite:
+            tg.card_type_name = trigger_card_type
+            tg.is_active = True
+            db.add(tg)
+            db.commit()
+            updated_count += 1
+            logger.info(f"已更新触发器: onsave -> {name}")
+        else:
+            skipped_count += 1
+    
+    return created_count, updated_count, skipped_count
+
 def init_workflows(db: Session):
-    """初始化/更新内置工作流（最小版）。
+    """初始化/更新内置工作流（标准格式）。
+    行为受环境变量 BOOTSTRAP_OVERWRITE 控制：
+    - True: 强制更新现有工作流的DSL和触发器
+    - False: 仅创建不存在的工作流，不修改已存在的
+    
     当前预设：世界观·转组织
     - 触发：onsave，卡片类型=世界观设定
     - DSL：
       1) Card.Read（type_name=世界观设定）
       2) List.ForEach（$.content.world_view.social_system.major_power_camps）
-         body:
+         连接到：
             2.1) Card.UpsertChildByTitle（cardType=组织卡，title={item.name}，useItemAsContent=true）
             2.2) Card.ModifyContent（setPath=world_view.social_system.major_power_camps，setValue=[]）
     """
-    name = "世界观·转组织"
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
+    total_created = total_updated = total_skipped = 0
+    name = "世界观"
     dsl = {
         "dsl_version": 1,
         "name": name,
         "nodes": [
-            {"id": "readself", "type": "Card.Read", "params": {"target": "$self", "type_name": "世界观设定"}},
-            {"id": "foreachOrgs", "type": "List.ForEach", "params": {"listPath": "$.content.world_view.social_system.major_power_camps"}, "body": [
-                {"id": "upsertOrg", "type": "Card.UpsertChildByTitle", "params": {"cardType": "组织卡", "title": "{item.name}", "useItemAsContent": True}},
-                {"id": "clearSource", "type": "Card.ModifyContent", "params": {"setPath": "world_view.social_system.major_power_camps", "setValue": []}}
-            ]}
+            {"id": "readself", "type": "Card.Read", "params": {"target": "$self", "type_name": "世界观设定"}, "position": {"x": 40, "y": 80}},
+            {"id": "foreachOrgs", "type": "List.ForEach", "params": {"listPath": "$.content.world_view.social_system.major_power_camps"}, "position": {"x": 460, "y": 80}},
+            {"id": "upsertOrg", "type": "Card.UpsertChildByTitle", "params": {"cardType": "组织卡", "title": "{item.name}", "useItemAsContent": True}, "position": {"x": 460, "y": 260}},
+            {"id": "clearSource", "type": "Card.ModifyContent", "params": {"setPath": "world_view.social_system.major_power_camps", "setValue": []}, "position": {"x": 880, "y": 260}}
         ],
+        "edges": [
+            {"id": "e-readself-foreachOrgs", "source": "readself", "target": "foreachOrgs", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreachOrgs-upsertOrg", "source": "foreachOrgs", "target": "upsertOrg", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreachOrgs-clearSource", "source": "foreachOrgs", "target": "clearSource", "sourceHandle": "r", "targetHandle": "l"}
+        ]
     }
 
-    wf = db.exec(select(Workflow).where(Workflow.name == name)).first()
-    if not wf:
-        wf = Workflow(name=name, description="从世界观的势力列表生成组织卡，并清空来源字段", is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl)
-        db.add(wf)
-        db.commit()
-        db.refresh(wf)
-        logger.info(f"已创建内置工作流: {name} (id={wf.id})")
-    else:
-        # 增量更新：刷新 definition_json 与启用状态；版本固定为 1（不再自增）
-        wf.definition_json = dsl
-        wf.is_built_in = True
-        wf.is_active = True
-        wf.version = 1
-        db.add(wf)
-        db.commit()
-        logger.info(f"已更新内置工作流: {name} (id={wf.id})")
-
-    # 触发器：OnSave + 世界观设定
-    tg = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf.id, WorkflowTrigger.trigger_on == "onsave")).first()
-    if not tg:
-        tg = WorkflowTrigger(workflow_id=wf.id, trigger_on="onsave", card_type_name="世界观设定", is_active=True)
-        db.add(tg)
-        db.commit()
-        logger.info(f"已创建触发器: onsave -> {name}")
-    else:
-        tg.card_type_name = "世界观设定"
-        tg.is_active = True
-        db.add(tg)
-        db.commit()
-        logger.info(f"已更新触发器: onsave -> {name}")
+    # 第一个工作流：世界观·转组织
+    c, u, s = _create_or_update_workflow(db, name, "从世界观的势力列表生成组织卡，并清空来源字段", dsl, "世界观设定", overwrite)
+    total_created += c
+    total_updated += u
+    total_skipped += s
 
     # ---------------- 核心蓝图 · 落子卡与分卷 ----------------
-    name2 = "核心蓝图·落子卡与分卷"
+    name2 = "核心蓝图"
     dsl2 = {
         "dsl_version": 1,
         "name": name2,
         "nodes": [
-            {"id": "read_bp", "type": "Card.Read", "params": {"target": "$self", "type_name": "核心蓝图"}},
-            {"id": "foreach_volumes", "type": "List.ForEachRange", "params": {"countPath": "$.content.volume_count", "start": 1}, "body": [
-                {"id": "upsert_volume", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "分卷大纲", "title": "第{index}卷", "contentTemplate": {"volume_number": "{index}"}}}
-            ]},
-            {"id": "foreach_chars", "type": "List.ForEach", "params": {"listPath": "$.content.character_cards"}, "body": [
-                {"id": "upsert_char", "type": "Card.UpsertChildByTitle", "params": {"cardType": "角色卡", "title": "{item.name}", "contentPath": "item"}}
-            ]},
-            {"id": "foreach_scenes", "type": "List.ForEach", "params": {"listPath": "$.content.scene_cards"}, "body": [
-                {"id": "upsert_scene", "type": "Card.UpsertChildByTitle", "params": {"cardType": "场景卡", "title": "{item.name}", "contentPath": "item"}}
-            ]},
-            {"id": "clear_lists", "type": "Card.ModifyContent", "params": {"contentMerge": {"character_cards": [], "scene_cards": []}}}
+            {"id": "read_bp", "type": "Card.Read", "params": {"target": "$self", "type_name": "核心蓝图"}, "position": {"x": 40, "y": 80}},
+            {"id": "foreach_volumes", "type": "List.ForEachRange", "params": {"countPath": "$.content.volume_count", "start": 1}, "position": {"x": 460, "y": 80}},
+            {"id": "upsert_volume", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "分卷大纲", "title": "第{index}卷", "contentTemplate": {"volume_number": "{index}"}}, "position": {"x": 460, "y": 330}},
+            {"id": "foreach_chars", "type": "List.ForEach", "params": {"listPath": "$.content.character_cards"}, "position": {"x": 880, "y": 80}},
+            {"id": "upsert_char", "type": "Card.UpsertChildByTitle", "params": {"cardType": "角色卡", "title": "{item.name}", "contentPath": "item"}, "position": {"x": 880, "y": 260}},
+            {"id": "foreach_scenes", "type": "List.ForEach", "params": {"listPath": "$.content.scene_cards"}, "position": {"x": 1300, "y": 80}},
+            {"id": "upsert_scene", "type": "Card.UpsertChildByTitle", "params": {"cardType": "场景卡", "title": "{item.name}", "contentPath": "item"}, "position": {"x": 1300, "y": 260}},
+            {"id": "clear_lists", "type": "Card.ModifyContent", "params": {"contentMerge": {"character_cards": [], "scene_cards": []}}, "position": {"x": 1720, "y": 170}}
         ],
+        "edges": [
+            {"id": "e-read_bp-foreach_volumes", "source": "read_bp", "target": "foreach_volumes", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_volumes-upsert_volume", "source": "foreach_volumes", "target": "upsert_volume", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_volumes-foreach_chars", "source": "foreach_volumes", "target": "foreach_chars", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_chars-upsert_char", "source": "foreach_chars", "target": "upsert_char", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_chars-foreach_scenes", "source": "foreach_chars", "target": "foreach_scenes", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_scenes-upsert_scene", "source": "foreach_scenes", "target": "upsert_scene", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_scenes-clear_lists", "source": "foreach_scenes", "target": "clear_lists", "sourceHandle": "r", "targetHandle": "l"}
+        ]
     }
 
-    wf2 = db.exec(select(Workflow).where(Workflow.name == name2)).first()
-    if not wf2:
-        wf2 = Workflow(name=name2, description="蓝图生成：创建顶层分卷与蓝图子级的角色/场景卡，并清空蓝图内列表", is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl2)
-        db.add(wf2)
-        db.commit()
-        db.refresh(wf2)
-        logger.info(f"已创建内置工作流: {name2} (id={wf2.id})")
-    else:
-        wf2.definition_json = dsl2
-        wf2.is_built_in = True
-        wf2.is_active = True
-        wf2.version = 1
-        db.add(wf2)
-        db.commit()
-        logger.info(f"已更新内置工作流: {name2} (id={wf2.id})")
-
-    tg2 = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf2.id, WorkflowTrigger.trigger_on == "onsave")).first()
-    if not tg2:
-        tg2 = WorkflowTrigger(workflow_id=wf2.id, trigger_on="onsave", card_type_name="核心蓝图", is_active=True)
-        db.add(tg2)
-        db.commit()
-        logger.info(f"已创建触发器: onsave -> {name2}")
-    else:
-        tg2.card_type_name = "核心蓝图"
-        tg2.is_active = True
-        db.add(tg2)
-        db.commit()
-        logger.info(f"已更新触发器: onsave -> {name2}")
+    # 第二个工作流：核心蓝图
+    c, u, s = _create_or_update_workflow(db, name2, "蓝图生成：创建顶层分卷与蓝图子级的角色/场景卡，并清空蓝图内列表", dsl2, "核心蓝图", overwrite)
+    total_created += c
+    total_updated += u
+    total_skipped += s
 
     # ---------------- 分卷大纲 · 落子卡 ----------------
-    name3 = "分卷大纲·落子卡"
+    name3 = "分卷大纲"
     dsl3 = {
         "dsl_version": 1,
         "name": name3,
         "nodes": [
-            {"id": "read_vol", "type": "Card.Read", "params": {"target": "$self", "type_name": "分卷大纲"}},
-            {"id": "foreach_new_chars", "type": "List.ForEach", "params": {"listPath": "$.content.new_character_cards"}, "body": [
-                {"id": "upsert_char2", "type": "Card.UpsertChildByTitle", "params": {"cardType": "角色卡", "title": "{item.name}", "contentPath": "item"}}
-            ]},
-            {"id": "foreach_new_scenes", "type": "List.ForEach", "params": {"listPath": "$.content.new_scene_cards"}, "body": [
-                {"id": "upsert_scene2", "type": "Card.UpsertChildByTitle", "params": {"cardType": "场景卡", "title": "{item.name}", "contentPath": "item"}}
-            ]},
-            {"id": "foreach_stage", "type": "List.ForEachRange", "params": {"countPath": "$.content.stage_count", "start": 1}, "body": [
-                {"id": "upsert_stage", "type": "Card.UpsertChildByTitle", "params": {"cardType": "阶段大纲", "title": "阶段{index}", "contentTemplate": {"stage_number": "{index}", "volume_number": "{$.content.volume_number}"}}}
-            ]},
-            {"id": "upsert_guide", "type": "Card.UpsertChildByTitle", "params": {"cardType": "写作指南", "title": "第{$.content.volume_number}卷-写作指南", "contentTemplate": {"volume_number": "{$.content.volume_number}"}}}
+            {"id": "read_vol", "type": "Card.Read", "params": {"target": "$self", "type_name": "分卷大纲"}, "position": {"x": 40, "y": 80}},
+            {"id": "foreach_new_chars", "type": "List.ForEach", "params": {"listPath": "$.content.new_character_cards"}, "position": {"x": 460, "y": 80}},
+            {"id": "upsert_char2", "type": "Card.UpsertChildByTitle", "params": {"cardType": "角色卡", "title": "{item.name}", "contentPath": "item"}, "position": {"x": 460, "y": 260}},
+            {"id": "foreach_new_scenes", "type": "List.ForEach", "params": {"listPath": "$.content.new_scene_cards"}, "position": {"x": 880, "y": 80}},
+            {"id": "upsert_scene2", "type": "Card.UpsertChildByTitle", "params": {"cardType": "场景卡", "title": "{item.name}", "contentPath": "item"}, "position": {"x": 880, "y": 260}},
+            {"id": "foreach_stage", "type": "List.ForEachRange", "params": {"countPath": "$.content.stage_count", "start": 1}, "position": {"x": 1300, "y": 80}},
+            {"id": "upsert_stage", "type": "Card.UpsertChildByTitle", "params": {"cardType": "阶段大纲", "title": "阶段{index}", "contentTemplate": {"stage_number": "{index}", "volume_number": "{$.content.volume_number}"}}, "position": {"x": 1300, "y": 260}},
+            {"id": "upsert_guide", "type": "Card.UpsertChildByTitle", "params": {"cardType": "写作指南", "title": "第{$.content.volume_number}卷-写作指南", "contentTemplate": {"volume_number": "{$.content.volume_number}"}}, "position": {"x": 1720, "y": 170}}
         ],
+        "edges": [
+            {"id": "e-read_vol-foreach_new_chars", "source": "read_vol", "target": "foreach_new_chars", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_new_chars-upsert_char2", "source": "foreach_new_chars", "target": "upsert_char2", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_new_chars-foreach_new_scenes", "source": "foreach_new_chars", "target": "foreach_new_scenes", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_new_scenes-upsert_scene2", "source": "foreach_new_scenes", "target": "upsert_scene2", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_new_scenes-foreach_stage", "source": "foreach_new_scenes", "target": "foreach_stage", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_stage-upsert_stage", "source": "foreach_stage", "target": "upsert_stage", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-upsert_stage-upsert_guide", "source": "upsert_stage", "target": "upsert_guide", "sourceHandle": "r", "targetHandle": "l"}
+        ]
     }
 
-    wf3 = db.exec(select(Workflow).where(Workflow.name == name3)).first()
-    if not wf3:
-        wf3 = Workflow(name=name3, description="分卷大纲：创建阶段大纲与写作指南，并落地新角色/场景子卡", is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl3)
-        db.add(wf3)
-        db.commit()
-        db.refresh(wf3)
-        logger.info(f"已创建内置工作流: {name3} (id={wf3.id})")
-    else:
-        wf3.definition_json = dsl3
-        wf3.is_built_in = True
-        wf3.is_active = True
-        wf3.version = 1
-        db.add(wf3)
-        db.commit()
-        logger.info(f"已更新内置工作流: {name3} (id={wf3.id})")
-
-    tg3 = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf3.id, WorkflowTrigger.trigger_on == "onsave")).first()
-    if not tg3:
-        tg3 = WorkflowTrigger(workflow_id=wf3.id, trigger_on="onsave", card_type_name="分卷大纲", is_active=True)
-        db.add(tg3)
-        db.commit()
-        logger.info(f"已创建触发器: onsave -> {name3}")
-    else:
-        tg3.card_type_name = "分卷大纲"
-        tg3.is_active = True
-        db.add(tg3)
-        db.commit()
-        logger.info(f"已更新触发器: onsave -> {name3}")
+    # 第三个工作流：分卷大纲·落子卡
+    c, u, s = _create_or_update_workflow(db, name3, "分卷大纲：创建阶段大纲与写作指南，并落地新角色/场景子卡", dsl3, "分卷大纲", overwrite)
+    total_created += c
+    total_updated += u
+    total_skipped += s
 
     # ---------------- 阶段大纲 · 落章节卡 ----------------
-    name4 = "阶段大纲·落章节卡"
+    name4 = "阶段大纲"
     dsl4 = {
         "dsl_version": 1,
         "name": name4,
         "nodes": [
-            {"id": "read_stage", "type": "Card.Read", "params": {"target": "$self", "type_name": "阶段大纲"}},
-            {"id": "foreach_chapter_outline", "type": "List.ForEach", "params": {"listPath": "$.content.chapter_outline_list"}, "body": [
-                {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "第{item.chapter_number}章 {item.title}", "useItemAsContent": True}},
-                {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "第{item.chapter_number}章 {item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "{item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}}
-            ]},
-            {"id": "clear_outline", "type": "Card.ModifyContent", "params": {"setPath": "$.content.chapter_outline_list", "setValue": []}}
+            {"id": "read_stage", "type": "Card.Read", "params": {"target": "$self", "type_name": "阶段大纲"}, "position": {"x": 40, "y": 80}},
+            {"id": "foreach_chapter_outline", "type": "List.ForEach", "params": {"listPath": "$.content.chapter_outline_list"}, "position": {"x": 460, "y": 80}},
+            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "第{item.chapter_number}章 {item.title}", "useItemAsContent": True}, "position": {"x": 460, "y": 260}},
+            {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "第{item.chapter_number}章 {item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "{item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}, "position": {"x": 880, "y": 260}},
+            {"id": "clear_outline", "type": "Card.ModifyContent", "params": {"setPath": "$.content.chapter_outline_list", "setValue": []}, "position": {"x": 1300, "y": 170}}
         ],
+        "edges": [
+            {"id": "e-read_stage-foreach_chapter_outline", "source": "read_stage", "target": "foreach_chapter_outline", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_chapter_outline-upsert_outline", "source": "foreach_chapter_outline", "target": "upsert_outline", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-upsert_outline-upsert_chapter", "source": "upsert_outline", "target": "upsert_chapter", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-foreach_chapter_outline-clear_outline", "source": "foreach_chapter_outline", "target": "clear_outline", "sourceHandle": "r", "targetHandle": "l"}
+        ]
     }
 
-    wf4 = db.exec(select(Workflow).where(Workflow.name == name4)).first()
-    if not wf4:
-        wf4 = Workflow(name=name4, description="阶段大纲：根据章节大纲列表创建/更新章节大纲与章节正文子卡，并清空列表", is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl4)
-        db.add(wf4)
-        db.commit()
-        db.refresh(wf4)
-        logger.info(f"已创建内置工作流: {name4} (id={wf4.id})")
-    else:
-        wf4.definition_json = dsl4
-        wf4.is_built_in = True
-        wf4.is_active = True
-        wf4.version = 1
-        db.add(wf4)
-        db.commit()
-        logger.info(f"已更新内置工作流: {name4} (id={wf4.id})")
+    # 第四个工作流：阶段大纲·落章节卡
+    c, u, s = _create_or_update_workflow(db, name4, "阶段大纲：根据章节大纲列表创建/更新章节大纲与章节正文子卡，并清空列表", dsl4, "阶段大纲", overwrite)
+    total_created += c
+    total_updated += u
+    total_skipped += s
 
-    tg4 = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf4.id, WorkflowTrigger.trigger_on == "onsave")).first()
-    if not tg4:
-        tg4 = WorkflowTrigger(workflow_id=wf4.id, trigger_on="onsave", card_type_name="阶段大纲", is_active=True)
-        db.add(tg4)
+    # ---------------- 项目创建 · 雪花创作法（onprojectcreate） ----------------
+    name5 = "项目创建·雪花创作法"
+    dsl5 = {
+        "dsl_version": 1,
+        "name": name5,
+        "nodes": [
+            {"id": "upsert_tags", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "作品标签", "title": "作品标签"}, "position": {"x": 40, "y": 80}},
+            {"id": "upsert_power", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "金手指", "title": "金手指"}, "position": {"x": 460, "y": 80}},
+            {"id": "upsert_one_sentence", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "一句话梗概", "title": "一句话梗概"}, "position": {"x": 880, "y": 80}},
+            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "故事大纲", "title": "故事大纲"}, "position": {"x": 1300, "y": 80}},
+            {"id": "upsert_world", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "世界观设定", "title": "世界观设定"}, "position": {"x": 1720, "y": 80}},
+            {"id": "upsert_blueprint", "type": "Card.UpsertChildByTitle", "params": {"parent": "$projectRoot", "cardType": "核心蓝图", "title": "核心蓝图"}, "position": {"x": 2140, "y": 80}}
+        ],
+        "edges": [
+            {"id": "e-tags-power", "source": "upsert_tags", "target": "upsert_power", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-power-one", "source": "upsert_power", "target": "upsert_one_sentence", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-one-outline", "source": "upsert_one_sentence", "target": "upsert_outline", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-outline-world", "source": "upsert_outline", "target": "upsert_world", "sourceHandle": "r", "targetHandle": "l"},
+            {"id": "e-world-blueprint", "source": "upsert_world", "target": "upsert_blueprint", "sourceHandle": "r", "targetHandle": "l"}
+        ]
+    }
+
+    # 创建/更新该工作流
+    wf5 = db.exec(select(Workflow).where(Workflow.name == name5)).first()
+    if not wf5:
+        wf5 = Workflow(name=name5, description="项目创建时：按雪花创作法初始化基础卡片", is_built_in=True, is_active=True, version=1, dsl_version=1, definition_json=dsl5)
+        db.add(wf5)
         db.commit()
-        logger.info(f"已创建触发器: onsave -> {name4}")
+        db.refresh(wf5)
+        total_created += 1
+        logger.info(f"已创建内置工作流: {name5} (id={wf5.id})")
     else:
-        tg4.card_type_name = "阶段大纲"
-        tg4.is_active = True
-        db.add(tg4)
+        if overwrite:
+            wf5.definition_json = dsl5
+            wf5.is_built_in = True
+            wf5.is_active = True
+            wf5.version = 1
+            db.add(wf5)
+            db.commit()
+            total_updated += 1
+            logger.info(f"已更新内置工作流: {name5} (id={wf5.id})")
+        else:
+            total_skipped += 1
+
+    # 确保 onprojectcreate 触发器存在
+    if wf5 and wf5.id:
+        tg5 = db.exec(select(WorkflowTrigger).where(WorkflowTrigger.workflow_id == wf5.id, WorkflowTrigger.trigger_on == "onprojectcreate")).first()
+        if not tg5:
+            tg5 = WorkflowTrigger(workflow_id=wf5.id, trigger_on="onprojectcreate", is_active=True)
+            db.add(tg5)
+            db.commit()
+            total_created += 1
+            logger.info(f"已创建触发器: onprojectcreate -> {name5}")
+        else:
+            if overwrite:
+                tg5.is_active = True
+                db.add(tg5)
+                db.commit()
+                total_updated += 1
+                logger.info(f"已更新触发器: onprojectcreate -> {name5}")
+            else:
+                total_skipped += 1
+
+    # 提交所有更改并记录总结
+    if total_created > 0 or total_updated > 0:
         db.commit()
-        logger.info(f"已更新触发器: onsave -> {name4}")
+        logger.info(f"工作流初始化完成: 新增 {total_created} 个，更新 {total_updated} 个（overwrite={overwrite}，跳过 {total_skipped} 个）。")
+    else:
+        logger.info(f"所有工作流已是最新状态（overwrite={overwrite}，跳过 {total_skipped} 个）。")

@@ -37,12 +37,12 @@ let initialized = false
 watch(() => props.sections, (secs) => {
   const namesAll = secs.map((_, i) => String(i))
   if (!initialized) {
-    // 初次：展开未标记 collapsed 的分区
+    // 展开未标记 collapsed 的分区
     activeNames.value = secs.map((s, i) => (!s.collapsed ? String(i) : '')).filter(Boolean) as string[]
     initialized = true
     return
   }
-  // 后续：保留仍然存在的已展开项，并自动展开新出现且未 collapsed 的分区
+  // 保留仍然存在的已展开项，并自动展开新出现且未 collapsed 的分区
   const preserved = activeNames.value.filter(n => namesAll.includes(n))
   const newlyOpen = secs
     .map((s, i) => ({ i, s }))

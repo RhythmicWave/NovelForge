@@ -25,6 +25,7 @@
 import { defineAsyncComponent, computed } from 'vue'
 import type { JSONSchema } from '@renderer/api/schema'
 import { schemaService } from '@renderer/api/schema'
+import { resolveActualSchema as resolveSchemaUnified } from '@renderer/services/schemaFieldParser'
 
 // --- 组件导入 ---
 const StringField = defineAsyncComponent(() => import('./fields/StringField.vue'))
@@ -67,34 +68,8 @@ const visibleProperties = computed(() => {
 
 // --- 逻辑 ---
 function resolveActualSchema(schema: JSONSchema): JSONSchema {
-  if (schema.anyOf) {
-    const nonNullSchema = schema.anyOf.find(s => {
-      if (s.type === 'null') return false
-      if (s.$ref) return true
-      if (s.type) return true
-      return false
-    });
-    if (nonNullSchema) {
-      if (nonNullSchema.$ref) {
-        const refName = nonNullSchema.$ref.split('/').pop() || ''
-        const localDefs = (props.schema as any)?.$defs || {}
-        const resolvedSchema = localDefs[refName] || schemaService.getSchema(refName)
-        if (resolvedSchema) {
-          return { ...resolvedSchema, title: schema.title, description: schema.description }
-        }
-      }
-      return { ...nonNullSchema, title: schema.title, description: schema.description };
-    }
-  }
-  if (schema.$ref) {
-    const refName = schema.$ref.split('/').pop() || ''
-    const localDefs = (props.schema as any)?.$defs || {}
-    const resolvedSchema = localDefs[refName] || schemaService.getSchema(refName)
-    if (resolvedSchema) {
-      return { ...resolvedSchema, title: schema.title, description: schema.description }
-    }
-  }
-  return schema;
+  // 使用统一的Schema解析服务
+  return resolveSchemaUnified(schema, props.schema) as JSONSchema
 }
 
 function getFieldComponent(propSchema: JSONSchema) {

@@ -128,15 +128,92 @@ def validate_workflow(workflow_id: int, session: Session = Depends(get_session))
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     dsl = wf.definition_json or {}
-    nodes = list(dsl.get("nodes") or [])
-    canonical = wf_engine._canonicalize(nodes)  # type: ignore[attr-defined]
-    # 简单校验：ForEach/Range 必须有 body
+    raw_nodes = list((dsl.get("nodes") or []))
+
+    # 允许的节点类型（与执行器内置保持一致）
+    allowed_types = {
+        "Card.Read",
+        "Card.ModifyContent",
+        "Card.UpsertChildByTitle",
+        "List.ForEach",
+        "List.ForEachRange",
+    }
+
+    # 1) 规范化：补全/唯一化 id；将缺失 body 的 ForEach 折叠后一节点
+    canonical = wf_engine._canonicalize(raw_nodes)  # type: ignore[attr-defined]
+
+    # 为主线节点与 body 节点补全稳定 id；同时检查重复 id
+    used_ids = set()
+    auto_fixes: List[str] = []
+    def _ensure_id(prefix: str, idx: int) -> str:
+        base = f"{prefix}{idx}"
+        if base not in used_ids:
+            used_ids.add(base)
+            return base
+        # 冲突时退避
+        k = 1
+        while f"{base}_{k}" in used_ids:
+            k += 1
+        nid = f"{base}_{k}"
+        used_ids.add(nid)
+        return nid
+
+    # 先记录已有 id，随后为缺失 id 的节点补全
+    for n in canonical:
+        nid = n.get("id")
+        if isinstance(nid, str) and nid:
+            if nid in used_ids:
+                auto_fixes.append(f"检测到重复 id={nid}，将自动重命名")
+            used_ids.add(nid)
+        for bn in (n.get("body") or []):
+            bid = bn.get("id")
+            if isinstance(bid, str) and bid:
+                if bid in used_ids:
+                    auto_fixes.append(f"检测到重复 id={bid}（body），将自动重命名")
+                used_ids.add(bid)
+
+    for i, n in enumerate(canonical):
+        if not n.get("id"):
+            n["id"] = _ensure_id("n", i)
+            auto_fixes.append(f"主线节点#{i} 缺少 id，已自动补全为 {n['id']}")
+        body = list((n.get("body") or []))
+        for k, bn in enumerate(body):
+            if not bn.get("id"):
+                bn_id = _ensure_id(f"{n['id']}-b", k)
+                bn["id"] = bn_id
+                auto_fixes.append(f"body 节点 {n['id']}[{k}] 缺少 id，已补全为 {bn_id}")
+        if body:
+            n["body"] = body
+
+    # 2) 规则校验
     errors: List[str] = []
+    warnings: List[str] = []
     for i, n in enumerate(canonical):
         t = n.get("type")
-        if t in ("List.ForEach", "List.ForEachRange") and not n.get("body"):
-            errors.append(f"Node#{i}({t}) 缺少 body")
-    return {"canonical_nodes": canonical, "errors": errors}
+        if t not in allowed_types:
+            errors.append(f"Node#{i} 使用了不支持的类型: {t}")
+        # ForEach 系列要求 body 存在（canonicalize 已尝试折叠修复）
+        if t in ("List.ForEach", "List.ForEachRange"):
+            if not n.get("body"):
+                errors.append(f"Node#{i}({t}) 缺少 body")
+            # 基础参数检查
+            p = n.get("params") or {}
+            if t == "List.ForEach" and not p.get("listPath") and not p.get("list"):
+                warnings.append(f"Node#{i}(List.ForEach) 建议提供 listPath 或 list 参数")
+            if t == "List.ForEachRange":
+                start = p.get("start")
+                end = p.get("end")
+                if not isinstance(start, int) or not isinstance(end, int):
+                    warnings.append(f"Node#{i}(List.ForEachRange) 建议提供整数 start/end 参数")
+
+    fixed_dsl = {**dsl, "nodes": canonical}
+    return {
+        "canonical_nodes": canonical,
+        "errors": errors,
+        "warnings": warnings,
+        "auto_fixes": auto_fixes,
+        "fixed_dsl": fixed_dsl,
+    }
 
 
 @router.post("/workflows/runs/{run_id}/cancel", response_model=CancelResponse)

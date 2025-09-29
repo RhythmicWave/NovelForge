@@ -81,10 +81,38 @@
       <template #footer>
         <el-button @click="drawer.visible=false">取消</el-button>
         <el-button type="primary" @click="saveType">保存</el-button>
+        <el-button type="success" plain @click="openTriggerBinder" v-if="drawer.id">触发器</el-button>
       </template>
     </el-drawer>
 
     <SchemaStudio v-model:visible="studio.visible" :mode="'type'" :target-id="studio.typeId" :context-title="studio.typeName" @saved="onStudioSaved" />
+
+    <!-- TriggerBinder 抽屉 -->
+    <el-drawer v-model="triggerDrawer.visible" :title="`触发器 · ${form.name || ''}`" size="40%">
+      <div class="trigger-panel">
+        <div class="toolbar">
+          <el-button type="primary" size="small" @click="addTrigger">新增触发器</el-button>
+        </div>
+        <el-table :data="filteredTriggers" size="small" height="50vh">
+          <el-table-column prop="trigger_on" label="触发时机" width="140" />
+          <el-table-column prop="is_active" label="状态" width="100">
+            <template #default="{ row }">
+              <el-switch v-model="row.is_active" @change="v=>updateTrigger(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" align="right" width="160">
+            <template #default="{ row }">
+              <el-select v-model="row.trigger_on" size="small" style="width: 140px" @change="()=>updateTrigger(row)">
+                <el-option label="OnSave" value="onsave" />
+                <el-option label="OnGenerateFinish" value="ongenfinish" />
+                <el-option label="Manual" value="manual" />
+              </el-select>
+              <el-button text type="danger" @click="removeTrigger(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -96,6 +124,7 @@ import { useCardStore } from '@renderer/stores/useCardStore'
 import { schemaService } from '@renderer/api/schema'
 import { listCardTypes, createCardType, updateCardType, deleteCardType, listLLMConfigs, listPrompts, type CardTypeRead as CTR, type CardTypeCreate as CTC, type CardTypeUpdate as CTU } from '@renderer/api/setting'
 import SchemaStudio from '../shared/SchemaStudio.vue'
+import { listWorkflowTriggers, createWorkflowTrigger, updateWorkflowTrigger, deleteWorkflowTrigger, type WorkflowTriggerRead, type WorkflowTriggerCreate } from '@renderer/api/workflows'
 
 // 后端 CardType 类型
 type CardTypeRead = CTR
@@ -146,6 +175,34 @@ function openSchemaStudio(row?: CardTypeRead) {
   const name = row?.name || form.value?.name || ''
   if (!id) { ElMessage.warning('请先保存类型的基础信息'); return }
   studio.value = { visible: true, typeId: id as number, typeName: name }
+}
+
+// ---- TriggerBinder ----
+const triggerDrawer = ref<{ visible: boolean } & { triggers: WorkflowTriggerRead[] }>({ visible: false, triggers: [] })
+const filteredTriggers = computed(() => triggerDrawer.value.triggers.filter(t => t.card_type_name === form.value.name))
+
+async function loadTriggers() {
+  try { triggerDrawer.value.triggers = await listWorkflowTriggers() } catch {}
+}
+function openTriggerBinder() {
+  if (!form.value?.name) { ElMessage.warning('请先保存类型名称'); return }
+  triggerDrawer.value.visible = true
+  loadTriggers()
+}
+async function addTrigger() {
+  try {
+    if (!drawer.value.id) { ElMessage.warning('请先保存类型'); return }
+    const payload: WorkflowTriggerCreate = { workflow_id: 1, trigger_on: 'onsave', card_type_name: form.value.name, is_active: true }
+    await createWorkflowTrigger(payload)
+    ElMessage.success('已创建触发器，请记得在工作流工作室配置流程')
+    await loadTriggers()
+  } catch (e:any) { ElMessage.error('创建失败：' + (e?.message || e)) }
+}
+async function updateTrigger(row: WorkflowTriggerRead) {
+  try { await updateWorkflowTrigger(row.id, { trigger_on: row.trigger_on, is_active: row.is_active }); ElMessage.success('已更新'); await loadTriggers() } catch (e:any) { ElMessage.error('更新失败：' + (e?.message || e)) }
+}
+async function removeTrigger(row: WorkflowTriggerRead) {
+  try { await deleteWorkflowTrigger(row.id); ElMessage.success('已删除'); await loadTriggers() } catch (e:any) { ElMessage.error('删除失败：' + (e?.message || e)) }
 }
 
 async function saveType(): Promise<void> {

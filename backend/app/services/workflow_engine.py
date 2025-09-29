@@ -89,9 +89,11 @@ class LocalAsyncEngine:
     # ---------------- nodes ----------------
     def _resolve_node_fn(self, type_name: str):
         mapping = {
+            # Card 类节点
             "Card.Read": builtin_nodes.node_card_read,
             "Card.ModifyContent": builtin_nodes.node_card_modify_content,
             "Card.UpsertChildByTitle": builtin_nodes.node_card_upsert_child_by_title,
+            "Card.ClearFields": builtin_nodes.node_card_clear_fields,
         }
         fn = mapping.get(type_name)
         if not fn:
@@ -124,39 +126,154 @@ class LocalAsyncEngine:
     async def _execute_dsl(self, session: Session, workflow: Workflow, run: WorkflowRun) -> None:
         dsl: Dict[str, Any] = workflow.definition_json or {}
         raw_nodes: List[dict] = list(dsl.get("nodes") or [])
+        
+        # 检查是否是标准格式（包含edges）
+        is_standard_format = "edges" in dsl and isinstance(dsl["edges"], list)
+        
+        if is_standard_format:
+            # 标准格式：基于edges执行
+            await self._execute_standard_format(session, workflow, run, dsl)
+        else:
+            # 旧格式：保持原有逻辑
+            await self._execute_legacy_format(session, workflow, run, raw_nodes)
+
+    async def _execute_standard_format(self, session: Session, workflow: Workflow, run: WorkflowRun, dsl: dict) -> None:
+        """执行标准格式的工作流（基于nodes+edges）"""
+        nodes: List[dict] = list(dsl.get("nodes") or [])
+        edges: List[dict] = list(dsl.get("edges") or [])
+        state: Dict[str, Any] = {"scope": run.scope_json or {}, "touched_card_ids": set()}
+        
+        logger.info(f"[工作流] 开始执行标准格式 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)} edges={len(edges)}")
+        
+        # 构建节点映射和依赖图
+        node_map = {n["id"]: n for n in nodes}
+        dependencies = {}  # node_id -> [predecessor_ids]
+        successors = {}    # node_id -> [successor_ids]
+        
+        for edge in edges:
+            source, target = edge["source"], edge["target"]
+            if target not in dependencies:
+                dependencies[target] = []
+            if source not in successors:
+                successors[source] = []
+            dependencies[target].append(source)
+            successors[source].append(target)
+        
+        # 找到起始节点（没有依赖的节点）
+        start_nodes = [n["id"] for n in nodes if n["id"] not in dependencies]
+        if not start_nodes:
+            logger.warning("[工作流] 没有找到起始节点，选择第一个节点")
+            start_nodes = [nodes[0]["id"]] if nodes else []
+        
+        executed = set()
+        
+        async def execute_node(node_id: str):
+            if node_id in executed or node_id not in node_map:
+                return
+            
+            node = node_map[node_id]
+            ntype = node.get("type")
+            params = node.get("params") or {}
+            
+            logger.info(f"[工作流] 标准格式节点开始 id={node_id} type={ntype}")
+            await self._publish(run.id, f"event: step_started\ndata: {ntype}\n\n")
+            
+            try:
+                # 对于ForEach类型，需要特殊处理
+                if ntype in ("List.ForEach", "List.ForEachRange"):
+                    # 获取后续节点作为body
+                    body_node_ids = successors.get(node_id, [])
+                    body_nodes = [node_map[bid] for bid in body_node_ids if bid in node_map]
+                    
+                    if ntype == "List.ForEach":
+                        builtin_nodes.node_list_foreach(session, state, params, 
+                            lambda: self._execute_body_nodes(body_nodes, session, state, run.id))
+                    else:  # List.ForEachRange
+                        builtin_nodes.node_list_foreach_range(session, state, params,
+                            lambda: self._execute_body_nodes(body_nodes, session, state, run.id))
+                    
+                    # 标记body节点已执行
+                    executed.update(body_node_ids)
+                else:
+                    fn = self._resolve_node_fn(ntype)
+                    fn(session, state, params)
+                
+                executed.add(node_id)
+                logger.info(f"[工作流] 标准格式节点成功 id={node_id} type={ntype}")
+                await self._publish(run.id, f"event: step_succeeded\ndata: {ntype}\n\n")
+                
+                # 执行后续节点（非ForEach的情况）
+                if ntype not in ("List.ForEach", "List.ForEachRange"):
+                    for next_id in successors.get(node_id, []):
+                        if next_id not in executed:
+                            # 检查前置依赖是否都已完成
+                            deps = dependencies.get(next_id, [])
+                            if all(dep in executed for dep in deps):
+                                await execute_node(next_id)
+                
+            except Exception as e:  # noqa: BLE001
+                logger.exception(f"[工作流] 标准格式节点失败 id={node_id} type={ntype} err={e}")
+                await self._publish(run.id, f"event: step_failed\ndata: {ntype}: {e}\n\n")
+                raise
+        
+        # 执行起始节点
+        for start_id in start_nodes:
+            await execute_node(start_id)
+        
+        # 保存结果
+        await self._save_execution_result(session, run, state)
+
+    def _execute_body_nodes(self, body_nodes: List[dict], session, state, run_id: int):
+        """同步执行body节点（用于ForEach回调）"""
+        for bn in body_nodes:
+            ntype = bn.get("type")
+            params = bn.get("params") or {}
+            logger.info(f"[工作流] ForEach body节点 type={ntype}")
+            try:
+                fn = self._resolve_node_fn(ntype)
+                fn(session, state, params)
+            except Exception as e:  # noqa: BLE001
+                logger.exception(f"[工作流] ForEach body节点失败 type={ntype} err={e}")
+                raise
+
+    async def _execute_legacy_format(self, session: Session, workflow: Workflow, run: WorkflowRun, raw_nodes: List[dict]) -> None:
+        """执行旧格式的工作流（保持向后兼容）"""
         nodes: List[dict] = self._canonicalize(raw_nodes)
         state: Dict[str, Any] = {"scope": run.scope_json or {}, "touched_card_ids": set()}
-        logger.info(f"[工作流] 开始执行 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)} scope={state.get('scope')}")
+        logger.info(f"[工作流] 开始执行旧格式 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)}")
 
         def run_body(body_nodes: List[dict]):
             for bn in body_nodes:
                 ntype = bn.get("type")
                 params = bn.get("params") or {}
-                logger.info(f"[工作流] 节点开始 type={ntype} params_keys={list(params.keys())}")
+                logger.info(f"[工作流] 旧格式节点开始 type={ntype}")
                 if ntype == "List.ForEach":
                     body = list((bn.get("body") or []))
                     builtin_nodes.node_list_foreach(session, state, params, lambda: run_body(body))
-                    logger.info("[工作流] 节点结束 List.ForEach")
+                    logger.info("[工作流] 旧格式节点结束 List.ForEach")
                     continue
                 if ntype == "List.ForEachRange":
                     body = list((bn.get("body") or []))
                     builtin_nodes.node_list_foreach_range(session, state, params, lambda: run_body(body))
-                    logger.info("[工作流] 节点结束 List.ForEachRange")
+                    logger.info("[工作流] 旧格式节点结束 List.ForEachRange")
                     continue
                 fn = self._resolve_node_fn(ntype)
                 asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_started\ndata: {ntype}\n\n"))
                 try:
                     fn(session, state, params)
-                    logger.info(f"[工作流] 节点成功 type={ntype}")
+                    logger.info(f"[工作流] 旧格式节点成功 type={ntype}")
                     asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_succeeded\ndata: {ntype}\n\n"))
                 except Exception as e:  # noqa: BLE001
-                    logger.exception(f"[工作流] 节点失败 type={ntype} err={e}")
+                    logger.exception(f"[工作流] 旧格式节点失败 type={ntype} err={e}")
                     asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_failed\ndata: {ntype}: {e}\n\n"))
                     raise
 
         run_body(nodes)
+        await self._save_execution_result(session, run, state)
+
+    async def _save_execution_result(self, session: Session, run: WorkflowRun, state: dict) -> None:
+        """保存执行结果"""
         logger.info(f"[工作流] 执行完毕 run_id={run.id}")
-        # 执行结束时将受影响卡片ID写入 run.summary_json（去重排序）
         try:
             touched = list(sorted({int(x) for x in (state.get("touched_card_ids") or set())}))
             run.summary_json = {**(run.summary_json or {}), "affected_card_ids": touched}

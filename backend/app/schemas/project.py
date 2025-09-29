@@ -11,6 +11,8 @@ class ProjectBase(SQLModel):
 class ProjectCreate(ProjectBase):
     # 创建项目时可选择模板
     template_id: Optional[int] = None
+    # 新增：可选的项目初始化工作流（通常为 onprojectcreate 类型）
+    workflow_id: Optional[int] = None
 
 # 3. 用于从数据库读取项目的模型 (Read Schema)
 class ProjectRead(ProjectBase):
