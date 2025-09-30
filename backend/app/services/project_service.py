@@ -2,7 +2,7 @@
 from typing import List, Optional
 from sqlmodel import Session, select
 
-from app.db.models import Project, Chapter, ProjectTemplate, ProjectTemplateItem, Workflow
+from app.db.models import Project, Chapter, Workflow
 from app.services import workflow_triggers
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
@@ -36,24 +36,6 @@ def get_project(session: Session, project_id: int) -> Optional[Project]:
     return session.exec(statement).first()
 
 
-def _load_template_items(session: Session, template_id: Optional[int]) -> Optional[List[dict]]:
-    if not template_id:
-        return None
-    tpl = session.get(ProjectTemplate, template_id)
-    if not tpl:
-        return None
-    items = session.exec(
-        select(ProjectTemplateItem).where(ProjectTemplateItem.template_id == template_id)
-    ).all()
-    # 按当前 CardService.create_initial_cards_for_project 需要的字段映射
-    return [
-        {
-            "card_type_id": it.card_type_id,
-            "display_order": it.display_order,
-            "title_override": it.title_override,
-        }
-        for it in items
-    ]
 
 
 def create_project(session: Session, project_in: ProjectCreate) -> Project:
@@ -62,7 +44,7 @@ def create_project(session: Session, project_in: ProjectCreate) -> Project:
     session.commit()
     session.refresh(db_project)
     
-    # 方案A：如果传入的是 workflow_id（前端可切换为基于 onprojectcreate 工作流的“模板”），则直接运行该工作流
+    # 如果传入的是 workflow_id，则直接运行该工作流
     workflow_id = getattr(project_in, 'workflow_id', None)
     if isinstance(workflow_id, int) and workflow_id > 0:
         wf = session.get(Workflow, workflow_id)
@@ -72,10 +54,7 @@ def create_project(session: Session, project_in: ProjectCreate) -> Project:
             run = wf_engine.create_run(session, wf, scope_json={"project_id": db_project.id}, params_json={}, idempotency_key=f"proj-init:{db_project.id}:{workflow_id}")
             wf_engine.run(session, run)
     else:
-        # 方案B：兼容旧的模板机制：从模板创建初始卡片（若提供 template_id），否则回退到默认内置集合
-        template_items = _load_template_items(session, getattr(project_in, 'template_id', None))
-        CardService.create_initial_cards_for_project(session, db_project.id, template_items=template_items)
-        # 同时触发所有 onprojectcreate 工作流（作为额外增强，可选）
+        # 触发所有 onprojectcreate 工作流
         try:
             workflow_triggers.trigger_on_project_create(session, db_project.id)
         except Exception:

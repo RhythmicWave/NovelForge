@@ -30,8 +30,6 @@ from app.bootstrap.init_app import init_prompts, create_default_card_types
 from app.bootstrap.init_app import init_knowledge
 from app.bootstrap.init_app import init_reserved_project
 from app.bootstrap.init_app import init_workflows
- # 初始化项目模板
-from app.bootstrap.init_app import init_project_templates
 
 def init_db():
     models.SQLModel.metadata.create_all(engine)
@@ -52,8 +50,6 @@ async def lifespan(app):
         create_default_card_types(session)
         # 初始化知识库
         init_knowledge(session)
-        # 初始化系统预设项目模板（依赖卡片类型）
-        init_project_templates(session)
         # 初始化保留项目
         init_reserved_project(session)
         # 初始化内置工作流

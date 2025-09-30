@@ -9,24 +9,9 @@
         <el-input v-model="form.description" type="textarea" />
       </el-form-item>
       <el-form-item v-if="!isEditMode" label="项目模板">
-        <div class="mode-switch">
-          <el-radio-group v-model="templateMode" size="small">
-            <el-radio-button label="workflow">工作流</el-radio-button>
-            <el-radio-button label="legacy">旧模板</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="selector-block">
-          <template v-if="templateMode==='workflow'">
-            <el-select v-model="selectedWorkflowId" placeholder="选择初始化工作流(类型:onprojectcreate)" filterable clearable :loading="loadingWorkflows" style="width:100%">
-              <el-option v-for="wf in initWorkflows" :key="wf.id" :label="wf.name" :value="wf.id" />
-            </el-select>
-          </template>
-          <template v-else>
-            <el-select v-model="selectedTemplateId" placeholder="选择项目模板" filterable clearable :loading="loadingTemplates" style="width:100%">
-              <el-option v-for="tpl in templates" :key="tpl.id" :label="tpl.name" :value="tpl.id" />
-            </el-select>
-          </template>
-        </div>
+        <el-select v-model="selectedWorkflowId" placeholder="选择初始化工作流(类型:onprojectcreate)" filterable clearable :loading="loadingWorkflows" style="width:100%">
+          <el-option v-for="wf in initWorkflows" :key="wf.id" :label="wf.name" :value="wf.id" />
+        </el-select>
       </el-form-item>
       <!-- 隐藏的提交按钮，确保在输入框按回车会触发表单提交 -->
       <button type="submit" style="display:none"></button>
@@ -45,7 +30,6 @@ import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { components } from '@renderer/types/generated'
-import { listProjectTemplates, type ProjectTemplate } from '@renderer/api/setting'
 import { listWorkflowTriggers, listWorkflows, type WorkflowRead, type WorkflowTriggerRead } from '@renderer/api/workflows'
 
 type Project = components['schemas']['ProjectRead']
@@ -61,12 +45,7 @@ const form = reactive<ProjectCreate | ProjectUpdate>({
 })
 const editingProject = ref<Project | null>(null)
 
-const selectedTemplateId = ref<number | null>(null)
-const templates = ref<ProjectTemplate[]>([])
-const loadingTemplates = ref(false)
-
 // 工作流模式
-const templateMode = ref<'legacy'|'workflow'>('legacy')
 const selectedWorkflowId = ref<number | null>(null)
 const initWorkflows = ref<WorkflowRead[]>([])
 const loadingWorkflows = ref(false)
@@ -80,20 +59,6 @@ const rules = reactive<FormRules>({
 
 const emit = defineEmits(['create', 'update'])
 
-async function loadTemplates() {
-  try {
-    loadingTemplates.value = true
-    templates.value = await listProjectTemplates()
-    // 默认选中第一个内置模板（若存在）
-    const builtInFirst = templates.value.find(t => t.built_in)
-    selectedTemplateId.value = builtInFirst?.id ?? templates.value[0]?.id ?? null
-  } catch (e) {
-    // 忽略错误，允许无模板情况下创建
-    selectedTemplateId.value = null
-  } finally {
-    loadingTemplates.value = false
-  }
-}
 
 async function loadInitWorkflows() {
   try {
@@ -123,15 +88,11 @@ function open(project: Project | null = null) {
     if (project) {
       form.name = project.name
       form.description = project.description || ''
-      // 编辑模式下不显示模板字段
-      selectedTemplateId.value = null
     } else {
       form.name = ''
       form.description = ''
-      // 重载模板（保证最新）
-      loadTemplates()
+      // 重载工作流（保证最新）
       loadInitWorkflows()
-      templateMode.value = 'workflow' // 默认使用工作流
     }
   })
 }
@@ -143,11 +104,7 @@ function handleConfirm() {
         emit('update', editingProject.value.id, { ...form })
       } else {
         const payload: any = { ...form }
-        if (templateMode.value==='legacy') {
-          if (selectedTemplateId.value) payload.template_id = selectedTemplateId.value
-        } else if (templateMode.value==='workflow') {
-          if (selectedWorkflowId.value) payload.workflow_id = selectedWorkflowId.value
-        }
+        if (selectedWorkflowId.value) payload.workflow_id = selectedWorkflowId.value
         emit('create', payload)
       }
       visible.value = false
