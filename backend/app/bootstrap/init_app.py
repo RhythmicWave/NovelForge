@@ -484,6 +484,7 @@ def init_workflows(db: Session):
         "edges": [
             {"id": "e-read_stage-foreach_chapter_outline", "source": "read_stage", "target": "foreach_chapter_outline", "sourceHandle": "r", "targetHandle": "l"},
             {"id": "e-foreach_chapter_outline-upsert_outline", "source": "foreach_chapter_outline", "target": "upsert_outline", "sourceHandle": "b", "targetHandle": "t"},
+            {"id": "e-foreach_chapter_outline-upsert_chapter", "source": "foreach_chapter_outline", "target": "upsert_chapter", "sourceHandle": "b", "targetHandle": "t"},
             {"id": "e-upsert_outline-upsert_chapter", "source": "upsert_outline", "target": "upsert_chapter", "sourceHandle": "r", "targetHandle": "l"},
             {"id": "e-foreach_chapter_outline-clear_outline", "source": "foreach_chapter_outline", "target": "clear_outline", "sourceHandle": "r", "targetHandle": "l"}
         ]

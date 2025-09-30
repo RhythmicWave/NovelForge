@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, List, Dict
 import re
+import copy
 from sqlmodel import Session, select
 
 from app.db.models import Card, CardType
@@ -142,15 +143,29 @@ def _get_by_path(obj: Any, path: str) -> Any:
 
 
 def _set_by_path(obj: Dict[str, Any], path: str, value: Any) -> bool:
-    # 仅支持以 $. 开头的对象路径写入
+    """按JSONPath设置值
+    
+    Args:
+        obj: 目标对象
+        path: JSONPath路径（必须以$.开头）
+        value: 要设置的值
+    
+    Returns:
+        bool: 是否设置成功
+    """
     if not isinstance(obj, dict) or not isinstance(path, str) or not path.startswith("$."):
         return False
+    
     parts = path[2:].split(".")
     cur: Dict[str, Any] = obj
+    
+    # 遍历到倒数第二层，确保路径存在
     for p in parts[:-1]:
         if p not in cur or not isinstance(cur[p], dict):
             cur[p] = {}
         cur = cur[p]  # type: ignore[assignment]
+    
+    # 设置最后一层的值
     cur[parts[-1]] = value
     return True
 
@@ -346,21 +361,32 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
         norm_path = set_path.strip()
         if norm_path.startswith("$card."):
             norm_path = "$." + norm_path[len("$card."):]
+        
+        # 如果路径不以 $. 开头，自动添加 $.content. 前缀
+        if not norm_path.startswith("$."):
+            norm_path = "$.content." + norm_path
+        
         value_expr = params.get("setValue")
         value = _get_from_state(value_expr, state)
-        base = dict(card.content or {})
-        ok = False
-        if norm_path.startswith("$.content"):
-            ok = _set_by_path({"content": base}, norm_path, value)
+        
+        # 使用深拷贝避免修改原始对象
+        base = copy.deepcopy(dict(card.content or {}))
+        
+        # 规范化路径：如果以 $.content. 开头，去掉该前缀
+        if norm_path.startswith("$.content."):
+            content_path = "$." + norm_path[len("$.content."):]
         else:
-            ok = _set_by_path(base, norm_path, value)
-        if not ok and norm_path.startswith("$.content."):
-            _set_by_path({"content": base}, norm_path, value)
+            content_path = norm_path
+        
+        # 设置值
+        _set_by_path(base, content_path, value)
+        
+        # 保存
         card.content = base
         session.add(card)
         session.commit()
         session.refresh(card)
-        logger.info(f"[节点] 按路径设置内容完成 card_id={card.id} path={set_path} -> norm={norm_path}")
+        logger.info(f"[节点] 按路径设置内容 card_id={card.id} path={set_path} value={value}")
         # 标记受影响卡片
         try:
             touched: set = state.setdefault("touched_card_ids", set())  # type: ignore[assignment]
@@ -376,7 +402,9 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
     content_merge = _render_value(content_merge, state)
     if not isinstance(content_merge, dict):
         raise ValueError("contentMerge 需为对象")
-    base = dict(card.content or {})
+    
+    # 使用深拷贝避免修改原始对象
+    base = copy.deepcopy(dict(card.content or {}))
     base.update(content_merge)
     card.content = base
     session.add(card)
@@ -578,10 +606,15 @@ def node_list_foreach_range(session: Session, state: dict, params: dict, run_bod
         n = int(count_val)
     except Exception:
         n = 0
+    
+    if n <= 0:
+        logger.info(f"[节点] List.ForEachRange 计数为 {n}，跳过循环")
+        return
+    
     start = int(params.get("start", 1) or 1)
-    for i in range(start, max(start, n) + 1):
+    for i in range(start, start + n):
         state["item"] = {"index": i}
-        logger.info(f"[节点] List.ForEachRange index={i}/{n}")
+        logger.info(f"[节点] List.ForEachRange index={i} (共{n}次)")
         run_body()
 
 
@@ -613,7 +646,8 @@ def node_card_clear_fields(session: Session, state: Dict[str, Any], params: Dict
         logger.warning("[Card.ClearFields] 缺少有效的 fields 参数")
         return
     
-    content = card.content or {}
+    # 使用深拷贝避免修改原始对象
+    content = copy.deepcopy(card.content or {})
     
     # 清空指定字段
     for field_path in fields:

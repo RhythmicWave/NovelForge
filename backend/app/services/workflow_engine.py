@@ -143,31 +143,56 @@ class LocalAsyncEngine:
         edges: List[dict] = list(dsl.get("edges") or [])
         state: Dict[str, Any] = {"scope": run.scope_json or {}, "touched_card_ids": set()}
         
-        logger.info(f"[工作流] 开始执行标准格式 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)} edges={len(edges)}")
+        logger.info(f"[工作流] 开始执行 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)} edges={len(edges)}")
         
-        # 构建节点映射和依赖图
+        # 构建执行图
+        graph = self._build_execution_graph(nodes, edges)
+        
+        # 执行工作流
+        await self._execute_graph(graph, session, state, run.id)
+        
+        # 保存结果
+        await self._save_execution_result(session, run, state)
+    
+    def _build_execution_graph(self, nodes: List[dict], edges: List[dict]) -> dict:
+        """构建执行图：节点映射、依赖关系、后继关系"""
         node_map = {n["id"]: n for n in nodes}
         dependencies = {}  # node_id -> [predecessor_ids]
-        successors = {}    # node_id -> [successor_ids]
+        successors = {}    # node_id -> {"body": [...], "next": [...]}
         
+        # 构建依赖和后继关系
         for edge in edges:
             source, target = edge["source"], edge["target"]
-            if target not in dependencies:
-                dependencies[target] = []
-            if source not in successors:
-                successors[source] = []
-            dependencies[target].append(source)
-            successors[source].append(target)
+            handle = edge.get("sourceHandle", "r")
+            
+            # 记录依赖
+            dependencies.setdefault(target, []).append(source)
+            
+            # 记录后继（区分body和next）
+            succ_type = "body" if handle == "b" else "next"
+            successors.setdefault(source, {"body": [], "next": []})[succ_type].append(target)
         
-        # 找到起始节点（没有依赖的节点）
+        # 找到起始节点
         start_nodes = [n["id"] for n in nodes if n["id"] not in dependencies]
-        if not start_nodes:
-            logger.warning("[工作流] 没有找到起始节点，选择第一个节点")
-            start_nodes = [nodes[0]["id"]] if nodes else []
+        if not start_nodes and nodes:
+            logger.warning("[工作流] 无起始节点，使用第一个节点")
+            start_nodes = [nodes[0]["id"]]
         
+        return {
+            "node_map": node_map,
+            "dependencies": dependencies,
+            "successors": successors,
+            "start_nodes": start_nodes
+        }
+    
+    async def _execute_graph(self, graph: dict, session: Session, state: dict, run_id: int) -> None:
+        """执行工作流图"""
+        node_map = graph["node_map"]
+        dependencies = graph["dependencies"]
+        successors = graph["successors"]
         executed = set()
         
-        async def execute_node(node_id: str):
+        async def execute_node(node_id: str) -> None:
             if node_id in executed or node_id not in node_map:
                 return
             
@@ -175,53 +200,68 @@ class LocalAsyncEngine:
             ntype = node.get("type")
             params = node.get("params") or {}
             
-            logger.info(f"[工作流] 标准格式节点开始 id={node_id} type={ntype}")
-            await self._publish(run.id, f"event: step_started\ndata: {ntype}\n\n")
+            logger.info(f"[工作流] 执行节点 id={node_id} type={ntype}")
+            await self._publish(run_id, f"event: step_started\ndata: {ntype}\n\n")
             
             try:
-                # 对于ForEach类型，需要特殊处理
-                if ntype in ("List.ForEach", "List.ForEachRange"):
-                    # 获取后续节点作为body
-                    body_node_ids = successors.get(node_id, [])
-                    body_nodes = [node_map[bid] for bid in body_node_ids if bid in node_map]
-                    
-                    if ntype == "List.ForEach":
-                        builtin_nodes.node_list_foreach(session, state, params, 
-                            lambda: self._execute_body_nodes(body_nodes, session, state, run.id))
-                    else:  # List.ForEachRange
-                        builtin_nodes.node_list_foreach_range(session, state, params,
-                            lambda: self._execute_body_nodes(body_nodes, session, state, run.id))
-                    
-                    # 标记body节点已执行
-                    executed.update(body_node_ids)
-                else:
-                    fn = self._resolve_node_fn(ntype)
-                    fn(session, state, params)
+                # 执行节点
+                await self._execute_single_node(node, session, state, run_id, successors.get(node_id, {}), node_map)
                 
+                # 标记为已执行
                 executed.add(node_id)
-                logger.info(f"[工作流] 标准格式节点成功 id={node_id} type={ntype}")
-                await self._publish(run.id, f"event: step_succeeded\ndata: {ntype}\n\n")
                 
-                # 执行后续节点（非ForEach的情况）
-                if ntype not in ("List.ForEach", "List.ForEachRange"):
-                    for next_id in successors.get(node_id, []):
-                        if next_id not in executed:
-                            # 检查前置依赖是否都已完成
-                            deps = dependencies.get(next_id, [])
-                            if all(dep in executed for dep in deps):
-                                await execute_node(next_id)
+                # 如果是循环节点，标记body节点也已执行
+                if ntype in ("List.ForEach", "List.ForEachRange"):
+                    executed.update(successors.get(node_id, {}).get("body", []))
                 
-            except Exception as e:  # noqa: BLE001
-                logger.exception(f"[工作流] 标准格式节点失败 id={node_id} type={ntype} err={e}")
-                await self._publish(run.id, f"event: step_failed\ndata: {ntype}: {e}\n\n")
+                logger.info(f"[工作流] 节点成功 id={node_id} type={ntype}")
+                await self._publish(run_id, f"event: step_succeeded\ndata: {ntype}\n\n")
+                
+                # 执行后续节点
+                await self._execute_successors(node_id, successors, dependencies, executed, execute_node)
+                
+            except Exception as e:
+                logger.exception(f"[工作流] 节点失败 id={node_id} type={ntype} err={e}")
+                await self._publish(run_id, f"event: step_failed\ndata: {ntype}: {e}\n\n")
                 raise
         
-        # 执行起始节点
-        for start_id in start_nodes:
+        # 执行所有起始节点
+        for start_id in graph["start_nodes"]:
             await execute_node(start_id)
+    
+    async def _execute_single_node(self, node: dict, session: Session, state: dict, run_id: int, 
+                                   node_successors: dict, node_map: dict) -> None:
+        """执行单个节点"""
+        ntype = node.get("type")
+        params = node.get("params") or {}
         
-        # 保存结果
-        await self._save_execution_result(session, run, state)
+        # 循环节点特殊处理
+        if ntype in ("List.ForEach", "List.ForEachRange"):
+            body_node_ids = node_successors.get("body", [])
+            body_nodes = [node_map[bid] for bid in body_node_ids if bid in node_map]
+            body_executor = lambda: self._execute_body_nodes(body_nodes, session, state, run_id)
+            
+            if ntype == "List.ForEach":
+                builtin_nodes.node_list_foreach(session, state, params, body_executor)
+            else:
+                builtin_nodes.node_list_foreach_range(session, state, params, body_executor)
+        else:
+            # 普通节点
+            fn = self._resolve_node_fn(ntype)
+            fn(session, state, params)
+    
+    async def _execute_successors(self, node_id: str, successors: dict, dependencies: dict, 
+                                  executed: set, execute_node) -> None:
+        """执行后续节点"""
+        # 获取next类型的后续节点（循环节点的body节点已在循环中执行）
+        next_nodes = successors.get(node_id, {}).get("next", [])
+        
+        for next_id in next_nodes:
+            if next_id not in executed:
+                # 检查所有前置依赖是否完成
+                deps = dependencies.get(next_id, [])
+                if all(dep in executed for dep in deps):
+                    await execute_node(next_id)
 
     def _execute_body_nodes(self, body_nodes: List[dict], session, state, run_id: int):
         """同步执行body节点（用于ForEach回调）"""
