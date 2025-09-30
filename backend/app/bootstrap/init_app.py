@@ -558,7 +558,7 @@ def init_workflows(db: Session):
             else:
                 total_skipped += 1
 
-    # 提交所有更改并记录总结
+
     if total_created > 0 or total_updated > 0:
         db.commit()
         logger.info(f"工作流初始化完成: 新增 {total_created} 个，更新 {total_updated} 个（overwrite={overwrite}，跳过 {total_skipped} 个）。")

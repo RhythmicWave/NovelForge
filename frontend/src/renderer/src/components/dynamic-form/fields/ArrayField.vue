@@ -87,7 +87,7 @@ function getItemSchemaForIndex(index: number): JSONSchema {
   const base = itemSchema.value
   const value = (props.modelValue || [])[index]
   if ((base as any).anyOf) {
-    const matched = resolveAnyOfForValue(base, value, props.schema)
+    const matched = resolveAnyOfForValue(base, value)
     if (matched) return matched
   }
   return base
