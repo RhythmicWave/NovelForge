@@ -459,7 +459,7 @@ def init_workflows(db: Session):
             {"id": "e-foreach_new_scenes-upsert_scene2", "source": "foreach_new_scenes", "target": "upsert_scene2", "sourceHandle": "b", "targetHandle": "t"},
             {"id": "e-foreach_new_scenes-foreach_stage", "source": "foreach_new_scenes", "target": "foreach_stage", "sourceHandle": "r", "targetHandle": "l"},
             {"id": "e-foreach_stage-upsert_stage", "source": "foreach_stage", "target": "upsert_stage", "sourceHandle": "b", "targetHandle": "t"},
-            {"id": "e-upsert_stage-upsert_guide", "source": "upsert_stage", "target": "upsert_guide", "sourceHandle": "r", "targetHandle": "l"}
+            {"id": "e-foreach_stage-upsert_guide", "source": "foreach_stage", "target": "upsert_guide", "sourceHandle": "r", "targetHandle": "l"}
         ]
     }
 
