@@ -15,7 +15,7 @@
       <el-tooltip content="打开上下文抽屉（Alt+K）">
         <el-button type="primary" plain @click="$emit('open-context')">上下文注入</el-button>
       </el-tooltip>
-      <el-button type="success" plain @click="$emit('generate')">AI 生成</el-button>
+      <el-button v-if="!isChapterContent" type="success" plain @click="$emit('generate')">AI 生成</el-button>
       <el-button type="primary" :disabled="!canSave" :loading="saving" @click="$emit('save')">保存</el-button>
       <el-dropdown>
         <el-button text>更多</el-button>
@@ -41,6 +41,7 @@ const props = defineProps<{
   saving: boolean
   lastSavedAt?: string
   canSave?: boolean
+  isChapterContent?: boolean
 }>()
 
 const emit = defineEmits(['update:title','save','generate','open-versions','delete','open-context'])
@@ -57,7 +58,14 @@ const statusTag = computed(() => {
 </script>
 
 <style scoped>
-.editor-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color);
+.editor-header { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  padding: 8px 12px; 
+  border-bottom: 1px solid var(--el-border-color-light); 
+  background: var(--el-bg-color);
+  flex-shrink: 0; /* 固定：防止被压缩 */
 }
 .left { display: flex; align-items: center; gap: 10px; }
 .right { display: flex; align-items: center; gap: 8px; }

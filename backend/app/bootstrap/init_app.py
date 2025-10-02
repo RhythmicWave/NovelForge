@@ -140,7 +140,7 @@ def create_default_card_types(db: Session):
             "之前的章节大纲: @type:章节大纲[sibling].{content.chapter_number,content.overview}\n"
             "请开始创作第 @self.content.chapter_number 章的大纲，保证连贯性"
         )},
-        "章节正文": {"editor_component": "ChapterStudio", "is_ai_enabled": False, "default_ai_context_template": (
+        "章节正文": {"editor_component": "CodeMirrorEditor", "is_ai_enabled": False, "default_ai_context_template": (
             "世界观设定: @世界观设定.content\n"
             "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship}\n"
             "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description}\n"

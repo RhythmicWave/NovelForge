@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 
 class ContinuationRequest(BaseModel):
-    previous_content: str
+    previous_content: str = Field(default="", description="已写的章节内容")
     llm_config_id: int
     stream: bool = False
     # 可选上下文字段（向后兼容）
@@ -14,11 +14,13 @@ class ContinuationRequest(BaseModel):
     temperature: Optional[float] = Field(default=None, description="采样温度 0-2，留空使用模型默认")
     max_tokens: Optional[int] = Field(default=None, description="生成的最大token数，留空使用默认")
     timeout: Optional[float] = Field(default=None, description="生成超时(秒)，留空使用默认")
-    # 上下文抽屉模板作为草稿尾部
-    current_draft_tail: Optional[str] = Field(default=None, description="上下文模板，将在装配阶段作为草稿尾部注入")
-    # =参数卡选择的提示词名称（优先使用该提示词作为系统提示词）
+    # 上下文信息（引用上下文 + 事实子图）
+    context_info: Optional[str] = Field(default=None, description="上下文信息，包括引用内容和事实子图")
+    # 已有内容字数统计（用于指导续写长度）
+    existing_word_count: Optional[int] = Field(default=None, description="已有章节正文的字数统计")
+    # 参数卡选择的提示词名称（优先使用该提示词作为系统提示词）
     prompt_name: Optional[str] = Field(default=None, description="参数卡选择的提示词名称")
-    # 是否追加“直接输出连续的小说正文”尾缀（默认 True 兼容原有续写）
+    # 是否追加"直接输出连续的小说正文"尾缀（默认 True 兼容原有续写）
     append_continuous_novel_directive: bool = Field(default=True, description="是否追加连续小说正文指令")
 
 class ContinuationResponse(BaseModel):

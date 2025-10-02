@@ -43,9 +43,6 @@
 				</el-form>
 			</div>
 		</el-popover>
-		<el-tooltip :content="summary" placement="top" :show-after="300" class="summary-tooltip">
-			<el-tag size="small" effect="plain" class="param-summary">{{ summary }}</el-tag>
-		</el-tooltip>
 	</div>
 </template>
 
@@ -75,14 +72,6 @@ const selectedModelName = computed(() => {
 		const found = list.find(m => Number(m.id) === id)
 		return found?.display_name || (id != null ? String(id) : '')
 	} catch { return '' }
-})
-const summary = computed(() => {
-	const p = saved.value || editing.value
-	const model = selectedModelName.value ? `模型:${selectedModelName.value}` : '模型:未设'
-	const prompt = p?.prompt_name ? `任务:${p.prompt_name}` : '任务:未设'
-	const t = p?.temperature != null ? `温度:${p.temperature}` : ''
-	const m = p?.max_tokens != null ? `max_tokens:${p.max_tokens}` : ''
-	return [model, prompt, t, m].filter(Boolean).join(' · ')
 })
 
 watch(() => props.cardId, async (id) => {
@@ -164,9 +153,7 @@ async function applyToType() {
 </script>
 
 <style scoped>
-.ai-param-inline { display: inline-flex; align-items: center; gap: 8px; }
-.summary-tooltip { display: inline-flex; align-items: center; }
-.param-summary { display: inline-flex; align-items: center; height: 28px; line-height: 28px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-param-inline { display: inline-flex; align-items: center; }
 .model-label { flex: 0 0 auto; }
 .model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style> 

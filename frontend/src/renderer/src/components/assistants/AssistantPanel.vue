@@ -1,17 +1,21 @@
 <template>
   <div class="assistant-panel">
     <div class="panel-header">
-      <span class="title">灵感助手</span>
-      <el-tag v-if="currentCardTitle" size="small" type="info" class="card-tag" effect="plain">{{ currentCardTitle }}</el-tag>
-      <div class="spacer"></div>
-      <el-button size="small" text type="danger" @click="$emit('reset-selection')">重置选中</el-button>
-      <el-button size="small" @click="$emit('refresh-context')">刷新上下文</el-button>
-      <el-popover placement="bottom" width="480" trigger="hover">
-        <template #reference>
-          <el-tag type="info" class="ctx-tag">上下文预览</el-tag>
-        </template>
-        <pre class="ctx-preview">{{ (resolvedContext || '').slice(0, 3000) }}</pre>
-      </el-popover>
+      <div class="header-title-row">
+        <span class="title">灵感助手</span>
+      </div>
+      <div class="header-controls-row">
+        <el-tag v-if="currentCardTitle" size="small" type="info" class="card-tag" effect="plain">{{ currentCardTitle }}</el-tag>
+        <div class="spacer"></div>
+        <el-button size="small" text type="danger" @click="$emit('reset-selection')">重置</el-button>
+        <el-button size="small" @click="$emit('refresh-context')">刷新</el-button>
+        <el-popover placement="bottom" width="480" trigger="hover">
+          <template #reference>
+            <el-tag type="info" class="ctx-tag" size="small">预览上下文</el-tag>
+          </template>
+          <pre class="ctx-preview">{{ (resolvedContext || '') }}</pre>
+        </el-popover>
+      </div>
     </div>
 
     <div class="chat-area">
@@ -382,20 +386,23 @@ async function handleCopy(idx: number) {
 
 <style scoped>
 .assistant-panel { display: flex; flex-direction: column; height: 100%; font-size: 13px; }
-.panel-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color); }
-.panel-header .title { font-weight: 600; color: var(--el-text-color-primary); font-size: 14px; }
-.panel-header .card-tag { margin-left: 8px; }
-.panel-header .spacer { flex: 1; }
-.ctx-tag { cursor: pointer; }
+.panel-header { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color); }
+.header-title-row { display: flex; align-items: center; }
+.header-controls-row { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
+.panel-header .title { font-weight: 600; color: var(--el-text-color-primary); font-size: 15px; }
+.panel-header .card-tag { flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.panel-header .spacer { flex: 1; min-width: 4px; }
+.ctx-tag { cursor: pointer; flex-shrink: 0; font-size: 12px; }
+.header-controls-row .el-button { flex-shrink: 0; padding: 3px 6px; font-size: 12px; }
 .ctx-preview { max-height: 40vh; overflow: auto; white-space: pre-wrap; background: var(--el-bg-color); color: var(--el-text-color-primary); padding: 8px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; }
 .chat-area { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow: hidden; padding: 6px 8px; }
-.messages { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--el-border-color-light); border-radius: 8px; background: var(--el-bg-color); }
+.messages { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--el-border-color-light); border-radius: 8px; background: var(--el-fill-color-blank); }
 .msg { display: flex; flex-direction: column; align-items: flex-start; }
 .msg.user { align-items: flex-end; }
 .msg.assistant { align-items: flex-start; }
 .bubble { max-width: 80%; padding: 8px 10px; border-radius: 8px; }
 .bubble-text { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--el-text-color-primary); }
-.msg.assistant .bubble { background: var(--el-bg-color); border: 1px solid var(--el-border-color); }
+.msg.assistant .bubble { background: var(--el-fill-color-light); border: 1px solid var(--el-border-color); }
 .msg.user .bubble { background: var(--el-color-primary); color: var(--el-color-white); }
 .msg.user .bubble-text { color: var(--el-color-white); }
 .msg-toolbar { display: flex; gap: 6px; padding: 4px 0 0 2px; }

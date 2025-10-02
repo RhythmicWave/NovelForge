@@ -10,7 +10,6 @@ import { useProjectStore } from './stores/useProjectStore'
 import type { components } from '@renderer/types/generated'
 import { schemaService } from './api/schema'
 
-const ChapterStudio = defineAsyncComponent(() => import('./views/ChapterStudio.vue'))
 const IdeasHome = defineAsyncComponent(() => import('./views/IdeasHome.vue'))
 const WorkflowStudio = defineAsyncComponent(() => import('./views/WorkflowStudio.vue'))
 
@@ -40,10 +39,9 @@ function handleCloseSettings() {
   appStore.closeSettings()
 }
 
-const isChapterStudio = computed(() => (window.location.hash || '').startsWith('#/chapter-studio'))
 const isNoHeader = computed(() => {
   const h = window.location.hash || ''
-  return h.startsWith('#/chapter-studio') || h.startsWith('#/ideas-home')
+  return h.startsWith('#/ideas-home')
 })
 
 async function syncViewFromHash() {
@@ -74,17 +72,14 @@ onBeforeUnmount(() => {
   <div class="app-layout">
     <Header v-if="!isNoHeader" />
     <main class="main-content">
-      <ChapterStudio v-if="isChapterStudio" />
-      <template v-else>
-        <Dashboard v-if="currentView === 'dashboard'" @project-selected="handleProjectSelected" />
-        <Editor
-          v-else-if="currentView === 'editor' && currentProject"
-          :initial-project="currentProject"
-          @back-to-dashboard="handleBackToDashboard"
-        />
-        <IdeasHome v-else-if="currentView === 'ideas'" />
-        <WorkflowStudio v-else-if="currentView === 'workflows'" />
-      </template>
+      <Dashboard v-if="currentView === 'dashboard'" @project-selected="handleProjectSelected" />
+      <Editor
+        v-else-if="currentView === 'editor' && currentProject"
+        :initial-project="currentProject"
+        @back-to-dashboard="handleBackToDashboard"
+      />
+      <IdeasHome v-else-if="currentView === 'ideas'" />
+      <WorkflowStudio v-else-if="currentView === 'workflows'" />
     </main>
     <SettingsDialog 
       v-model="settingsDialogVisible"

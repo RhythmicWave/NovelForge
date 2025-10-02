@@ -3,10 +3,10 @@ import { ref } from 'vue'
 export function useSidebarResizer() {
   const minLeftWidth = 180
   const maxLeftWidth = 400
-  const minRightWidth = 320
-  const maxRightWidth = 640
-  const leftSidebarWidth = ref(250)
-  const rightSidebarWidth = ref(420)
+  const minRightWidth = 280
+  const maxRightWidth = 500
+  const leftSidebarWidth = ref(240)
+  const rightSidebarWidth = ref(340)
   let resizing = ref<'left' | 'right' | null>(null)
   let startX = 0
   let startWidth = 0

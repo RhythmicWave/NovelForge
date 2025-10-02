@@ -50,36 +50,6 @@ function createWindow(): void {
   })
 }
 
-function openChapterStudio(projectId: number, chapterCardId: number) {
-  const key = `${projectId}:${chapterCardId}`
-  const existing = studioWindows.get(key)
-  if (existing && !existing.isDestroyed()) {
-    existing.focus()
-    return
-  }
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    show: true,
-    title: 'Novel Forge - Chapter Studio', // 设置子窗口标题
-    autoHideMenuBar: true,
-    icon: icon, // 为所有平台设置图标
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
-  studioWindows.set(key, win)
-  win.on('closed', () => studioWindows.delete(key))
-
-  const hash = `#/chapter-studio?projectId=${projectId}&cardId=${chapterCardId}`
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'] + hash)
-  } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
-  }
-}
-
 function openIdeasHome() {
   const key = `ideas-home`
   const existing = studioWindows.get(key)
@@ -139,11 +109,6 @@ app.whenReady().then(() => {
       console.error('Failed to get API key:', error)
       return { success: false, error: (error as Error).message }
     }
-  })
-
-  ipcMain.handle('chapter:open-studio', async (_, { projectId, chapterCardId }) => {
-    openChapterStudio(projectId, chapterCardId)
-    return { success: true }
   })
 
   ipcMain.handle('ideas:open-home', async () => { openIdeasHome(); return { success: true } })

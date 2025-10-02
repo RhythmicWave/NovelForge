@@ -72,20 +72,80 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch, ref } from 'vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { storeToRefs } from 'pinia'
+import type { CardRead } from '@renderer/api/cards'
 
-const props = defineProps<{ outline?: any | null, currentStage?: any | null, volumeNumber?: number | null, chapterNumber?: number | null }>()
+const props = defineProps<{ 
+  outline?: any | null
+  currentStage?: any | null
+  volumeNumber?: number | null
+  chapterNumber?: number | null
+  activeCard?: CardRead | null
+}>()
 
 const { cards } = storeToRefs(useCardStore())
 
-const hasOutline = computed(() => !!props.outline && typeof props.outline === 'object')
-const outline = computed(() => props.outline || {})
+// 内部状态：当activeCard存在且outline未提供时，自动查找
+const internalOutline = ref<any | null>(null)
+const internalCurrentStage = ref<any | null>(null)
+
+// 查找分卷大纲
+function findVolumeOutline(card: CardRead | null): void {
+  internalOutline.value = null
+  internalCurrentStage.value = null
+  
+  if (!card || !card.parent_id) return
+  
+  const parent = cards.value?.find(c => c.id === card.parent_id)
+  if (!parent) return
+  
+  if (parent.card_type?.name === '分卷大纲') {
+    internalOutline.value = parent.content
+    
+    // 根据章节号匹配所处阶段
+    try {
+      const stageLines: any[] = Array.isArray((parent.content as any)?.stage_lines) 
+        ? (parent.content as any).stage_lines 
+        : []
+      const chNo = props.chapterNumber
+      
+      if (typeof chNo === 'number') {
+        internalCurrentStage.value = stageLines.find(st => 
+          Array.isArray(st.reference_chapter) && 
+          st.reference_chapter.length === 2 && 
+          chNo >= st.reference_chapter[0] && 
+          chNo <= st.reference_chapter[1]
+        ) || null
+      }
+    } catch (e) {
+      console.error('Failed to find stage line:', e)
+    }
+  } else {
+    // 递归查找父级
+    findVolumeOutline(parent as any)
+  }
+}
+
+// 当activeCard变化时自动查找大纲
+watch(() => props.activeCard, (card) => {
+  if (card && !props.outline) {
+    findVolumeOutline(card)
+  }
+}, { immediate: true })
+
+const hasOutline = computed(() => {
+  const o = props.outline || internalOutline.value
+  return !!o && typeof o === 'object'
+})
+
+const outline = computed(() => props.outline || internalOutline.value || {})
 
 // 若未传入 currentStage，则从分卷大纲中根据章节号推导
 const stageNow = computed(() => {
   if (props.currentStage) return props.currentStage
+  if (internalCurrentStage.value) return internalCurrentStage.value
   try {
     // 1) 优先从分卷大纲的 stage_lines 推导
     const sl = (outline.value?.stage_lines || []) as any[]

@@ -8,40 +8,55 @@
       :saving="isSaving"
       :can-save="isDirty && !isSaving"
       :last-saved-at="lastSavedAt"
+      :is-chapter-content="!!activeContentEditor"
       @save="handleSave"
       @generate="handleGenerate"
       @open-context="openDrawer = true"
       @delete="handleDelete"
       @open-versions="showVersions = true"
     />
-
-    <!-- 参数配置：显示当前模型ID，点击弹出就地配置面板 -->
-    <div class="toolbar-row param-toolbar">
-      <div class="param-inline">
-        <AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
-        <el-button v-if="props.card.card_type.name === '章节正文' && projectStore.currentProject?.id" size="small" @click="openStudio">专注创作</el-button>
-        <el-button size="small" type="primary" plain @click="schemaStudioVisible = true">结构</el-button>
-      </div>
-    </div>
-
-    <div class="editor-body">
-      <div class="main-pane">
-        <div v-if="schema" class="form-container">
-          <template v-if="sections && sections.length">
-            <SectionedForm v-if="wrapperName" :schema="innerSchema" v-model="innerData" :sections="sections" />
-            <SectionedForm v-else :schema="schema" v-model="localData" :sections="sections" />
-          </template>
-          <template v-else>
-            <ModelDrivenForm v-if="wrapperName" :schema="innerSchema" v-model="innerData" />
-            <ModelDrivenForm v-else :schema="schema" v-model="localData" />
-          </template>
-        </div>
-        <div v-else class="loading-or-error-container">
-          <p v-if="schemaIsLoading">正在加载模型...</p>
-          <p v-else>无法加载此卡片内容的编辑模型。</p>
+    
+    <!-- 自定义内容编辑器（如 CodeMirrorEditor）-->
+    <template v-if="activeContentEditor">
+      <component 
+        :is="activeContentEditor"
+        ref="contentEditorRef"
+        :card="props.card"
+        :prefetched="props.prefetched"
+        @switch-tab="handleSwitchTab"
+        @update:dirty="handleContentEditorDirtyChange"
+      />
+    </template>
+    
+    <!-- 默认表单编辑器 -->
+    <template v-else>
+      <!-- 参数配置：显示当前模型ID，点击弹出就地配置面板 -->
+      <div class="toolbar-row param-toolbar">
+        <div class="param-inline">
+          <AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
+          <el-button size="small" type="primary" plain @click="schemaStudioVisible = true">结构</el-button>
         </div>
       </div>
-    </div>
+
+      <div class="editor-body">
+        <div class="main-pane">
+          <div v-if="schema" class="form-container">
+            <template v-if="sections && sections.length">
+              <SectionedForm v-if="wrapperName" :schema="innerSchema" v-model="innerData" :sections="sections" />
+              <SectionedForm v-else :schema="schema" v-model="localData" :sections="sections" />
+            </template>
+            <template v-else>
+              <ModelDrivenForm v-if="wrapperName" :schema="innerSchema" v-model="innerData" />
+              <ModelDrivenForm v-else :schema="schema" v-model="localData" />
+            </template>
+          </div>
+          <div v-else class="loading-or-error-container">
+            <p v-if="schemaIsLoading">正在加载模型...</p>
+            <p v-else>无法加载此卡片内容的编辑模型。</p>
+          </div>
+        </div>
+      </div>
+    </template>
 
     <ContextDrawer
       v-model="openDrawer"
@@ -71,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useAIStore } from '@renderer/stores/useAIStore'
@@ -99,7 +114,10 @@ import AIPerCardParams from '../common/AIPerCardParams.vue'
 // 移除 AssistantSidebar 相关导入与逻辑
 import { resolveTemplate } from '@renderer/services/contextResolver'
 
-const props = defineProps<{ card: CardRead }>()
+const props = defineProps<{ 
+  card: CardRead
+  prefetched?: any
+}>()
 
 const cardStore = useCardStore()
 const aiStore = useAIStore()
@@ -116,6 +134,38 @@ const schemaStudioVisible = ref(false)
 const assistantVisible = ref(false)
 const assistantResolvedContext = ref<string>('')
 const assistantEffectiveSchema = ref<any>(null)
+const prefetchedContext = ref<any>(null)
+
+// --- 内容编辑器动态映射 ---
+// 类似 CardEditorHost 的 editorMap，但这里是内容编辑器（共享外壳）
+const contentEditorMap: Record<string, any> = {
+  CodeMirrorEditor: defineAsyncComponent(() => import('../editors/CodeMirrorEditor.vue')),
+  // 未来可以添加更多内容编辑器，例如：
+  // RichTextEditor: defineAsyncComponent(() => import('../editors/RichTextEditor.vue')),
+  // MarkdownEditor: defineAsyncComponent(() => import('../editors/MarkdownEditor.vue')),
+}
+
+// 根据 card_type.editor_component 选择内容编辑器
+const activeContentEditor = computed(() => {
+  const editorName = props.card?.card_type?.editor_component
+  if (editorName && contentEditorMap[editorName]) {
+    return contentEditorMap[editorName]
+  }
+  return null // null 表示使用默认的表单编辑器
+})
+
+// 通用的内容编辑器引用（可以是 CodeMirrorEditor 或其他）
+const contentEditorRef = ref<any>(null)
+const contentEditorDirty = ref(false)
+
+function handleSwitchTab(tab: string) {
+  const evt = new CustomEvent('nf:switch-right-tab', { detail: { tab } })
+  window.dispatchEvent(evt)
+}
+
+function handleContentEditorDirtyChange(dirty: boolean) {
+  contentEditorDirty.value = dirty
+}
 
 function openAssistant() {
   const editingContent = wrapperName.value ? innerData.value : localData.value
@@ -165,6 +215,11 @@ watch(() => props.card.title, v => titleProxy.value = v)
 watch(titleProxy, v => localData.value = { ...localData.value, title: v })
 
 const isDirty = computed(() => {
+  // 如果使用了自定义内容编辑器，使用其 dirty 状态
+  if (activeContentEditor.value) {
+    return contentEditorDirty.value
+  }
+  // 默认表单编辑器使用数据比较
   return !isEqual(localData.value, originalData.value) || localAiContextTemplate.value !== originalAiContextTemplate.value
 })
 
@@ -423,6 +478,47 @@ function openSelectorFromDrawer() {
 const previewText = computed(() => localAiContextTemplate.value)
 
 async function handleSave() {
+  // 自定义内容编辑器的保存逻辑（如 CodeMirrorEditor）
+  if (activeContentEditor.value && contentEditorRef.value) {
+    try {
+      isSaving.value = true
+      const savedContent = await contentEditorRef.value.handleSave()
+      
+      // 保存上下文模板（如果有修改）
+      if (localAiContextTemplate.value !== props.card.ai_context_template) {
+        await cardStore.modifyCard(props.card.id, {
+          ai_context_template: localAiContextTemplate.value
+        })
+      }
+      
+      // 保存历史版本
+      try {
+        if (projectStore.currentProject?.id && savedContent) {
+          await addVersion(projectStore.currentProject.id, {
+            cardId: props.card.id,
+            projectId: projectStore.currentProject.id,
+            title: titleProxy.value,
+            content: savedContent,
+            ai_context_template: localAiContextTemplate.value,
+          })
+        }
+      } catch (e) {
+        console.error('Failed to add version:', e)
+      }
+      
+      contentEditorDirty.value = false
+      originalAiContextTemplate.value = localAiContextTemplate.value
+      lastSavedAt.value = new Date().toLocaleTimeString()
+      ElMessage.success('保存成功')
+    } catch (e) {
+      ElMessage.error('保存失败')
+    } finally {
+      isSaving.value = false
+    }
+    return
+  }
+  
+  // 默认表单编辑器的保存逻辑
   try {
     isSaving.value = true
     const updatePayload: CardUpdate = {
@@ -493,20 +589,41 @@ async function handleGenerate() {
 }
 
 async function handleRestoreVersion(v: any) {
-  // 恢复版本内容并保存
+  showVersions.value = false
+  
+  // 自定义内容编辑器的恢复逻辑（如 CodeMirrorEditor）
+  if (activeContentEditor.value && contentEditorRef.value) {
+    try {
+      ElMessage.success('已恢复版本，自动保存中...')
+      
+      // 通知内容编辑器恢复内容（需要编辑器实现 restoreContent 方法）
+      if (typeof contentEditorRef.value.restoreContent === 'function') {
+        await contentEditorRef.value.restoreContent(v.content)
+      }
+      
+      // 恢复上下文模板
+      localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
+      
+      // 保存恢复的内容
+      await handleSave()
+      
+      // 刷新卡片数据
+      await cardStore.fetchCards(projectStore.currentProject!.id!)
+      
+      ElMessage.success('版本已恢复并保存')
+    } catch (e) {
+      console.error('Failed to restore content editor version:', e)
+      ElMessage.error('恢复版本失败')
+    }
+    return
+  }
+  
+  // 默认表单编辑器的恢复逻辑
   if (wrapperName.value) innerData.value = v.content
   else localData.value = v.content
   localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
-  showVersions.value = false
   ElMessage.success('已恢复版本，自动保存中...')
   await handleSave()
-}
-
-function openStudio() {
-  const pid = projectStore.currentProject?.id
-  if (!pid) return
-  // @ts-ignore
-  window.api?.openChapterStudio?.(pid, props.card.id)
 }
 
 async function onSchemaSaved() {
@@ -553,7 +670,20 @@ async function handleAssistantFinalize(summary: string) {
 </script>
 
 <style scoped>
-.generic-card-editor { display: flex; flex-direction: column; height: 100%; }
+.generic-card-editor { 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+  overflow: hidden; /* 防止整体滚动 */
+}
+
+/* 确保自定义内容编辑器（如 CodeMirrorEditor）占据剩余空间 */
+.generic-card-editor > :deep(.chapter-studio),
+.generic-card-editor > :deep([class*="-editor"]) {
+  flex: 1;
+  min-height: 0;
+}
+
 .editor-body { display: grid; grid-template-columns: 1fr; gap: 0; flex: 1; overflow: hidden; }
 .main-pane { overflow: auto; padding: 12px; }
 .form-container { display: flex; flex-direction: column; gap: 12px; }
@@ -561,12 +691,9 @@ async function handleAssistantFinalize(summary: string) {
 .toolbar-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--el-border-color-light); }
 .param-toolbar { padding: 6px 12px; border-bottom: 1px solid var(--el-border-color-light); justify-content: flex-end; }
 .param-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.summary-tooltip { display: inline-flex; align-items: center; }
-.param-summary { display: inline-flex; align-items: center; height: 28px; line-height: 28px; width: 360px; min-width: 360px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-:deep(.param-summary .el-tag__content) { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-config-form { padding: 4px 2px; }
 /* 固定按钮宽度并对模型名称省略显示 */
-:deep(.model-trigger) { width: 280px; min-width: 280px; max-width: 280px; box-sizing: border-box; }
+:deep(.model-trigger) { width: 230px; min-width: 220px; max-width: 260px; box-sizing: border-box; }
 :deep(.model-trigger .el-button__content) { width: 100%; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; }
 .model-label { flex: 0 0 auto; }
 .model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

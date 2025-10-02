@@ -1,93 +1,135 @@
 <template>
 	<div class="chapter-studio">
-		<div class="toolbar">
-			<div class="toolbar-left">
-				<span class="title">章节创作</span>
-				<!-- 自动缩进/字号/行距 控件 -->
-				<el-button-group class="mx-2" style="margin-left: 12px;">
-				<el-tooltip content="自动缩进" placement="bottom">
-					<el-button :type="autoIndent ? 'primary' : ''" @click="toggleAutoIndent">缩进</el-button>
-				</el-tooltip>
-				<el-dropdown @command="(c:any) => fontSize = c" trigger="click">
-					<el-button>
-						字号 <el-icon class="el-icon--right"><arrow-down /></el-icon>
+	<div class="toolbar">
+		<div class="toolbar-row">
+			<!-- 编辑功能组 -->
+			<div class="toolbar-group">
+				<span class="group-label">编辑</span>
+				<el-dropdown @command="(c:any) => fontSize = c" size="small">
+					<el-button size="small">
+						{{ fontSize }}px
+						<el-icon class="el-icon--right"><arrow-down /></el-icon>
 					</el-button>
 					<template #dropdown>
 						<el-dropdown-menu>
-							<el-dropdown-item :command="14" :class="{ 'is-active': fontSize === 14 }">14px</el-dropdown-item>
-							<el-dropdown-item :command="16" :class="{ 'is-active': fontSize === 16 }">16px</el-dropdown-item>
-							<el-dropdown-item :command="18" :class="{ 'is-active': fontSize === 18 }">18px</el-dropdown-item>
-							<el-dropdown-item :command="20" :class="{ 'is-active': fontSize === 20 }">20px</el-dropdown-item>
+							<el-dropdown-item :command="14">小 (14px)</el-dropdown-item>
+							<el-dropdown-item :command="16">中 (16px)</el-dropdown-item>
+							<el-dropdown-item :command="18">大 (18px)</el-dropdown-item>
+							<el-dropdown-item :command="20">特大 (20px)</el-dropdown-item>
 						</el-dropdown-menu>
 					</template>
 				</el-dropdown>
-				<el-dropdown @command="(c:any) => lineHeight = c" trigger="click">
-					<el-button>
-						行距 <el-icon class="el-icon--right"><arrow-down /></el-icon>
+				
+				<el-dropdown @command="(c:any) => lineHeight = c" size="small">
+					<el-button size="small">
+						{{ lineHeight }}
+						<el-icon class="el-icon--right"><arrow-down /></el-icon>
 					</el-button>
 					<template #dropdown>
 						<el-dropdown-menu>
-							<el-dropdown-item :command="1.4" :class="{ 'is-active': lineHeight === 1.4 }">1.4</el-dropdown-item>
-							<el-dropdown-item :command="1.6" :class="{ 'is-active': lineHeight === 1.6 }">1.6</el-dropdown-item>
-							<el-dropdown-item :command="1.8" :class="{ 'is-active': lineHeight === 1.8 }">1.8</el-dropdown-item>
-							<el-dropdown-item :command="2.0" :class="{ 'is-active': lineHeight === 2.0 }">2.0</el-dropdown-item>
-							<el-dropdown-item :command="2.2" :class="{ 'is-active': lineHeight === 2.2 }">2.2</el-dropdown-item>
+							<el-dropdown-item :command="1.4">紧凑</el-dropdown-item>
+							<el-dropdown-item :command="1.6">适中</el-dropdown-item>
+							<el-dropdown-item :command="1.8">舒适</el-dropdown-item>
+							<el-dropdown-item :command="2.0">宽松</el-dropdown-item>
 						</el-dropdown-menu>
 					</template>
 				</el-dropdown>
-			</el-button-group>
-			</div>
-			<div class="flex-spacer"></div>
-
-			<span class="word-count-display">{{ wordCount }} 字</span>
-
-			<el-input-number v-model="fontSize" :min="12" :max="28" :step="1" size="small" controls-position="right" style="width: 110px; margin-right: 8px; display: none;" />
-			<el-input-number v-model="lineHeight" :min="1.2" :max="2.4" :step="0.1" size="small" controls-position="right" style="width: 120px; margin-right: 12px; display: none;" />
-
-			<!-- 移除顶部的 AI 参数按钮，改放到底部标题行 -->
-
-			<el-button @click="openDrawer = true" plain>上下文注入</el-button>
-			<el-button @click="executeAIContinuation" type="primary" :loading="aiLoading">
-				AI生成
-			</el-button>
-			<el-button @click="interruptStream" :disabled="!streamHandle" type="danger">
-				中断
-			</el-button>
-			<el-button @click="handleSave" type="success" class="ml-2">
-				保存
-			</el-button>
-			<el-button @click="handleIngestRelations" class="ml-2">
-				入图关系
-			</el-button>
-		</div>
-
-		<div class="editor-content-wrapper">
-			<div class="chapter-title-display">
-				<div class="chapter-title-wrapper">
-					<h1 class="chapter-title-text">{{ localCard.title }}</h1>
-					<div class="title-actions">
-						<AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
-					</div>
-				</div>
 			</div>
 
-			<!-- CodeMirror 容器 -->
-			<div ref="cmRoot" class="editor-content"></div>
+			<div class="toolbar-divider"></div>
+			
+			<!-- AI功能组 -->
+			<div class="toolbar-group">
+				<span class="group-label">AI</span>
+				<el-button type="primary" size="small" :loading="aiLoading" @click="executeAIContinuation">
+					<el-icon><MagicStick /></el-icon> 续写
+				</el-button>
+				
+				<el-button-group size="small">
+					<el-button plain :loading="aiLoading" @click="executePolish">
+						<el-icon><Document /></el-icon> 润色
+					</el-button>
+					<el-dropdown @command="handlePolishPromptChange" trigger="click">
+						<el-button plain :loading="aiLoading">
+							<el-icon><ArrowDown /></el-icon>
+						</el-button>
+						<template #dropdown>
+							<el-dropdown-menu>
+								<el-dropdown-item 
+									v-for="p in polishPrompts" 
+									:key="p" 
+									:command="p"
+									:class="{ 'is-selected': p === currentPolishPrompt }"
+								>
+									<div class="prompt-item">
+										<span>{{ p }}</span>
+										<el-icon v-if="p === currentPolishPrompt" class="check-icon"><Select /></el-icon>
+									</div>
+								</el-dropdown-item>
+							</el-dropdown-menu>
+						</template>
+					</el-dropdown>
+				</el-button-group>
+				
+				<el-button-group size="small">
+					<el-button plain :loading="aiLoading" @click="executeExpand">
+						<el-icon><MagicStick /></el-icon> 扩写
+					</el-button>
+					<el-dropdown @command="handleExpandPromptChange" trigger="click">
+						<el-button plain :loading="aiLoading">
+							<el-icon><ArrowDown /></el-icon>
+						</el-button>
+						<template #dropdown>
+							<el-dropdown-menu>
+								<el-dropdown-item 
+									v-for="p in expandPrompts" 
+									:key="p" 
+									:command="p"
+									:class="{ 'is-selected': p === currentExpandPrompt }"
+								>
+									<div class="prompt-item">
+										<span>{{ p }}</span>
+										<el-icon v-if="p === currentExpandPrompt" class="check-icon"><Select /></el-icon>
+									</div>
+								</el-dropdown-item>
+							</el-dropdown-menu>
+						</template>
+					</el-dropdown>
+				</el-button-group>
+				
+				<el-button type="danger" plain size="small" :disabled="!streamHandle" @click="interruptStream">
+					<el-icon><CircleClose /></el-icon> 中断
+				</el-button>
+				
+				<!-- AI模型配置 -->
+				<AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
+			</div>
 		</div>
+	</div>
 
-		<ContextDrawer
-			v-model="openDrawer"
-			:context-template="contextTemplate"
-			:preview-text="editorText"
-			@apply-context="onApplyContext"
-			@open-selector="openReferenceSelector"
-		/>
-		<CardReferenceSelectorDialog
-			v-model="openSelector"
-			:cards="cards"
-			:current-card-id="localCard.id"
-			@confirm="handleSelectorConfirm"
-		/>
+	<div class="editor-content-wrapper">
+		<!-- 简化的标题区域 -->
+	<div class="chapter-header">
+		<div class="title-section">
+			<h1 
+				class="chapter-title" 
+				contenteditable="true"
+				@blur="handleTitleBlur"
+				@keydown.enter.prevent="handleTitleEnter"
+				ref="titleElement"
+			>{{ localCard.title }}</h1>
+			<div class="title-meta">
+				<el-icon class="word-count-icon"><Timer /></el-icon>
+				<span class="word-count-text">{{ wordCount }} 字</span>
+			</div>
+		</div>
+	</div>
+
+		<!-- CodeMirror 容器 -->
+		<div ref="cmRoot" class="editor-content"></div>
+	</div>
+
+		<!-- 移除ContextDrawer和CardReferenceSelectorDialog，这些功能已在右栏 -->
 
 		<el-dialog v-model="previewDialogVisible" title="动态信息预览" width="70%">
 			<div v-if="previewData">
@@ -138,7 +180,7 @@
 								<div v-if="row.recent_event_summaries?.length">
 									<div>
 										近期事件：{{ row.recent_event_summaries[ row.recent_event_summaries.length - 1 ].summary }}
-										<span v-if="row.recent_event_summaries[row.recent_event_summaries.length-1].volume_number != null || row.recent_event_summaries[row.recent_event_summaries.length-1].chapter_number != null" style="color:#909399;margin-left:8px;">
+										<span v-if="row.recent_event_summaries[row.recent_event_summaries.length-1].volume_number != null || row.recent_event_summaries[row.recent_event_summaries.length-1].chapter_number != null" class="event-meta">
 											（卷{{ row.recent_event_summaries[row.recent_event_summaries.length-1].volume_number ?? '-' }}·章{{ row.recent_event_summaries[row.recent_event_summaries.length-1].chapter_number ?? '-' }}）
 										</span>
 									</div>
@@ -167,19 +209,22 @@ import { useEditorStore } from '@renderer/stores/useEditorStore'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
 import { getCardAIParams, updateCardAIParams, applyCardAIParamsToType } from '@renderer/api/setting'
-import { resolveTemplate } from '@renderer/services/contextResolver'
 import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOutput, extractRelationsOnly, ingestRelationsFromPreview, type RelationExtractionOutput } from '@renderer/api/memory'
-import { ArrowDown } from '@element-plus/icons-vue'
-import ContextDrawer from '../common/ContextDrawer.vue'
-import CardReferenceSelectorDialog from '../cards/CardReferenceSelectorDialog.vue'
+import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select } from '@element-plus/icons-vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
+import { resolveTemplate } from '@renderer/services/contextResolver'
 
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewline } from '@codemirror/commands'
 
 const props = defineProps<{ card: CardRead; chapter?: any; prefetched?: any | null; contextParams?: { project_id?: number; volume_number?: number; chapter_number?: number; participants?: string[]; extra_context_fn?: Function } }>()
-const emit = defineEmits<{ (e: 'update:chapter', value: any): void; (e: 'save'): void }>()
+const emit = defineEmits<{ 
+	(e: 'update:chapter', value: any): void
+	(e: 'save'): void
+	(e: 'switch-tab', tab: string): void
+	(e: 'update:dirty', value: boolean): void
+}>()
 
 const cardStore = useCardStore()
 const projectStore = useProjectStore()
@@ -189,6 +234,7 @@ const { cards } = storeToRefs(cardStore)
 
 const ready = ref(false)
 const cmRoot = ref<HTMLElement | null>(null)
+const titleElement = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
 
 const localCard = reactive({
@@ -289,15 +335,13 @@ function computeWordCount(text: string): number {
 }
 
 const wordCount = ref(0)
-const autoIndent = ref(false)
 const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
-const openDrawer = ref(false)
-const editorText = computed(() => getText())
-const contextTemplate = ref('')
-watch(() => props.card, (c) => { if (c && (c as any).ai_context_template != null) contextTemplate.value = String((c as any).ai_context_template || '') }, { immediate: true })
-const openSelector = ref(false)
 const previewBeforeUpdate = ref(true)
+
+// 跟踪原始内容以检测dirty状态
+const originalContent = ref<string>('')
+const isDirty = ref(false)
 const previewDialogVisible = ref(false)
 const previewData = ref<UpdateDynamicInfoOutput | null>(null)
 const relationsPreviewVisible = ref(false)
@@ -306,6 +350,12 @@ const relationsPreview = ref<RelationExtractionOutput | null>(null)
 // 字号/行距（默认 16px / 1.8）
 const fontSize = ref<number>(16)
 const lineHeight = ref<number>(1.8)
+
+// 润色和扩写的提示词列表
+const polishPrompts = ref<string[]>([])
+const expandPrompts = ref<string[]>([])
+const currentPolishPrompt = ref('润色')
+const currentExpandPrompt = ref('扩写')
 const fontSizePx = computed(() => `${fontSize.value}px`)
 const lineHeightStr = computed(() => String(lineHeight.value))
 
@@ -320,6 +370,26 @@ function setText(text: string) {
 
 function getText(): string {
 	return view ? view.state.doc.toString() : ''
+}
+
+function getSelectedText(): { text: string; from: number; to: number } | null {
+	if (!view) return null
+	const { from, to } = view.state.selection.main
+	if (from === to) return null // 没有选中内容
+	return {
+		text: view.state.doc.sliceString(from, to),
+		from,
+		to
+	}
+}
+
+function replaceSelectedText(newText: string) {
+	if (!view) return
+	const { from, to } = view.state.selection.main
+	view.dispatch({
+		changes: { from, to, insert: newText },
+		selection: { anchor: from + newText.length }
+	})
 }
 
 function appendAtEnd(delta: string) {
@@ -353,17 +423,17 @@ function initEditor() {
 	if (!cmRoot.value) return
 	const initialText = String((localCard.content as any)?.content || '')
 	
+	// 保存原始内容
+	originalContent.value = initialText
+	isDirty.value = false
+	emit('update:dirty', false)
+	
 	const customKeymap = [
 		{
 			key: 'Enter',
 			run: (v: EditorView) => {
-				// 先执行默认的换行
+				// 执行默认的换行
 				insertNewline(v)
-				// 如果开启了自动缩进，则在换行后插入缩进符
-				if (autoIndent.value) {
-					const { from, to } = v.state.selection.main
-					v.dispatch({ changes: { from, to, insert: '　　' } })
-				}
 				return true
 			}
 		},
@@ -385,10 +455,23 @@ function initEditor() {
 				history(),
 				keymap.of([...customKeymap, ...defaultKeymap, ...historyKeymap]),
 				EditorView.lineWrapping,
+				// 关键：限制编辑器高度由父容器决定，而不是根据内容自动扩展
+				EditorView.theme({
+					"&": { height: "100%" },
+					".cm-scroller": { overflow: "auto" }
+				}),
 				EditorView.updateListener.of((update) => {
 					if (!update.docChanged) return
 					const txt = update.state.doc.toString()
 					wordCount.value = computeWordCount(txt)
+					
+					// 检测dirty状态
+					const newDirty = txt !== originalContent.value
+					if (newDirty !== isDirty.value) {
+						isDirty.value = newDirty
+						emit('update:dirty', newDirty)
+					}
+					
 					localCard.content = {
 						...(localCard.content || {}),
 						content: txt,
@@ -415,23 +498,65 @@ function initEditor() {
 	ready.value = true
 }
 
-function toggleAutoIndent() {
-	autoIndent.value = !autoIndent.value
-	ElMessage.info(`自动缩进已${autoIndent.value ? '开启' : '关闭'}`)
 
-	// 开启时，检查并缩进当前段落
-	if (autoIndent.value && view) {
-		const { state } = view
-		const { from, to } = state.selection.main
-		// 获取当前行
-		const line = state.doc.lineAt(from)
-		const lineContent = line.text.trim()
-
-		if (lineContent && !line.text.startsWith('　　')) {
-			view.dispatch({
-				changes: { from: line.from, insert: '　　' }
-			})
+// 加载可用提示词列表
+async function loadPrompts() {
+	try {
+		const options = await getAIConfigOptions()
+		const allPrompts = options?.prompts || []
+		
+		// 获取所有提示词名称
+		const allPromptNames = allPrompts.map(p => p.name)
+		
+		// 润色和扩写都使用所有可用提示词
+		polishPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['润色']
+		expandPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['扩写']
+		
+		// 设置默认选中的提示词
+		if (allPromptNames.includes('润色')) {
+			currentPolishPrompt.value = '润色'
+		} else if (allPromptNames.length > 0) {
+			currentPolishPrompt.value = allPromptNames[0]
 		}
+		
+		if (allPromptNames.includes('扩写')) {
+			currentExpandPrompt.value = '扩写'
+		} else if (allPromptNames.length > 0) {
+			currentExpandPrompt.value = allPromptNames[0]
+		}
+	} catch (e) {
+		console.error('Failed to load prompts:', e)
+		polishPrompts.value = ['润色']
+		expandPrompts.value = ['扩写']
+	}
+}
+
+// 处理标题编辑
+async function handleTitleBlur() {
+	if (!titleElement.value) return
+	const newTitle = titleElement.value.textContent?.trim() || ''
+	if (newTitle && newTitle !== localCard.title) {
+		await saveTitle(newTitle)
+	} else {
+		// 恢复原标题
+		if (titleElement.value) titleElement.value.textContent = localCard.title
+	}
+}
+
+async function handleTitleEnter() {
+	if (!titleElement.value) return
+	titleElement.value.blur() // 触发blur事件保存
+}
+
+async function saveTitle(newTitle: string) {
+	try {
+		await cardStore.modifyCard(localCard.id, { title: newTitle })
+		localCard.title = newTitle
+		ElMessage.success('标题已更新')
+	} catch (e) {
+		ElMessage.error('标题更新失败')
+		// 恢复原标题
+		if (titleElement.value) titleElement.value.textContent = localCard.title
 	}
 }
 
@@ -448,6 +573,14 @@ async function handleSave() {
 		}
 	}
 	await cardStore.modifyCard(localCard.id, updatePayload)
+	
+	// 保存成功后重置dirty状态
+	originalContent.value = getText()
+	isDirty.value = false
+	emit('update:dirty', false)
+	
+	// 返回保存的内容供历史版本使用
+	return updatePayload.content
 }
 
 function resolveLlmConfigId(): number | undefined {
@@ -511,27 +644,55 @@ async function executeAIContinuation() {
 
 	aiLoading.value = true
 
-	let currentContextBlock = ''
+	// 1. 解析卡片的 ai_context_template（上下文注入的引用内容）
+	let resolvedContextTemplate = ''
 	try {
-		const factsText = formatFactsFromContext(props.prefetched)
-		currentContextBlock = factsText ? `【事实子图】\n${factsText}` : ''
+		const aiContextTemplate = (props.card as any)?.ai_context_template || ''
+		if (aiContextTemplate) {
+			const currentCardWithContent = { 
+				...props.card, 
+				content: {
+					...localCard.content,
+					content: getText()
+				}
+			}
+			resolvedContextTemplate = resolveTemplate({ 
+				template: aiContextTemplate, 
+				cards: cards.value, 
+				currentCard: currentCardWithContent as any 
+			})
+		}
+	} catch (e) {
+		console.error('Failed to resolve ai_context_template:', e)
+	}
+
+	// 2. 格式化事实子图（参与实体）
+	let factsText = ''
+	try {
+		factsText = formatFactsFromContext(props.prefetched)
 	} catch {}
 
-	let templateBlock = ''
-	try {
-		const currentCardForResolve = { ...props.card, content: localCard.content }
-		const resolved = resolveTemplate({ template: contextTemplate.value || '', cards: cards.value, currentCard: currentCardForResolve as any })
-		templateBlock = (resolved || '').trim()
-	} catch { templateBlock = contextTemplate.value || '' }
+	// 3. 组合完整的上下文信息
+	const contextParts: string[] = []
+	if (resolvedContextTemplate) {
+		contextParts.push(`【引用上下文】\n${resolvedContextTemplate}`)
+	}
+	if (factsText) {
+		contextParts.push(`【事实子图】\n${factsText}`)
+	}
+	const contextInfoBlock = contextParts.join('\n\n')
 
-	const mergedContext = [templateBlock,currentContextBlock].filter(Boolean).join('\n\n')
+	// 4. 计算已有内容字数
+	const existingText = getText()
+	const existingWordCount = computeWordCount(existingText)
 
 	const requestData: ContinuationRequest = {
-		previous_content: getText(),
+		previous_content: existingText,
+		context_info: contextInfoBlock,
+		existing_word_count: existingWordCount,
 		llm_config_id: llmConfigId,
 		stream: true,
 		prompt_name: promptName,
-		current_draft_tail: mergedContext,
 		...(props.contextParams || {}) as any,
 	} as any
 
@@ -551,6 +712,105 @@ async function executeAIContinuation() {
 
 	let accumulated = ''
 
+	executeAIGeneration(requestData, false, '续写')
+}
+
+function handlePolishPromptChange(promptName: string) {
+	currentPolishPrompt.value = promptName
+	ElMessage.success(`已切换润色提示词为: ${promptName}`)
+}
+
+function handleExpandPromptChange(promptName: string) {
+	currentExpandPrompt.value = promptName
+	ElMessage.success(`已切换扩写提示词为: ${promptName}`)
+}
+
+async function executePolish() {
+	await executeAIEdit(currentPolishPrompt.value)
+}
+
+async function executeExpand() {
+	await executeAIEdit(currentExpandPrompt.value)
+}
+
+async function executeAIEdit(promptName: string) {
+	const selectedText = getSelectedText()
+	if (!selectedText) {
+		ElMessage.warning(`请先选中要${promptName}的内容`)
+		return
+	}
+
+	const llmConfigId = resolveLlmConfigId()
+	if (!llmConfigId) { 
+		ElMessage.error('请先设置有效的模型ID')
+		return 
+	}
+
+	aiLoading.value = true
+
+	// 格式化事实子图（参与实体）
+	let factsText = ''
+	try {
+		factsText = formatFactsFromContext(props.prefetched)
+	} catch {}
+
+	// 组合上下文信息：事实子图 + 选中内容
+	const contextParts: string[] = []
+	if (factsText) {
+		contextParts.push(`【事实子图】\n${factsText}`)
+	}
+	contextParts.push(`【需要${promptName}的内容】\n${selectedText.text}`)
+	const contextInfoBlock = contextParts.join('\n\n')
+
+	const requestData: ContinuationRequest = {
+		previous_content: getText(), // 整章内容作为上下文
+		context_info: contextInfoBlock,
+		llm_config_id: llmConfigId,
+		stream: true,
+		prompt_name: promptName,
+		...(props.contextParams || {}) as any,
+	} as any
+
+	try {
+		const { temperature, max_tokens, timeout } = resolveSampling()
+		if (typeof temperature === 'number') (requestData as any).temperature = temperature
+		if (typeof max_tokens === 'number') (requestData as any).max_tokens = max_tokens
+		if (typeof timeout === 'number') (requestData as any).timeout = timeout
+	} catch {}
+
+	try {
+		const autoParticipants = extractParticipantsForCurrentChapter()
+		if (autoParticipants.length) (requestData as any).participants = autoParticipants
+	} catch {}
+
+	executeAIGeneration(requestData, true, promptName, selectedText.from, selectedText.to)
+}
+
+function executeAIGeneration(
+	requestData: ContinuationRequest, 
+	replaceMode = false, 
+	taskName = 'AI生成',
+	replaceFrom?: number,
+	replaceTo?: number
+) {
+	let accumulated = ''
+	let isFirstChunk = true
+
+	if (view) { 
+		view.focus()
+		if (!replaceMode) {
+			// 续写模式：光标移到末尾
+			const end = view.state.doc.length
+			view.dispatch({ selection: { anchor: end } })
+		} else if (replaceFrom !== undefined && replaceTo !== undefined) {
+			// 替换模式：先清空选中内容
+			view.dispatch({
+				changes: { from: replaceFrom, to: replaceTo, insert: '' },
+				selection: { anchor: replaceFrom }
+			})
+		}
+	}
+
 	streamHandle = generateContinuationStreaming(
 		requestData,
 		(chunk) => {
@@ -563,7 +823,20 @@ async function executeAIContinuation() {
 				const normalized = String(delta)
 					.replace(/\r/g, '')
 					.replace(/\n+/g, m => (m.length === 2 ? '\n' : m))
-				appendAtEnd(normalized)
+				
+				if (replaceMode) {
+					// 替换模式：追加到当前光标位置（已清空选中内容）
+					if (view) {
+						const pos = view.state.selection.main.head
+						view.dispatch({
+							changes: { from: pos, to: pos, insert: normalized },
+							selection: { anchor: pos + normalized.length }
+						})
+					}
+				} else {
+					// 续写模式：追加到末尾
+					appendAtEnd(normalized)
+				}
 			}
 			if (chunk.length > accumulated.length) accumulated = chunk
 		},
@@ -571,19 +844,20 @@ async function executeAIContinuation() {
 			aiLoading.value = false
 			streamHandle = null
 			try {
-				let text = getText() || ''
-				// 压缩恰好两个换行为一个，>=3 不动
-				text = text.replace(/\n+/g, m => (m.length === 2 ? '\n' : m))
-				if (autoIndent.value) text = indentNonEmptyLines(text)
-				setText(text)
+				if (!replaceMode) {
+					let text = getText() || ''
+					// 压缩恰好两个换行为一个，>=3 不动
+					text = text.replace(/\n+/g, m => (m.length === 2 ? '\n' : m))
+					setText(text)
+				}
 			} catch {}
-			ElMessage.success('AI续写完成！')
+			ElMessage.success(`${taskName}完成！`)
 		},
 		(error) => {
 			aiLoading.value = false
 			streamHandle = null
-			console.error('AI续写失败:', error)
-			ElMessage.error('AI续写失败')
+			console.error(`${taskName}失败:`, error)
+			ElMessage.error(`${taskName}失败`)
 		}
 	)
 }
@@ -661,40 +935,7 @@ function extractCharacterParticipantsForCurrentChapter(): string[] {
 	return []
 }
 
-async function onApplyContext(ctx: string) {
-	try {
-		contextTemplate.value = ctx || ''
-		await cardStore.modifyCard(localCard.id, { ai_context_template: contextTemplate.value } as any, { skipHooks: true })
-		ElMessage.success('上下文模板已保存到卡片')
-	} catch {
-		ElMessage.error('保存上下文失败')
-	}
-}
-
-function openReferenceSelector(payload?: string) {
-	if (typeof payload === 'string') contextTemplate.value = payload
-	openSelector.value = true
-}
-
-function handleSelectorConfirm(snippet: string) {
-	try {
-		const textarea = document.querySelector('.context-area textarea') as HTMLTextAreaElement | null
-		if (textarea) {
-			const start = textarea.selectionStart ?? contextTemplate.value.length
-			const end = textarea.selectionEnd ?? start
-			const before = (contextTemplate.value || '').slice(0, start)
-			const after = (contextTemplate.value || '').slice(end)
-			const next = `${before}${snippet}${after}`
-			contextTemplate.value = next
-			textarea.value = next
-			textarea.dispatchEvent(new Event('input', { bubbles: true }))
-			const caret = start + snippet.length
-			requestAnimationFrame(() => textarea.setSelectionRange(caret, caret))
-			return
-		}
-	} catch {}
-	contextTemplate.value = contextTemplate.value ? contextTemplate.value + snippet : snippet
-}
+// 上下文相关功能已移至右栏，此处移除相关方法
 
 // 触发“动态信息提取”（右栏调用）
 editorStore.setTriggerExtractDynamicInfo(async (opts) => {
@@ -729,19 +970,14 @@ async function extractDynamicInfoWithLlm(llmConfigId: number) {
 	try {
 		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
 		if (!projectId) { ElMessage.error('未找到当前项目ID'); return }
-		// 修正：调用 extractParticipantsWithTypeForCurrentChapter
+		// 调用 extractParticipantsWithTypeForCurrentChapter
 		let participants = extractParticipantsWithTypeForCurrentChapter()
 		const chapterText = getText() || ''
+		// 上下文相关的stage_overview等信息由右栏ContextPanel处理
 		let stageOverview = ''
 		try {
 			if ((props.contextParams as any)?.stage_overview) {
 				stageOverview = String((props.contextParams as any).stage_overview || '')
-			}
-			if (!stageOverview && contextTemplate.value?.includes('@stage:current.overview')) {
-				const currentCardForResolve = { ...props.card, content: chapterText }
-				const resolved = resolveTemplate({ template: 'current_stage_overview: @stage:current.overview', cards: cards.value, currentCard: currentCardForResolve as any })
-				const line = (resolved || '').split('\n').find(l => l.startsWith('current_stage_overview:')) || ''
-				stageOverview = line.replace('current_stage_overview:', '').trim()
 			}
 		} catch {}
 		const extraContext = (props.contextParams as any)?.extra_context_fn()
@@ -863,110 +1099,273 @@ function removePreviewItem(roleName: string, catKey: string, index: number) {
 	}
 }
 
+// 处理来自ChapterToolsPanel的提取事件
+function handleExtractDynamicInfoEvent(e: CustomEvent) {
+	const payload = (e as any)?.detail
+	if (payload?.llm_config_id) {
+		extractDynamicInfoWithLlm(payload.llm_config_id)
+	}
+}
+
+function handleExtractRelationsEvent(e: CustomEvent) {
+	const payload = (e as any)?.detail
+	if (payload?.llm_config_id) {
+		extractRelationsWithLlm(payload.llm_config_id)
+	}
+}
+
+async function extractRelationsWithLlm(llmConfigId: number) {
+	try {
+		const text = getText() || ''
+		const participants = extractParticipantsWithTypeForCurrentChapter()
+		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
+		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
+
+		let mergedText = text
+		try {
+			const factsText = formatFactsFromContext(props.prefetched)
+			if (factsText) mergedText = `【已知事实子图】\n${factsText}\n\n正文如下：\n${text}`
+		} catch {}
+
+		const data = await extractRelationsOnly({ text: mergedText, participants, llm_config_id: llmConfigId, volume_number: vol, chapter_number: ch } as any)
+		relationsPreview.value = data
+		relationsPreviewVisible.value = true
+	} catch (e) {
+		console.error(e)
+		ElMessage.error('关系抽取失败')
+	}
+}
+
 onMounted(() => {
 	initEditor()
+	loadPrompts()
 	try {
 		const title = props.card?.title || ''
 		const vol = Number((props.contextParams as any)?.volume_number ?? (props.card as any)?.content?.volume_number ?? NaN)
 		const ch = Number((props.contextParams as any)?.chapter_number ?? (props.card as any)?.content?.chapter_number ?? NaN)
 		editorStore.setCurrentContextInfo({ title, volume: Number.isNaN(vol) ? null : vol, chapter: Number.isNaN(ch) ? null : ch })
 	} catch {}
+	
+	// 监听提取事件
+	window.addEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
+	window.addEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
 })
 
 onUnmounted(() => {
 	try { view?.destroy() } catch {}
 	editorStore.setApplyChapterReplacements(null)
 	try { streamHandle?.cancel(); } catch {}
+	
+	// 移除事件监听
+	window.removeEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
+	window.removeEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
+})
+
+// 恢复历史版本内容
+async function restoreContent(versionContent: any) {
+	try {
+		// 提取章节正文内容
+		const textContent = typeof versionContent === 'string' 
+			? versionContent 
+			: (versionContent?.content || '')
+		
+		// 更新编辑器内容
+		setText(textContent)
+		
+		// 更新 localCard.content 的各个字段（保持响应式）
+		if (typeof versionContent === 'object') {
+			Object.assign(localCard.content, versionContent)
+		}
+		// 确保 content 字段是正确的文本
+		localCard.content.content = textContent
+		
+		// 更新原始内容（避免触发dirty）
+		originalContent.value = textContent
+		isDirty.value = false
+		emit('update:dirty', false)
+		
+		// 更新字数
+		wordCount.value = computeWordCount(textContent)
+		
+	} catch (e) {
+		console.error('Failed to restore content:', e)
+		throw e
+	}
+}
+
+// 暴露方法供父组件调用
+defineExpose({
+	handleSave,
+	restoreContent
 })
 </script>
 
 <style scoped>
-.editor-container {
-	border: 1px solid var(--el-border-color);
-	border-radius: var(--el-border-radius-base);
+/* 提示词下拉菜单项 */
+.prompt-item {
 	display: flex;
-	flex-direction: column;
-	height: 100%;
+	justify-content: space-between;
+	align-items: center;
+	width: 100%;
+}
+
+.check-icon {
+	color: var(--el-color-primary);
+	font-size: 16px;
+	margin-left: 8px;
+}
+
+/* 高亮选中的提示词 */
+:deep(.is-selected) {
+	background-color: var(--el-color-primary-light-9);
+	color: var(--el-color-primary);
+	font-weight: 600;
+}
+
+/* 最外层容器：固定高度，防止整体滚动 */
+.chapter-studio { 
+	display: flex; 
+	flex-direction: column; 
+	height: 100%; 
+	min-height: 0;
+	overflow: hidden; /* 关键：防止整体滚动 */
 }
 
 .toolbar {
-	padding: 8px;
-	border-bottom: 1px solid var(--el-border-color);
-	background-color: var(--el-fill-color-lighter);
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 8px;
-}
-/* 使下拉按钮与缩进按钮组风格更统一 */
-.toolbar .el-dropdown {
-	margin-left: -1px;
-}
-.toolbar .el-dropdown .el-button {
-	border-top-left-radius: 0;
-	border-bottom-left-radius: 0;
-}
-:deep(.el-dropdown-menu__item.is-active) {
-	color: var(--el-color-primary);
-	font-weight: bold;
-}
-.mx-2 { margin-left: 0.5rem; margin-right: 0.5rem; }
-.ml-2 { margin-left: 0.5rem; }
-.flex-spacer { flex-grow: 1; }
-.word-count-display { font-size: 14px; color: var(--el-text-color-regular); margin-right: 12px; }
-
-.editor-content-wrapper {
-	flex-grow: 1;
+	padding: 8px 20px;
+	border-bottom: 1px solid var(--el-border-color-light);
+	background: var(--el-fill-color-lighter);
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
+	flex-shrink: 0;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
-.chapter-title-display {
-	padding: 20px 20px 10px 20px;
+
+.toolbar-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: nowrap;
+}
+
+.toolbar-divider {
+	width: 1px;
+	height: 20px;
+	background: var(--el-border-color-light);
+	margin: 0 4px;
+}
+
+.toolbar-group {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	background: var(--el-fill-color-blank);
+	border-radius: 6px;
+	border: 1px solid var(--el-border-color-lighter);
+}
+
+.group-label {
+	font-size: 12px;
+	color: var(--el-text-color-secondary);
+	margin-right: 4px;
+	font-weight: 500;
+}
+
+.flex-spacer { 
+	flex-grow: 1; 
+}
+
+.editor-content-wrapper {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0; /* 允许flex子元素正确收缩 */
+	overflow: hidden; /* 防止wrapper本身滚动 */
+}
+
+.chapter-header {
+	padding: 16px 32px 14px;
 	border-bottom: 1px solid var(--el-border-color-light);
-	background-color: var(--el-fill-color-lighter);
-}
-.chapter-title-wrapper {
+	background: var(--el-fill-color-lighter);
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	position: relative;
+	flex-shrink: 0;
 }
-.chapter-title-text {
+
+.title-section {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.chapter-title {
 	margin: 0;
-	font-size: 24px;
-	font-weight: bold;
+	font-size: 28px;
+	font-weight: 600;
+	color: var(--el-text-color-primary);
+	line-height: 1.4;
+	outline: none;
+	padding: 6px 12px;
+	border-radius: 6px;
+	transition: all 0.2s ease;
+	cursor: text;
+	flex: 1;
 }
-.title-actions {
-	position: absolute;
-	right: 20px;
-	top: 50%;
-	transform: translateY(-50%);
+
+.chapter-title:hover {
+	background-color: var(--el-fill-color-light);
+}
+
+.chapter-title:focus {
+	background-color: var(--el-fill-color);
+	box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
+}
+
+.title-meta {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
+	color: var(--el-text-color-secondary);
+	font-size: 14px;
+	white-space: nowrap;
 }
-.param-select-top { width: 220px; }
+
+.word-count-icon {
+	font-size: 16px;
+}
+
+.word-count-text {
+	font-weight: 500;
+}
 
 .editor-content {
-	flex-grow: 1;
-	/* 修正：容器本身不滚动，交由 CodeMirror 内部处理 */
-	overflow: hidden;
+	flex: 1 1 0; /* 关键：flex-basis为0，避免被内容撑开 */
+	min-height: 0; /* 关键：允许flex子元素正确收缩和滚动 */
+	overflow: hidden; /* 隐藏溢出，让内部CodeMirror处理滚动 */
 	background-color: var(--el-bg-color);
+	position: relative; /* 为子元素提供定位上下文 */
 }
 
 /* CodeMirror 内部样式 */
 .editor-content :deep(.cm-editor) {
-	/* 修正：高度占满容器，而不是无限增长 */
-	height: 100%;
+	height: 100% !important; /* 强制占满容器高度，不自动扩展 */
 	outline: none;
 	line-height: 1.8;
 	color: var(--el-text-color-primary);
 	background-color: transparent;
 }
+
+/* 确保 CodeMirror 的滚动容器正确工作 */
+.editor-content :deep(.cm-scroller) {
+	overflow-y: auto !important; /* 强制垂直滚动 */
+	overflow-x: auto !important;
+	max-height: 100% !important; /* 防止超出父容器 */
+}
 .editor-content :deep(.cm-content) {
 	padding: 20px;
-	color: #303133;
+	color: var(--el-text-color-primary);
 	font-size: v-bind(fontSizePx);
 	line-height: v-bind(lineHeightStr);
 }
@@ -984,5 +1383,8 @@ onUnmounted(() => {
 	max-height: 60vh;
 	overflow: auto;
 }
-.chapter-studio { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.event-meta {
+	color: var(--el-text-color-secondary);
+	margin-left: 8px;
+}
 </style>

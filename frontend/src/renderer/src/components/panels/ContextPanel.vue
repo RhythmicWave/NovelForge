@@ -1,15 +1,11 @@
 <template>
   <div class="ctx-panel">
-    <el-form label-width="90px" class="controls">
-      <el-form-item label="卷号">
-        <el-input-number v-model="localVolumeNumber" :min="0" :max="999" @change="emitVolume" />
-      </el-form-item>
-      <el-form-item label="阶段号">
-        <el-input-number v-model="localStageNumber" :min="1" :max="999" @change="emitStage" />
-      </el-form-item>
-      <el-form-item label="章节号">
-        <el-input-number v-model="localChapterNumber" :min="1" :max="9999" @change="emitChapter" />
-      </el-form-item>
+    <div class="panel-header">
+      <h3 class="panel-title">参与实体</h3>
+      <el-button size="small" type="primary" :loading="assembling" @click="assemble">刷新上下文</el-button>
+    </div>
+    
+    <el-form label-width="70px" class="controls">
       <el-form-item label="参与者">
         <el-select v-model="localParticipants" multiple filterable allow-create default-first-option placeholder="输入或选择参与者" @change="onParticipantsChange">
           <el-option-group v-for="g in participantGroups" :key="g.label" :label="g.label">
@@ -17,9 +13,6 @@
           </el-option-group>
         </el-select>
       </el-form-item>
-      <div class="actions">
-        <el-button size="small" type="primary" :loading="assembling" @click="assemble">注入知识图谱</el-button>
-      </div>
     </el-form>
 
     <div v-if="assembled" class="assembled">
@@ -192,10 +185,24 @@ async function assemble() {
 </script>
 
 <style scoped>
-.ctx-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; }
-.controls { padding: 8px; border-bottom: 1px solid var(--el-border-color-light); }
+.ctx-panel { display: flex; flex-direction: column; gap: 0; height: 100%; }
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--el-border-color-light);
+  background: var(--el-fill-color-lighter);
+}
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.controls { padding: 12px 16px; border-bottom: 1px solid var(--el-border-color-light); }
 .actions { display: flex; gap: 8px; }
-.assembled { padding: 8px; overflow: auto; color: var(--el-text-color-primary); font-size: 14px; line-height: 1.8; }
+.assembled { padding: 16px; overflow: auto; color: var(--el-text-color-primary); font-size: 14px; line-height: 1.8; }
 .pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 13px; color: var(--el-text-color-primary); }
 .facts-structured { margin-bottom: 8px; }
 .facts-title { font-weight: 600; margin: 6px 0; color: var(--el-text-color-primary); }

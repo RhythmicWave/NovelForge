@@ -5,7 +5,6 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   setApiKey: (id: number, apiKey: string) => ipcRenderer.invoke('secure:set-api-key', { id, apiKey }),
   getApiKey: (id: number) => ipcRenderer.invoke('secure:get-api-key', { id }),
-  openChapterStudio: (projectId: number, chapterCardId: number) => ipcRenderer.invoke('chapter:open-studio', { projectId, chapterCardId }),
   openIdeasHome: () => ipcRenderer.invoke('ideas:open-home')
 }
 

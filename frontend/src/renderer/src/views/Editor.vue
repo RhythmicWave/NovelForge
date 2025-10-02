@@ -95,7 +95,7 @@
         </el-tab-pane>
         <el-tab-pane label="编辑器" name="editor">
           <template v-if="activeCard">
-            <CardEditorHost :card="activeCard" />
+            <CardEditorHost :card="activeCard" :prefetched="prefetchedContext" />
           </template>
           <el-empty v-else description="请从左侧选择一个卡片进行编辑" />
         </el-tab-pane>
@@ -105,7 +105,55 @@
     <!-- 右侧助手面板分隔条与面板 -->
     <div class="resizer right-resizer" @mousedown="startResizing('right')"></div>
     <el-aside class="sidebar assistant-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
+      <!-- 章节正文卡片：显示4个Tab -->
+      <template v-if="isChapterContent">
+        <el-tabs v-model="activeRightTab" type="card" class="right-tabs">
+          <el-tab-pane label="助手" name="assistant">
+            <AssistantPanel
+              :resolved-context="assistantResolvedContext"
+              :llm-config-id="assistantParams.llm_config_id as any"
+              :prompt-name="'灵感对话'"
+              :temperature="assistantParams.temperature as any"
+              :max_tokens="assistantParams.max_tokens as any"
+              :timeout="assistantParams.timeout as any"
+              :effective-schema="assistantEffectiveSchema"
+              :generation-prompt-name="assistantParams.prompt_name as any"
+              :current-card-title="assistantSelectionCleared ? '' : (activeCard?.title as any)"
+              :current-card-content="assistantSelectionCleared ? null : (activeCard?.content as any)"
+              @refresh-context="refreshAssistantContext"
+              @reset-selection="resetAssistantSelection"
+              @finalize="assistantFinalize"
+              @jump-to-card="handleJumpToCard"
+            />
+          </el-tab-pane>
+          
+          <el-tab-pane label="参与实体" name="context">
+            <ContextPanel 
+              :project-id="projectStore.currentProject?.id"
+              :prefetched="prefetchedContext"
+              :volume-number="chapterVolumeNumber"
+              :chapter-number="chapterChapterNumber"
+              :participants="chapterParticipants"
+            />
+          </el-tab-pane>
+          
+          <el-tab-pane label="提取" name="extract">
+            <ChapterToolsPanel />
+          </el-tab-pane>
+          
+          <el-tab-pane label="大纲" name="outline">
+            <OutlinePanel 
+              :active-card="activeCard"
+              :volume-number="chapterVolumeNumber"
+              :chapter-number="chapterChapterNumber"
+            />
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+      
+      <!-- 其他卡片：仅显示助手 -->
       <AssistantPanel
+        v-else
         :resolved-context="assistantResolvedContext"
         :llm-config-id="assistantParams.llm_config_id as any"
         :prompt-name="'灵感对话'"
@@ -222,6 +270,9 @@ import {
 import type { components } from '@renderer/types/generated'
 import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
 import AssistantPanel from '@renderer/components/assistants/AssistantPanel.vue'
+import ContextPanel from '@renderer/components/panels/ContextPanel.vue'
+import ChapterToolsPanel from '@renderer/components/panels/ChapterToolsPanel.vue'
+import OutlinePanel from '@renderer/components/panels/OutlinePanel.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
@@ -313,7 +364,7 @@ import { generateAIContent } from '@renderer/api/ai'
  const isFreeProject = computed(() => (projectStore.currentProject?.name || '') === '__free__')
 
   // --- 前端自动分组器 ---
- // 设计（新）：当某节点的直接子卡片中，任一“类型的数量 > 2”时，为该类型创建一个虚拟分组节点；
+ // 当某节点的直接子卡片中，任一“类型的数量 > 2”时，为该类型创建一个虚拟分组节点；
  // 其余数量 <= 2 的类型保持原样显示（即使整个父节点下只有一种类型，只要该类型数量>2也要分组）。
  // 该结构完全在前端进行，不影响后端数据
  interface TreeNode { id: number | string; title: string; children?: TreeNode[]; card_type?: { name: string }; __isGroup?: boolean; __groupType?: string }
@@ -373,7 +424,9 @@ const groupedTree = computed(() => buildGroupedNodes(cardTree.value as unknown a
 
 // Local State
 const activeTab = ref('market')
+const activeRightTab = ref('assistant')
 const isCreateCardDialogVisible = ref(false)
+const prefetchedContext = ref<any>(null)
 const newCardForm = reactive<Partial<CardCreate>>({
   title: '',
   card_type_id: undefined,
@@ -529,15 +582,10 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
 
  // --- Methods ---
 
- // 点击行为对“分组节点”不做打开编辑，仅用于展开/折叠。对实际卡片才触发编辑。
- function handleNodeClick(data: any) {
+// 点击行为对"分组节点"不做打开编辑，仅用于展开/折叠。对实际卡片才触发编辑。
+function handleNodeClick(data: any) {
   if (data.__isGroup) return
-  // 若是章节正文，默认在专注窗打开
-  if (data?.card_type?.name === '章节正文' && projectStore.currentProject?.id) {
-    // @ts-ignore
-    window.api?.openChapterStudio?.(projectStore.currentProject.id, data.id)
-    return
-  }
+  // 章节正文现在也在中栏编辑器中打开
   cardStore.setActiveCard(data.id)
   assistantSelectionCleared.value = false
   activeTab.value = 'editor'
@@ -751,6 +799,60 @@ const assistantEffectiveSchema = ref<any>(null)
 const assistantSelectionCleared = ref<boolean>(false)
 const assistantParams = ref<{ llm_config_id: number | null; prompt_name: string | null; temperature: number | null; max_tokens: number | null; timeout: number | null }>({ llm_config_id: null, prompt_name: '灵感对话', temperature: null, max_tokens: null, timeout: null })
 
+// 判断当前是否为章节正文卡片
+const isChapterContent = computed(() => {
+  return activeCard.value?.card_type?.name === '章节正文'
+})
+
+// 章节信息提取
+const chapterVolumeNumber = computed(() => {
+  if (!isChapterContent.value) return null
+  const content: any = activeCard.value?.content || {}
+  return content.volume_number ?? null
+})
+
+const chapterChapterNumber = computed(() => {
+  if (!isChapterContent.value) return null
+  const content: any = activeCard.value?.content || {}
+  return content.chapter_number ?? null
+})
+
+const chapterParticipants = computed(() => {
+  if (!isChapterContent.value) return []
+  const content: any = activeCard.value?.content || {}
+  const list = content.entity_list || []
+  if (Array.isArray(list)) {
+    return list.map((x: any) => typeof x === 'string' ? x : (x?.name || '')).filter(Boolean).slice(0, 6)
+  }
+  return []
+})
+
+// 自动装配章节上下文
+watch(isChapterContent, async (val) => {
+  if (val && activeCard.value) {
+    await assembleChapterContext()
+  }
+}, { immediate: true })
+
+async function assembleChapterContext() {
+  if (!isChapterContent.value || !projectStore.currentProject?.id) return
+  
+  try {
+    const { assembleContext } = await import('@renderer/api/ai')
+    const res = await assembleContext({
+      project_id: projectStore.currentProject.id,
+      volume_number: chapterVolumeNumber.value ?? undefined,
+      chapter_number: chapterChapterNumber.value ?? undefined,
+      participants: chapterParticipants.value,
+      current_draft_tail: ''
+    })
+    prefetchedContext.value = res
+  } catch (e) {
+    console.error('Failed to assemble chapter context:', e)
+  }
+}
+
+
 async function refreshAssistantContext() {
   try {
     const card = assistantSelectionCleared.value ? null : (activeCard.value as any)
@@ -869,18 +971,41 @@ onMounted(async () => {
   await cardStore.fetchAvailableModels()
   window.addEventListener('nf:navigate', onNavigate as any)
   window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
+  window.addEventListener('nf:switch-right-tab', onSwitchRightTab as any)
+  window.addEventListener('nf:extract-dynamic-info', onExtractDynamicInfo as any)
+  window.addEventListener('nf:extract-relations', onExtractRelations as any)
   await refreshAssistantContext()
 })
 
  onBeforeUnmount(() => {
    window.removeEventListener('nf:navigate', onNavigate as any)
    window.removeEventListener('nf:assistant-finalize', onAssistantFinalize as any)
+   window.removeEventListener('nf:switch-right-tab', onSwitchRightTab as any)
+   window.removeEventListener('nf:extract-dynamic-info', onExtractDynamicInfo as any)
+   window.removeEventListener('nf:extract-relations', onExtractRelations as any)
  })
 
  function onNavigate(e: CustomEvent) {
    if ((e as any).detail?.to === 'market') {
      activeTab.value = 'market'
    }
+ }
+
+ function onSwitchRightTab(e: CustomEvent) {
+   const tab = (e as any)?.detail?.tab
+   if (tab && isChapterContent.value) {
+     activeRightTab.value = tab
+   }
+ }
+
+ function onExtractDynamicInfo(e: CustomEvent) {
+   // 转发事件，实际处理在CodeMirrorEditor中
+   // 这里只是保持事件链
+ }
+
+ function onExtractRelations(e: CustomEvent) {
+   // 转发事件，实际处理在CodeMirrorEditor中
+   // 这里只是保持事件链
  }
 
  // 点击页面任意处隐藏空白菜单
@@ -904,17 +1029,17 @@ onMounted(async () => {
   height: 100%;
   width: 100%;
   position: relative;
-  background-color: var(--el-bg-color-page);
+  background-color: var(--el-fill-color-lighter); /* 适配暗黑模式 */
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  background-color: var(--el-bg-color);
+  background-color: var(--el-fill-color-lighter); /* 适配暗黑模式 */
   transition: width 0.2s;
   flex-shrink: 0;
   overflow: hidden;
-  border-right: 1px solid var(--el-border-color-light);
+  border-right: none; /* 移除边框 */
 }
 
 .card-navigation-sidebar {
@@ -968,15 +1093,21 @@ onMounted(async () => {
 }
 
 .main-content {
-  padding: 0;
+  padding: 16px 8px; /* 留出边距 */
   display: flex;
   flex-direction: column;
+  background-color: transparent; /* 透明背景 */
 }
 
 .main-tabs {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
+  background-color: var(--el-bg-color); /* 适配暗黑模式 */
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08); /* 轻微阴影 */
+  border-radius: 8px; /* 圆角 */
+  overflow: hidden; /* 确保内容不溢出圆角 */
+  border: none; /* 移除默认边框 */
 }
 
 :deep(.el-tabs__content) {
@@ -1013,7 +1144,12 @@ onMounted(async () => {
 .cards-title { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
 .cards-title-text { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cards-title-actions { display: flex; align-items: center; gap: 6px; }
-.assistant-sidebar { border-left: 1px solid var(--el-border-color-light); background: var(--el-bg-color); flex-shrink: 0; }
+.assistant-sidebar { 
+  border-left: none; 
+  background: transparent; 
+  flex-shrink: 0; 
+  padding: 16px 8px 16px 0; /* 右侧留白 */
+}
 .right-resizer { cursor: col-resize; width: 5px; background: transparent; }
 .right-resizer:hover { background: var(--el-color-primary-light-7); }
 .nf-import-dialog :deep(.el-input__wrapper) { font-size: 14px; }
@@ -1028,4 +1164,43 @@ onMounted(async () => {
 .nf-tree-select-popper :deep(.el-tree-node__label) { font-size: 14px; color: var(--el-text-color-primary); }
 .nf-tree-select-popper :deep(.is-current > .el-tree-node__content),
 .nf-tree-select-popper :deep(.el-tree-node__content:hover) { background: var(--el-fill-color-light); }
+
+/* 右栏Tab样式 */
+.right-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+.right-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  border-bottom: 1px solid var(--el-border-color-light);
+  padding: 12px 12px 0 12px;
+  background: var(--el-fill-color-lighter);
+}
+.right-tabs :deep(.el-tabs__nav-wrap) {
+  padding: 0;
+}
+.right-tabs :deep(.el-tabs__item) {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 16px;
+  height: 36px;
+  line-height: 36px;
+}
+.right-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--el-color-primary);
+}
+.right-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}
+.right-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  overflow-y: auto;
+}
 </style>

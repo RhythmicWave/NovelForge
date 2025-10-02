@@ -209,25 +209,33 @@ async def run_llm_agent(
 
 async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str, track_stats: bool = True) -> AsyncGenerator[str, None]:
     """以流式方式生成续写内容。system_prompt 由外部显式传入。"""
-    supplied_ctx = (getattr(request, 'current_draft_tail', None) or '').strip()
-    directive = "请基于以上上下文继续创作。直接输出连续的小说正文。" if getattr(request, 'append_continuous_novel_directive', True) else ""
-    if supplied_ctx:
-        user_prompt = (
-            f"【上下文】\n{supplied_ctx}\n\n"
-            f"{directive}"
-        )
+    # 组装用户消息
+    user_prompt_parts = []
+    
+    # 1. 添加上下文信息（引用上下文 + 事实子图）
+    context_info = (getattr(request, 'context_info', None) or '').strip()
+    if context_info:
+        user_prompt_parts.append(f"【参考上下文】\n{context_info}")
+    
+    # 2. 添加已有章节内容
+    previous_content = (request.previous_content or '').strip()
+    if previous_content:
+        user_prompt_parts.append(f"【已有章节内容】\n{previous_content}")
+        
+        # 添加字数统计信息
+        existing_word_count = getattr(request, 'existing_word_count', None)
+        if existing_word_count is not None:
+            user_prompt_parts.append(f"（已有内容字数：{existing_word_count} 字）")
+        
+        # 续写指令
+        if getattr(request, 'append_continuous_novel_directive', True):
+            user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
     else:
-        ctx = assemble_context(session, ContextAssembleParams(
-            project_id=getattr(request, 'project_id', None),
-            volume_number=getattr(request, 'volume_number', None),
-            chapter_number=getattr(request, 'chapter_number', None),
-            participants=getattr(request, 'participants', None),
-            current_draft_tail=request.previous_content,
-        ))
-        user_prompt = (
-            f"【上下文】\n{ctx.to_system_prompt_block()}\n\n"
-            f"{directive}"
-        )
+        # 新写模式
+        if getattr(request, 'append_continuous_novel_directive', True):
+            user_prompt_parts.append("【指令】请开始创作新章节。直接输出小说正文。")
+    
+    user_prompt = "\n\n".join(user_prompt_parts)
 
     logger.info(f"system_prompt: {system_prompt}")
     logger.info(f"user_prompt: {user_prompt}")
