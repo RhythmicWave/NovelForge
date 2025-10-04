@@ -17,9 +17,42 @@ from app.schemas.workflow import (
     WorkflowTriggerRead,
 )
 from app.services.workflow_engine import engine as wf_engine
+from app.services.nodes import get_node_types
 
 
 router = APIRouter()
+
+
+@router.get("/workflow-node-types")
+def get_workflow_node_types():
+    """获取所有已注册的工作流节点类型"""
+    node_types = get_node_types()
+    
+    # 返回节点类型及其分类和描述
+    node_info = []
+    for node_type in sorted(node_types):
+        category = node_type.split('.')[0] if '.' in node_type else 'Other'
+        node_name = node_type.split('.')[-1] if '.' in node_type else node_type
+        
+        # 简单的描述映射
+        descriptions = {
+            'Card.Read': '读取卡片',
+            'Card.ModifyContent': '修改内容',
+            'Card.UpsertChildByTitle': '创建/更新子卡',
+            'Card.ClearFields': '清空字段',
+            'Card.ReplaceFieldText': '替换文本',
+            'List.ForEach': '遍历集合',
+            'List.ForEachRange': '遍历范围',
+        }
+        
+        node_info.append({
+            'type': node_type,
+            'name': node_name,
+            'category': category,
+            'description': descriptions.get(node_type, node_name)
+        })
+    
+    return {'node_types': node_info}
 
 
 @router.get("/workflows", response_model=List[WorkflowRead])
@@ -130,14 +163,8 @@ def validate_workflow(workflow_id: int, session: Session = Depends(get_session))
     dsl = wf.definition_json or {}
     raw_nodes = list((dsl.get("nodes") or []))
 
-    # 允许的节点类型（与执行器内置保持一致）
-    allowed_types = {
-        "Card.Read",
-        "Card.ModifyContent",
-        "Card.UpsertChildByTitle",
-        "List.ForEach",
-        "List.ForEachRange",
-    }
+    # 从节点注册表自动获取允许的节点类型
+    allowed_types = set(get_node_types())
 
     # 1) 规范化：补全/唯一化 id；将缺失 body 的 ForEach 折叠后一节点
     canonical = wf_engine._canonicalize(raw_nodes)  # type: ignore[attr-defined]

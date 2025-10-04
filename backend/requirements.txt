@@ -5,7 +5,7 @@ sqlmodel
 alembic
 loguru
 pydantic==2.11.7
-pydantic_ai==0.3.1
+pydantic_ai>=1.0.14
 openai>=1.0.0
 neo4j
 python-dotenv

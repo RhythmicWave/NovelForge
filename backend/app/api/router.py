@@ -6,12 +6,14 @@ from app.api.endpoints import memory as memory_ep
 from app.api.endpoints import foreshadow as foreshadow_ep
 from app.api.endpoints import knowledge as knowledge_ep
 from app.api.endpoints import workflows as workflows_ep
+from app.api.endpoints import assistant as assistant_ep
 
 api_router = APIRouter()
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(llm_configs.router, prefix="/llm-configs", tags=["llm-configs"])
 
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+api_router.include_router(assistant_ep.router, prefix="/ai", tags=["assistant"])  # 灵感助手专用接口
 api_router.include_router(prompts.router, prefix="/prompts", tags=["prompts"]) 
 api_router.include_router(cards.router, prefix="", tags=["cards"])
 

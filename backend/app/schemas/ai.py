@@ -27,6 +27,24 @@ class ContinuationResponse(BaseModel):
     content: str
 
 
+class AssistantChatRequest(BaseModel):
+    """灵感助手对话请求（新格式）"""
+    # 新格式：前端发送统一的上下文信息和用户输入
+    context_info: str = Field(description="完整的项目上下文信息（包含项目结构、操作历史、引用卡片等）")
+    user_prompt: str = Field(default="", description="用户当前输入（可为空）")
+    
+    # 必需字段
+    project_id: int = Field(description="项目ID（用于工具调用作用域）")
+    llm_config_id: int = Field(description="LLM配置ID")
+    prompt_name: str = Field(default="灵感对话", description="系统提示词名称")
+    
+    # 可选参数
+    temperature: Optional[float] = Field(default=None, description="采样温度 0-2")
+    max_tokens: Optional[int] = Field(default=None, description="最大token数")
+    timeout: Optional[float] = Field(default=None, description="超时秒数")
+    stream: bool = Field(default=True, description="是否流式输出")
+
+
 class GeneralAIRequest(BaseModel):
     input: Dict[str, Any]
     llm_config_id: Optional[int] = None

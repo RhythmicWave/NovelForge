@@ -6,9 +6,13 @@ import '@vue-flow/core/dist/theme-default.css'
 import { Background } from '@vue-flow/background'
 import WorkflowNode from './WorkflowNode.vue'
 import { Plus } from '@element-plus/icons-vue'
+import { getWorkflowNodeTypes, type WorkflowNodeType } from '@renderer/api/workflows'
+
 const nodeTypes: NodeTypesObject = {
   node: markRaw(WorkflowNode) as any,
 }
+
+const availableNodeTypes = ref<WorkflowNodeType[]>([])
 
 type NodeConf = { id: string; type: string; params?: any; body?: NodeConf[] }
 
@@ -131,8 +135,17 @@ watch(() => props.modelValue, (v) => {
 
 watch(selectedId, () => { rebuild() })
 
-onMounted(() => {
+onMounted(async () => {
   setTimeout(() => fitView({ padding: 0.2 }), 0)
+  
+  // 加载可用节点类型
+  try {
+    const result = await getWorkflowNodeTypes()
+    availableNodeTypes.value = result.node_types
+    console.log('✅ 已加载工作流节点类型:', availableNodeTypes.value)
+  } catch (e) {
+    console.error('加载节点类型失败:', e)
+  }
   
   // 添加全局事件监听器
   if (typeof window !== 'undefined') {
@@ -476,57 +489,16 @@ function handleDrop(e: DragEvent) {
       <div class="library-title">你可以拖拽这些节点到画布上</div>
       <div class="library-nodes">
         <div 
+          v-for="nodeType in availableNodeTypes"
+          :key="nodeType.type"
           class="library-node" 
           draggable="true" 
-          @dragstart="onDragStart($event, 'Card.Read')"
+          @dragstart="onDragStart($event, nodeType.type)"
         >
-          <div class="node-title">Card.Read</div>
-          <div class="node-desc">读取卡片</div>
+          <div class="node-title">{{ nodeType.name }}</div>
+          <div class="node-desc">{{ nodeType.description }}</div>
         </div>
-        <div 
-          class="library-node" 
-          draggable="true" 
-          @dragstart="onDragStart($event, 'Card.UpsertChildByTitle')"
-        >
-          <div class="node-title">UpsertChild</div>
-          <div class="node-desc">创建/更新子卡</div>
-        </div>
-        <div 
-          class="library-node" 
-          draggable="true" 
-          @dragstart="onDragStart($event, 'Card.ModifyContent')"
-        >
-          <div class="node-title">ModifyContent</div>
-          <div class="node-desc">修改内容</div>
-        </div>
-        <div 
-          class="library-node" 
-          draggable="true" 
-          @dragstart="onDragStart($event, 'List.ForEach')"
-        >
-          <div class="node-title">List.ForEach</div>
-          <div class="node-desc">遍历集合</div>
-        </div>
-          <div 
-            class="library-node" 
-            draggable="true" 
-            @dragstart="onDragStart($event, 'List.ForEachRange')"
-          >
-            <div class="node-title">ForEachRange</div>
-            <div class="node-desc">遍历范围</div>
-          </div>
-          
-          <!-- Card 类节点 -->
-          <div 
-            class="library-node" 
-            draggable="true" 
-            @dragstart="onDragStart($event, 'Card.ClearFields')"
-          >
-            <div class="node-title">ClearFields</div>
-            <div class="node-desc">清空字段</div>
-          </div>
-          
-        </div>
+      </div>
     </div>
   </div>
 </template>

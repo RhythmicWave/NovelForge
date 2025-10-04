@@ -88,16 +88,11 @@ class LocalAsyncEngine:
 
     # ---------------- nodes ----------------
     def _resolve_node_fn(self, type_name: str):
-        mapping = {
-            # Card 类节点
-            "Card.Read": builtin_nodes.node_card_read,
-            "Card.ModifyContent": builtin_nodes.node_card_modify_content,
-            "Card.UpsertChildByTitle": builtin_nodes.node_card_upsert_child_by_title,
-            "Card.ClearFields": builtin_nodes.node_card_clear_fields,
-        }
-        fn = mapping.get(type_name)
+        """从节点注册表中获取节点函数"""
+        registry = builtin_nodes.get_registered_nodes()
+        fn = registry.get(type_name)
         if not fn:
-            raise ValueError(f"未知节点类型: {type_name}")
+            raise ValueError(f"未知节点类型: {type_name}，已注册的节点: {list(registry.keys())}")
         return fn
 
     # ---------------- canonicalize ----------------

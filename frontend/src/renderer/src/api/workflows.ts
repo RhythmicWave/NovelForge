@@ -86,4 +86,15 @@ export function deleteWorkflowTrigger(id: number): Promise<void> {
   return request.delete(`/workflow-triggers/${id}`, undefined, '/api', { showLoading: false })
 }
 
+export interface WorkflowNodeType {
+  type: string
+  name: string
+  category: string
+  description: string
+}
+
+export function getWorkflowNodeTypes(): Promise<{ node_types: WorkflowNodeType[] }> {
+  return request.get('/workflow-node-types', undefined, '/api', { showLoading: false })
+}
+
 

@@ -558,7 +558,19 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
  if (typeId) {
    // 仅对真实卡片节点生效，分组节点不接收
    if (nodeData?.__isGroup) return
-   await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
+   const newCard = await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
+   
+   //  记录创建操作
+   if (newCard && projectStore.currentProject?.id) {
+     const cardType = cardStore.cardTypes.find(ct => ct.id === typeId)
+     assistantStore.recordOperation(projectStore.currentProject.id, {
+       type: 'create',
+       cardId: (newCard as any).id,
+       cardTitle: newCard.title,
+       cardType: cardType?.name || 'Unknown'
+     })
+   }
+   
    return
  }
  try {
@@ -609,8 +621,60 @@ watch(activeCard, (c) => {
    const pid = projectStore.currentProject?.id as number
    const pname = projectStore.currentProject?.name || ''
    assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: (c as any).id, cardTitle: (c as any).title || '', content: (c as any).content || {} })
- } catch {}
+   
+   //  更新卡片上下文（用于灵感助手工具调用）
+   console.log('🔄 [Editor] 更新卡片上下文:', { card_id: (c as any).id, title: (c as any).title, pid })
+   assistantStore.updateActiveCard(c as any, pid)
+   
+   //  更新项目结构（当前卡片变化时）
+   updateProjectStructureContext((c as any)?.id)
+ } catch (err) {
+   console.error('🔄 [Editor] 更新卡片上下文失败:', err)
+ }
 })
+
+//  监听项目切换，初始化结构和操作历史
+watch(() => projectStore.currentProject, (newProject) => {
+  if (!newProject?.id) return
+  
+  try {
+    console.log('📦 [Editor] 项目切换，初始化助手上下文:', newProject.name)
+    
+    // 加载操作历史
+    assistantStore.loadOperations(newProject.id)
+    
+    // 更新卡片类型列表
+    assistantStore.updateProjectCardTypes(cardStore.cardTypes.map(ct => ct.name))
+    
+    // 构建项目结构
+    updateProjectStructureContext(activeCard.value?.id)
+  } catch (err) {
+    console.error('📦 [Editor] 初始化助手上下文失败:', err)
+  }
+}, { immediate: true })
+
+//  监听卡片数据变化，自动更新项目结构
+watch(() => cards.value.length, () => {
+  try {
+    updateProjectStructureContext(activeCard.value?.id)
+  } catch (err) {
+    console.error('🔄 [Editor] 更新项目结构失败:', err)
+  }
+})
+
+//  统一更新项目结构的函数
+function updateProjectStructureContext(currentCardId?: number) {
+  const project = projectStore.currentProject
+  if (!project?.id) return
+  
+  assistantStore.updateProjectStructure(
+    project.id,
+    project.name,
+    cards.value,
+    cardStore.cardTypes,
+    currentCardId
+  )
+}
 
 function onNodeExpand(_: any, node: any) {
   editorStore.addExpandedKey(String(node.key))
@@ -634,7 +698,19 @@ async function handleCreateCard() {
     ...newCardForm,
     parent_id: (newCardForm as any).parent_id === '' ? undefined : (newCardForm as any).parent_id
   }
-  await cardStore.addCard(payload as CardCreate);
+  const newCard = await cardStore.addCard(payload as CardCreate);
+  
+  //  记录创建操作
+  if (newCard && projectStore.currentProject?.id) {
+    const cardType = cardStore.cardTypes.find(ct => ct.id === newCardForm.card_type_id)
+    assistantStore.recordOperation(projectStore.currentProject.id, {
+      type: 'create',
+      cardId: (newCard as any).id,
+      cardTitle: newCard.title,
+      cardType: cardType?.name || 'Unknown'
+    })
+  }
+  
   isCreateCardDialogVisible.value = false;
   // Reset form
   Object.assign(newCardForm, { title: '', card_type_id: undefined, parent_id: '' as any });
@@ -738,7 +814,22 @@ function onSidebarContextMenu(e: MouseEvent) {
 async function deleteNode(cardId: number, title: string) {
   try {
     await ElMessageBox.confirm(`确认删除卡片「${title}」？此操作不可恢复`, '删除确认', { type: 'warning' })
+    
+    //  删除前记录卡片信息
+    const card = cards.value.find(c => (c as any).id === cardId)
+    const cardType = card ? ((card as any).card_type?.name || 'Unknown') : 'Unknown'
+    
     await cardStore.removeCard(cardId)
+    
+    //  记录删除操作
+    if (projectStore.currentProject?.id) {
+      assistantStore.recordOperation(projectStore.currentProject.id, {
+        type: 'delete',
+        cardId,
+        cardTitle: title,
+        cardType
+      })
+    }
   } catch (e) {
     // 用户取消
   }
@@ -969,6 +1060,13 @@ onMounted(async () => {
   await cardStore.fetchInitialData()
   // 进入编辑页时也刷新一次可用模型（处理应用在其他页新增模型的场景）
   await cardStore.fetchAvailableModels()
+  
+  // 更新项目卡片类型列表（用于灵感助手工具调用）
+  try {
+    const types = cardStore.cardTypes.map(t => t.name)
+    assistantStore.updateProjectCardTypes(types)
+  } catch {}
+  
   window.addEventListener('nf:navigate', onNavigate as any)
   window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
   window.addEventListener('nf:switch-right-tab', onSwitchRightTab as any)

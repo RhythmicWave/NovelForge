@@ -450,7 +450,7 @@ def init_workflows(db: Session):
             {"id": "upsert_scene2", "type": "Card.UpsertChildByTitle", "params": {"cardType": "场景卡", "title": "{item.name}", "contentPath": "item"}, "position": {"x": 880, "y": 260}},
             {"id": "foreach_stage", "type": "List.ForEachRange", "params": {"countPath": "$.content.stage_count", "start": 1}, "position": {"x": 1300, "y": 80}},
             {"id": "upsert_stage", "type": "Card.UpsertChildByTitle", "params": {"cardType": "阶段大纲", "title": "阶段{index}", "contentTemplate": {"stage_number": "{index}", "volume_number": "{$.content.volume_number}"}}, "position": {"x": 1300, "y": 260}},
-            {"id": "upsert_guide", "type": "Card.UpsertChildByTitle", "params": {"cardType": "写作指南", "title": "第{$.content.volume_number}卷-写作指南", "contentTemplate": {"volume_number": "{$.content.volume_number}"}}, "position": {"x": 1720, "y": 170}}
+            {"id": "upsert_guide", "type": "Card.UpsertChildByTitle", "params": {"cardType": "写作指南", "title": "写作指南", "contentTemplate": {"volume_number": "{$.content.volume_number}"}}, "position": {"x": 1720, "y": 170}}
         ],
         "edges": [
             {"id": "e-read_vol-foreach_new_chars", "source": "read_vol", "target": "foreach_new_chars", "sourceHandle": "r", "targetHandle": "l"},

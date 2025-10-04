@@ -1,12 +1,47 @@
 from __future__ import annotations
 
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, List, Dict, Callable
 import re
 import copy
 from sqlmodel import Session, select
 
 from app.db.models import Card, CardType
 from loguru import logger
+
+
+# ==================== 节点注册机制 ====================
+# 使用装饰器自动注册工作流节点，避免手动维护映射表
+
+_NODE_REGISTRY: Dict[str, Callable] = {}
+
+
+def register_node(node_type: str):
+    """
+    装饰器：自动注册工作流节点
+    
+    用法:
+        @register_node("Card.Read")
+        def node_card_read(session, state, params):
+            ...
+    """
+    def decorator(func: Callable):
+        _NODE_REGISTRY[node_type] = func
+        logger.debug(f"[节点注册] {node_type} -> {func.__name__}")
+        return func
+    return decorator
+
+
+def get_registered_nodes() -> Dict[str, Callable]:
+    """获取所有已注册的节点"""
+    return _NODE_REGISTRY.copy()
+
+
+def get_node_types() -> List[str]:
+    """获取所有已注册的节点类型名称"""
+    return list(_NODE_REGISTRY.keys())
+
+
+# ======================================================
 
 
 def _parse_schema_fields(schema: dict, path: str = "$.content", max_depth: int = 5) -> List[dict]:
@@ -286,6 +321,7 @@ def _get_from_state(path_expr: Any, state: dict) -> Any:
     return path_expr
 
 
+@register_node("Card.Read")
 def node_card_read(session: Session, state: dict, params: dict) -> dict:
     """
     Card.Read: 读取锚点卡片或指定 card_id，写入 state['card'] 并返回 {'card': Card}
@@ -341,6 +377,7 @@ def node_card_read(session: Session, state: dict, params: dict) -> dict:
     }
 
 
+@register_node("Card.ModifyContent")
 def node_card_modify_content(session: Session, state: dict, params: dict) -> dict:
     """
     Card.ModifyContent: 将 params['contentMerge'](dict) 浅合并到当前 card.content
@@ -422,6 +459,7 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
     return {"card": card}
 
 
+@register_node("Card.UpsertChildByTitle")
 def node_card_upsert_child_by_title(session: Session, state: dict, params: dict) -> dict:
     """
     Card.UpsertChildByTitle: 在目标父卡片下按标题创建/更新子卡。
@@ -550,6 +588,7 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
     return {"card": result}
 
 
+@register_node("List.ForEach")
 def node_list_foreach(session: Session, state: dict, params: dict, run_body):
     """
     List.ForEach: 遍历列表并为每个元素执行 body 节点。
@@ -588,6 +627,7 @@ def node_list_foreach(session: Session, state: dict, params: dict, run_body):
         run_body()
 
 
+@register_node("List.ForEachRange")
 def node_list_foreach_range(session: Session, state: dict, params: dict, run_body):
     """
     List.ForEachRange: 根据计数遍历 1..N
@@ -618,6 +658,7 @@ def node_list_foreach_range(session: Session, state: dict, params: dict, run_bod
         run_body()
 
 
+@register_node("Card.ClearFields")
 def node_card_clear_fields(session: Session, state: Dict[str, Any], params: Dict[str, Any]) -> None:
     """
     Card.ClearFields: 清空卡片的指定字段
@@ -661,4 +702,185 @@ def node_card_clear_fields(session: Session, state: Dict[str, Any], params: Dict
     # 记录受影响的卡片
     if "touched_card_ids" in state:
         state["touched_card_ids"].add(target_id)
+
+
+@register_node("Card.ReplaceFieldText")
+def node_card_replace_field_text(session: Session, state: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Card.ReplaceFieldText: 替换卡片字段中的指定文本片段
+    
+    参数:
+    - card_id: 目标卡片ID
+    - field_path: 字段路径（如 "content", "overview" 等）
+    - old_text: 要被替换的原文片段（必须完全匹配）
+    - new_text: 新的文本内容
+    
+    返回:
+    - success: 是否成功
+    - replaced_count: 替换次数
+    - old_length: 原文本长度
+    - new_length: 新文本长度
+    - error: 错误信息（如果失败）
+    """
+    card_id = params.get("card_id")
+    field_path = params.get("field_path", "")
+    old_text = params.get("old_text", "")
+    new_text = params.get("new_text", "")
+    
+    if not card_id:
+        return {"success": False, "error": "缺少 card_id 参数"}
+    
+    if not field_path:
+        return {"success": False, "error": "缺少 field_path 参数"}
+    
+    if not old_text:
+        return {"success": False, "error": "缺少 old_text 参数"}
+    
+    # 获取卡片
+    card = _get_card_by_id(session, int(card_id))
+    if not card:
+        return {"success": False, "error": f"卡片 {card_id} 不存在"}
+    
+    # 处理字段路径，标准化为 content. 前缀
+    normalized_path = field_path
+    if not normalized_path.startswith("content."):
+        normalized_path = f"content.{normalized_path}"
+    
+    logger.info(f"  原始字段路径: {field_path}")
+    logger.info(f"  标准化路径: {normalized_path}")
+    
+    # 获取字段当前值
+    path_parts = normalized_path.split(".")
+    logger.info(f"  路径分段: {path_parts}")
+    
+    current_value = card.content or {}
+    logger.info(f"  card.content 类型: {type(current_value)}")
+    logger.info(f"  card.content 键: {list(current_value.keys()) if isinstance(current_value, dict) else 'N/A'}")
+    
+    # 逐层访问到目标字段
+    for i, part in enumerate(path_parts[1:]):  # 跳过 "content"
+        logger.info(f"  访问层级 {i+1}: 字段 '{part}', 当前值类型 {type(current_value)}")
+        if isinstance(current_value, dict):
+            current_value = current_value.get(part, "")
+            logger.info(f"    获取到的值长度: {len(str(current_value))}")
+        else:
+            return {
+                "success": False,
+                "error": f"字段路径 {normalized_path} 无效（在 {part} 处不是字典）"
+            }
+    
+    # 确保当前值是字符串
+    if not isinstance(current_value, str):
+        return {
+            "success": False,
+            "error": f"字段 {field_path} 不是文本类型，无法进行文本替换"
+        }
+    
+    # 检查是否使用模糊匹配模式（开头...结尾）
+    fuzzy_match = False
+    actual_old_text = old_text
+    
+    if "..." in old_text or "……" in old_text:
+        # 模糊匹配模式：提取开头和结尾
+        fuzzy_match = True
+        separator = "..." if "..." in old_text else "……"
+        parts = old_text.split(separator, 1)  # 只分割一次
+        
+        if len(parts) == 2:
+            start_text = parts[0].strip()
+            end_text = parts[1].strip()
+            
+            logger.info(f"  🔍 使用模糊匹配模式")
+            logger.info(f"  开头文本: {start_text[:20]}...")
+            logger.info(f"  结尾文本: ...{end_text[-20:]}")
+            
+            # 在内容中查找匹配的片段
+            start_idx = current_value.find(start_text)
+            if start_idx == -1:
+                return {
+                    "success": False,
+                    "error": f"在字段 '{field_path}' 中未找到开头文本: {start_text[:30]}...",
+                    "hint": "请确认开头文本是否完全匹配"
+                }
+            
+            # 从开头位置之后查找结尾
+            end_search_start = start_idx + len(start_text)
+            end_idx = current_value.find(end_text, end_search_start)
+            if end_idx == -1:
+                return {
+                    "success": False,
+                    "error": f"在字段 '{field_path}' 中未找到结尾文本: ...{end_text[-30:]}",
+                    "hint": "请确认结尾文本是否完全匹配"
+                }
+            
+            # 提取完整的匹配片段
+            actual_old_text = current_value[start_idx:end_idx + len(end_text)]
+            logger.info(f"  ✅ 模糊匹配成功，找到 {len(actual_old_text)} 字符的片段")
+        else:
+            return {
+                "success": False,
+                "error": "模糊匹配格式错误，应为：开头文本...结尾文本",
+                "hint": "使用三个点或六个点作为分隔符"
+            }
+    
+    # 检查原文是否存在（精确匹配或模糊匹配后的完整文本）
+    if actual_old_text not in current_value:
+        preview = current_value[:100] + "..." if len(current_value) > 100 else current_value
+        error_message = f"在字段 '{field_path}' 中未找到指定的原文片段"
+        logger.warning(f"⚠️ 文本未找到，field_path='{field_path}'")
+        return {
+            "success": False,
+            "error": error_message,
+            "field_preview": preview,
+            "hint": "请确认原文片段是否完全匹配（包括标点符号和空格、换行符）"
+        }
+    
+    # 执行替换
+    replaced_count = current_value.count(actual_old_text)
+    updated_value = current_value.replace(actual_old_text, new_text)
+    
+    if fuzzy_match:
+        logger.info(f"  📝 模糊匹配替换: 原文 {len(actual_old_text)} 字符 → 新文本 {len(new_text)} 字符")
+    
+    logger.info(f"[Card.ReplaceFieldText] card_id={card_id}, field={field_path}, 找到 {replaced_count} 处匹配")
+    logger.info(f"  替换前长度: {len(current_value)} 字符")
+    logger.info(f"  替换后长度: {len(updated_value)} 字符")
+    
+    # 使用深拷贝避免修改原始对象
+    content = copy.deepcopy(card.content or {})
+    
+    # 设置更新后的值
+    # 去掉 "content." 前缀，得到实际的字段路径
+    field_parts = normalized_path.split(".")[1:]  # 去掉 "content"，得到 ["field"] 或 ["nested", "field"]
+    
+    # 逐层访问并设置值
+    current_dict = content
+    for part in field_parts[:-1]:
+        if part not in current_dict:
+            current_dict[part] = {}
+        current_dict = current_dict[part]
+    
+    # 设置最终字段的值
+    current_dict[field_parts[-1]] = updated_value
+    
+    card.content = content
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    
+    # 记录受影响的卡片
+    if "touched_card_ids" in state:
+        state["touched_card_ids"].add(int(card_id))
+    
+    logger.info(f"[Card.ReplaceFieldText] 替换成功")
+    
+    return {
+        "success": True,
+        "card_id": card_id,
+        "card_title": card.title,
+        "field_path": field_path,
+        "replaced_count": replaced_count,
+        "old_length": len(current_value),
+        "new_length": len(updated_value)
+    }
 

@@ -259,6 +259,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/assistant/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assistant Chat
+         * @description 灵感助手对话接口（支持工具调用）
+         *
+         *     特点：
+         *     - 专用请求模型（语义清晰）
+         *     - 自动注入工具集
+         *     - 支持流式输出
+         *     - 支持工具调用结果返回
+         */
+        post: operations["assistant_chat_api_ai_assistant_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prompts/": {
         parameters: {
             query?: never;
@@ -770,43 +796,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/project-templates/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 获取项目模板列表 */
-        get: operations["list_templates_api_project_templates__get"];
-        put?: never;
-        /** 创建项目模板 */
-        post: operations["create_template_api_project_templates__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/project-templates/{tid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 获取单个项目模板 */
-        get: operations["get_template_api_project_templates__tid__get"];
-        /** 更新项目模板 */
-        put: operations["update_template_api_project_templates__tid__put"];
-        post?: never;
-        /** 删除项目模板 */
-        delete: operations["delete_template_api_project_templates__tid__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/workflows": {
         parameters: {
             query?: never;
@@ -1070,18 +1059,6 @@ export interface components {
             /** Message */
             message?: string | null;
         };
-        /** ApiResponse[List[ProjectTemplateRead]] */
-        ApiResponse_List_ProjectTemplateRead__: {
-            /**
-             * Status
-             * @default success
-             */
-            status: string;
-            /** Data */
-            data?: components["schemas"]["ProjectTemplateRead"][] | null;
-            /** Message */
-            message?: string | null;
-        };
         /** ApiResponse[List[PromptRead]] */
         ApiResponse_List_PromptRead__: {
             /**
@@ -1102,17 +1079,6 @@ export interface components {
              */
             status: string;
             data?: components["schemas"]["ProjectRead"] | null;
-            /** Message */
-            message?: string | null;
-        };
-        /** ApiResponse[ProjectTemplateRead] */
-        ApiResponse_ProjectTemplateRead_: {
-            /**
-             * Status
-             * @default success
-             */
-            status: string;
-            data?: components["schemas"]["ProjectTemplateRead"] | null;
             /** Message */
             message?: string | null;
         };
@@ -1182,6 +1148,60 @@ export interface components {
             };
             /** @description 结构化事实子图 */
             facts_structured?: components["schemas"]["FactsStructured"] | null;
+        };
+        /**
+         * AssistantChatRequest
+         * @description 灵感助手对话请求（新格式）
+         */
+        AssistantChatRequest: {
+            /**
+             * Context Info
+             * @description 完整的项目上下文信息（包含项目结构、操作历史、引用卡片等）
+             */
+            context_info: string;
+            /**
+             * User Prompt
+             * @description 用户当前输入（可为空）
+             * @default
+             */
+            user_prompt: string;
+            /**
+             * Project Id
+             * @description 项目ID（用于工具调用作用域）
+             */
+            project_id: number;
+            /**
+             * Llm Config Id
+             * @description LLM配置ID
+             */
+            llm_config_id: number;
+            /**
+             * Prompt Name
+             * @description 系统提示词名称
+             * @default 灵感对话
+             */
+            prompt_name: string;
+            /**
+             * Temperature
+             * @description 采样温度 0-2
+             */
+            temperature?: number | null;
+            /**
+             * Max Tokens
+             * @description 最大token数
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 超时秒数
+             */
+            timeout?: number | null;
+            /**
+             * Stream
+             * @description 是否流式输出
+             * @default true
+             */
+            stream: boolean;
         };
         /** CancelResponse */
         CancelResponse: {
@@ -1390,7 +1410,11 @@ export interface components {
         };
         /** ContinuationRequest */
         ContinuationRequest: {
-            /** Previous Content */
+            /**
+             * Previous Content
+             * @description 已写的章节内容
+             * @default
+             */
             previous_content: string;
             /** Llm Config Id */
             llm_config_id: number;
@@ -1423,10 +1447,15 @@ export interface components {
              */
             timeout?: number | null;
             /**
-             * Current Draft Tail
-             * @description 上下文模板，将在装配阶段作为草稿尾部注入
+             * Context Info
+             * @description 上下文信息，包括引用内容和事实子图
              */
-            current_draft_tail?: string | null;
+            context_info?: string | null;
+            /**
+             * Existing Word Count
+             * @description 已有章节正文的字数统计
+             */
+            existing_word_count?: number | null;
             /**
              * Prompt Name
              * @description 参数卡选择的提示词名称
@@ -1875,8 +1904,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /** Template Id */
-            template_id?: number | null;
+            /** Workflow Id */
+            workflow_id?: number | null;
         };
         /** ProjectRead */
         ProjectRead: {
@@ -1886,77 +1915,6 @@ export interface components {
             description?: string | null;
             /** Id */
             id: number;
-        };
-        /** ProjectTemplateCreate */
-        ProjectTemplateCreate: {
-            /** Name */
-            name: string;
-            /** Description */
-            description?: string | null;
-            /**
-             * Built In
-             * @default false
-             */
-            built_in: boolean;
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["ProjectTemplateItemCreate"][];
-        };
-        /** ProjectTemplateItemCreate */
-        ProjectTemplateItemCreate: {
-            /** Card Type Id */
-            card_type_id: number;
-            /**
-             * Display Order
-             * @default 0
-             */
-            display_order: number;
-            /** Title Override */
-            title_override?: string | null;
-        };
-        /** ProjectTemplateItemRead */
-        ProjectTemplateItemRead: {
-            /** Card Type Id */
-            card_type_id: number;
-            /**
-             * Display Order
-             * @default 0
-             */
-            display_order: number;
-            /** Title Override */
-            title_override?: string | null;
-            /** Id */
-            id: number;
-        };
-        /** ProjectTemplateRead */
-        ProjectTemplateRead: {
-            /** Name */
-            name: string;
-            /** Description */
-            description?: string | null;
-            /**
-             * Built In
-             * @default false
-             */
-            built_in: boolean;
-            /** Id */
-            id: number;
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["ProjectTemplateItemRead"][];
-        };
-        /** ProjectTemplateUpdate */
-        ProjectTemplateUpdate: {
-            /** Name */
-            name?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Items */
-            items?: components["schemas"]["ProjectTemplateItemCreate"][] | null;
         };
         /** ProjectUpdate */
         ProjectUpdate: {
@@ -2928,6 +2886,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tags"];
+                };
+            };
+        };
+    };
+    assistant_chat_api_ai_assistant_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4351,156 +4342,6 @@ export interface operations {
             header?: never;
             path: {
                 kid: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_templates_api_project_templates__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_List_ProjectTemplateRead__"];
-                };
-            };
-        };
-    };
-    create_template_api_project_templates__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectTemplateCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_template_api_project_templates__tid__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tid: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_template_api_project_templates__tid__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tid: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectTemplateUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_ProjectTemplateRead_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_template_api_project_templates__tid__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tid: number;
             };
             cookie?: never;
         };

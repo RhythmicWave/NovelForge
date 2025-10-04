@@ -129,7 +129,58 @@
 		<div ref="cmRoot" class="editor-content"></div>
 	</div>
 
-		<!-- 移除ContextDrawer和CardReferenceSelectorDialog，这些功能已在右栏 -->
+		<!-- 右键快速编辑菜单 -->
+		<Teleport to="body">
+			<div 
+				v-if="contextMenu.visible" 
+				class="context-menu-popup"
+				:style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+			>
+				<div v-if="!contextMenu.expanded" class="context-menu-compact">
+					<el-button 
+						type="primary" 
+						size="small" 
+						@click="expandContextMenu"
+					>
+						快速编辑
+					</el-button>
+				</div>
+				<div v-else class="context-menu-expanded">
+					<el-input
+						v-model="contextMenu.userRequirement"
+						:autosize="{ minRows: 2, maxRows: 4 }"
+						type="textarea"
+						placeholder="描述你的要求，如：让语气更加强硬、增加环境描写..."
+						size="small"
+						style="margin-bottom: 8px;"
+					/>
+					<div class="context-menu-actions">
+						<el-button 
+							type="primary" 
+							size="small" 
+							:loading="aiLoading"
+							@click="handleContextMenuPolish"
+						>
+							<el-icon><Document /></el-icon> 润色
+						</el-button>
+						<el-button 
+							type="primary" 
+							size="small"
+							:loading="aiLoading"
+							@click="handleContextMenuExpand"
+						>
+							<el-icon><MagicStick /></el-icon> 扩写
+						</el-button>
+						<el-button 
+							size="small"
+							@click="closeContextMenu"
+						>
+							取消
+						</el-button>
+					</div>
+				</div>
+			</div>
+		</Teleport>
 
 		<el-dialog v-model="previewDialogVisible" title="动态信息预览" width="70%">
 			<div v-if="previewData">
@@ -199,7 +250,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { useCardStore } from '@renderer/stores/useCardStore'
@@ -214,8 +265,8 @@ import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, 
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 import { resolveTemplate } from '@renderer/services/contextResolver'
 
-import { EditorState } from '@codemirror/state'
-import { EditorView, keymap } from '@codemirror/view'
+import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import { EditorView, keymap, Decoration, DecorationSet } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewline } from '@codemirror/commands'
 
 const props = defineProps<{ card: CardRead; chapter?: any; prefetched?: any | null; contextParams?: { project_id?: number; volume_number?: number; chapter_number?: number; participants?: string[]; extra_context_fn?: Function } }>()
@@ -236,6 +287,32 @@ const ready = ref(false)
 const cmRoot = ref<HTMLElement | null>(null)
 const titleElement = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
+
+// 自定义高亮系统
+const setHighlightEffect = StateEffect.define<{ from: number; to: number } | null>()
+
+const highlightField = StateField.define<DecorationSet>({
+	create() {
+		return Decoration.none
+	},
+	update(highlights, tr) {
+		highlights = highlights.map(tr.changes)
+		for (const effect of tr.effects) {
+			if (effect.is(setHighlightEffect)) {
+				if (effect.value === null) {
+					highlights = Decoration.none
+				} else {
+					const decoration = Decoration.mark({
+						class: 'cm-ai-highlight'
+					}).range(effect.value.from, effect.value.to)
+					highlights = Decoration.set([decoration])
+				}
+			}
+		}
+		return highlights
+	},
+	provide: f => EditorView.decorations.from(f)
+})
 
 const localCard = reactive({
 	...props.card,
@@ -277,7 +354,7 @@ const paramSummary = computed(() => {
 watch(() => props.card, async (newCard) => {
 	if (!newCard) return
 	await loadAIOptions()
-	// 优先读取后端“有效参数”（类型默认或实例覆盖）
+	// 优先读取后端"有效参数"（类型默认或实例覆盖）
 	try {
 		const resp = await getCardAIParams(newCard.id)
 		const eff = (resp as any)?.effective_params
@@ -297,6 +374,47 @@ watch(() => props.card, async (newCard) => {
 		perCardStore.setForCard(newCard.id, editingParams.value)
 	}
 }, { immediate: true })
+
+// 监听卡片内容变化（如灵感助手修改后），同步到编辑器
+watch(() => props.card?.content, (newContent) => {
+	if (!newContent || !view) return
+	
+	try {
+		const newText = typeof (newContent as any)?.content === 'string' 
+			? (newContent as any).content 
+			: ''
+		const currentText = getText()
+		
+		// 只有当内容真的不同，且不是由当前编辑器触发的保存时，才更新
+		// （通过比较 originalContent 判断：如果相同说明是外部修改）
+		if (newText !== currentText && newText !== originalContent.value) {
+			console.log('🔄 [CodeMirror] 检测到外部内容更新，同步到编辑器')
+			
+			// 更新编辑器内容
+			setText(newText)
+			
+			// 更新 localCard
+			localCard.content = {
+				...(localCard.content || {}),
+				...(newContent as any),
+				content: newText,
+				word_count: newText.length
+			}
+			
+			// 更新原始内容引用（避免触发 dirty）
+			originalContent.value = newText
+			isDirty.value = false
+			emit('update:dirty', false)
+			
+			// 更新字数
+			wordCount.value = computeWordCount(newText)
+			
+			console.log('✅ [CodeMirror] 编辑器内容已同步')
+		}
+	} catch (e) {
+		console.error('❌ [CodeMirror] 同步内容失败:', e)
+	}
+}, { deep: true })
 
 function applyAndSavePerCardParams() {
 	try { perCardStore.setForCard(props.card.id, { ...editingParams.value }); ElMessage.success('已保存到本卡片设置') } catch { ElMessage.error('保存失败') }
@@ -338,6 +456,57 @@ const wordCount = ref(0)
 const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
 const previewBeforeUpdate = ref(true)
+
+// 右键菜单状态
+const contextMenu = reactive({
+	visible: false,
+	expanded: false,
+	x: 0,
+	y: 0,
+	userRequirement: '',
+	selectedText: null as { text: string; from: number; to: number } | null
+})
+
+// 高亮管理
+const currentHighlight = ref<{ from: number; to: number } | null>(null)
+
+// 设置高亮
+function setHighlight(from: number, to: number) {
+	if (!view) return
+	// CodeMirror 不允许空范围的 decoration
+	if (from >= to) {
+		console.log('⚠️ [Highlight] 跳过空范围高亮:', { from, to })
+		return
+	}
+	currentHighlight.value = { from, to }
+	view.dispatch({
+		effects: setHighlightEffect.of({ from, to })
+	})
+	console.log('✨ [Highlight] 设置高亮:', { from, to })
+}
+
+// 清除高亮
+function clearHighlight() {
+	if (!view) return
+	currentHighlight.value = null
+	view.dispatch({
+		effects: setHighlightEffect.of(null)
+	})
+	console.log('🧹 [Highlight] 清除高亮')
+}
+
+// 更新高亮范围（用于 AI 输出时）
+function updateHighlight(from: number, to: number) {
+	if (!view) return
+	// CodeMirror 不允许空范围的 decoration
+	if (from >= to) {
+		return
+	}
+	currentHighlight.value = { from, to }
+	view.dispatch({
+		effects: setHighlightEffect.of({ from, to })
+	})
+}
 
 // 跟踪原始内容以检测dirty状态
 const originalContent = ref<string>('')
@@ -407,17 +576,6 @@ function appendAtEnd(delta: string) {
 	} catch {}
 }
 
-function indentNonEmptyLines(text: string): string {
-	return (text || '')
-		.split('\n')
-		.map(line => {
-			const raw = line
-			const trimmed = raw.trim()
-			if (!trimmed) return ''
-			return raw.startsWith('　　') ? raw : `　　${raw}`
-		})
-		.join('\n')
-}
 
 function initEditor() {
 	if (!cmRoot.value) return
@@ -455,10 +613,21 @@ function initEditor() {
 				history(),
 				keymap.of([...customKeymap, ...defaultKeymap, ...historyKeymap]),
 				EditorView.lineWrapping,
+				highlightField,
 				// 关键：限制编辑器高度由父容器决定，而不是根据内容自动扩展
 				EditorView.theme({
 					"&": { height: "100%" },
 					".cm-scroller": { overflow: "auto" }
+				}),
+				// 点击编辑器时清除高亮
+				EditorView.domEventHandlers({
+					mousedown: (e, view) => {
+						if (currentHighlight.value) {
+							clearHighlight()
+							return false
+						}
+						return false
+					}
 				}),
 				EditorView.updateListener.of((update) => {
 					if (!update.docChanged) return
@@ -496,6 +665,17 @@ function initEditor() {
 	// 初始化字数
 	wordCount.value = computeWordCount(getText())
 	ready.value = true
+	
+	// 添加右键菜单监听器到 CodeMirror 的 DOM 元素
+	if (view && cmRoot.value) {
+		const editorDom = cmRoot.value.querySelector('.cm-editor') as HTMLElement
+		if (editorDom) {
+			editorDom.addEventListener('contextmenu', handleEditorContextMenu)
+			console.log('✅ [ContextMenu] 右键菜单监听器已添加')
+		} else {
+			console.warn('⚠️ [ContextMenu] 未找到 .cm-editor 元素')
+		}
+	}
 }
 
 
@@ -733,7 +913,97 @@ async function executeExpand() {
 	await executeAIEdit(currentExpandPrompt.value)
 }
 
-async function executeAIEdit(promptName: string) {
+// 右键菜单处理函数
+function handleEditorContextMenu(e: MouseEvent) {
+	console.log(' [ContextMenu] 右键事件触发')
+	
+	// 检查是否有选中文本
+	const selection = getSelectedText()
+	if (!selection || !selection.text.trim()) {
+		console.log('⚠️ [ContextMenu] 没有选中文本，使用默认菜单')
+		return // 没有选中文本，使用默认右键菜单
+	}
+	
+	
+	e.preventDefault()
+	e.stopPropagation()
+	
+	// 保存选中的文本信息
+	contextMenu.selectedText = selection
+	contextMenu.visible = true
+	contextMenu.expanded = false
+	contextMenu.userRequirement = ''
+	
+	// 设置自定义高亮，替代默认选中效果
+	setHighlight(selection.from, selection.to)
+	
+	// 计算菜单位置（避免超出屏幕）
+	const menuWidth = 280
+	const menuHeight = 200
+	let x = e.clientX
+	let y = e.clientY
+	
+	if (x + menuWidth > window.innerWidth) {
+		x = window.innerWidth - menuWidth - 10
+	}
+	if (y + menuHeight > window.innerHeight) {
+		y = window.innerHeight - menuHeight - 10
+	}
+	
+	contextMenu.x = x
+	contextMenu.y = y
+	
+	
+	// 延迟注册点击外部关闭的监听器，避免立即触发
+	setTimeout(() => {
+		if (!contextMenuClickListenerAdded) {
+			window.addEventListener('click', handleClickOutside, { capture: true })
+			contextMenuClickListenerAdded = true
+		}
+	}, 100)
+}
+
+let contextMenuClickListenerAdded = false
+
+function expandContextMenu() {
+	contextMenu.expanded = true
+	// 自动聚焦输入框
+	nextTick(() => {
+		const input = document.querySelector('.context-menu-popup textarea') as HTMLTextAreaElement
+		if (input) {
+			input.focus()
+		} else {
+			console.warn('⚠️ [ContextMenu] 未找到输入框')
+		}
+	})
+}
+
+function closeContextMenu() {
+	contextMenu.visible = false
+	contextMenu.expanded = false
+	contextMenu.userRequirement = ''
+	contextMenu.selectedText = null
+	
+	// 移除点击外部关闭的监听器
+	if (contextMenuClickListenerAdded) {
+		window.removeEventListener('click', handleClickOutside, { capture: true })
+		contextMenuClickListenerAdded = false
+	}
+}
+
+async function handleContextMenuPolish() {
+	const requirement = contextMenu.userRequirement.trim()
+	closeContextMenu()
+	await executeAIEdit(currentPolishPrompt.value, requirement || undefined)
+}
+
+async function handleContextMenuExpand() {
+	const requirement = contextMenu.userRequirement.trim()
+	closeContextMenu()
+	await executeAIEdit(currentExpandPrompt.value, requirement || undefined)
+}
+
+async function executeAIEdit(promptName: string, userRequirement?: string) {
 	const selectedText = getSelectedText()
 	if (!selectedText) {
 		ElMessage.warning(`请先选中要${promptName}的内容`)
@@ -748,26 +1018,76 @@ async function executeAIEdit(promptName: string) {
 
 	aiLoading.value = true
 
-	// 格式化事实子图（参与实体）
+	// 获取完整文本
+	const fullText = getText()
+
+	// 1. 解析 ai_context_template（引用上下文）
+	let resolvedContextTemplate = ''
+	try {
+		const aiContextTemplate = (props.card as any)?.ai_context_template || ''
+		if (aiContextTemplate) {
+			const currentCardWithContent = { 
+				...props.card, 
+				content: {
+					...localCard.content,
+					content: fullText
+				}
+			}
+			resolvedContextTemplate = resolveTemplate({ 
+				template: aiContextTemplate, 
+				cards: cards.value, 
+				currentCard: currentCardWithContent as any 
+			})
+		}
+	} catch (e) {
+		console.error('Failed to resolve ai_context_template:', e)
+	}
+
+	// 2. 格式化事实子图（参与实体）
 	let factsText = ''
 	try {
 		factsText = formatFactsFromContext(props.prefetched)
 	} catch {}
 
-	// 组合上下文信息：事实子图 + 选中内容
+	// 3. 组合上下文信息：引用上下文 + 事实子图 + 用户要求 + 上文 + 选中内容 + 下文
 	const contextParts: string[] = []
+	if (resolvedContextTemplate) {
+		contextParts.push(`【引用上下文】\n${resolvedContextTemplate}`)
+	}
 	if (factsText) {
 		contextParts.push(`【事实子图】\n${factsText}`)
 	}
+	if (userRequirement) {
+		contextParts.push(`【用户要求】\n${userRequirement}`)
+	}
+	
+	// 提取上文（选中内容之前）
+	const beforeText = fullText.substring(0, selectedText.from)
+	if (beforeText.trim()) {
+		// 截取最后1000字作为上文
+		const truncatedBefore = beforeText.length > 1000 ? '...' + beforeText.slice(-1000) : beforeText
+		contextParts.push(`【上文】\n${truncatedBefore}`)
+	}
+	
+	// 选中的内容
 	contextParts.push(`【需要${promptName}的内容】\n${selectedText.text}`)
+	
+	// 提取下文（选中内容之后）
+	const afterText = fullText.substring(selectedText.to)
+	if (afterText.trim()) {
+		// 截取前500字作为下文
+		const truncatedAfter = afterText.length > 500 ? afterText.slice(0, 500) + '...' : afterText
+		contextParts.push(`【下文】\n${truncatedAfter}`)
+	}
 	const contextInfoBlock = contextParts.join('\n\n')
 
 	const requestData: ContinuationRequest = {
-		previous_content: getText(), // 整章内容作为上下文
+		previous_content: '', // 润色/扩写时为空，所有上下文都在 context_info 中
 		context_info: contextInfoBlock,
 		llm_config_id: llmConfigId,
 		stream: true,
 		prompt_name: promptName,
+		append_continuous_novel_directive: false, // 润色/扩写不需要"连续输出"指令
 		...(props.contextParams || {}) as any,
 	} as any
 
@@ -795,6 +1115,8 @@ function executeAIGeneration(
 ) {
 	let accumulated = ''
 	let isFirstChunk = true
+	let outputStartPos = replaceFrom ?? 0
+	let currentOutputLength = 0
 
 	if (view) { 
 		view.focus()
@@ -802,12 +1124,15 @@ function executeAIGeneration(
 			// 续写模式：光标移到末尾
 			const end = view.state.doc.length
 			view.dispatch({ selection: { anchor: end } })
+			outputStartPos = end
 		} else if (replaceFrom !== undefined && replaceTo !== undefined) {
 			// 替换模式：先清空选中内容
 			view.dispatch({
 				changes: { from: replaceFrom, to: replaceTo, insert: '' },
 				selection: { anchor: replaceFrom }
 			})
+			outputStartPos = replaceFrom
+			// 不设置高亮，等第一个字符输出时再设置（避免空范围错误）
 		}
 	}
 
@@ -832,10 +1157,16 @@ function executeAIGeneration(
 							changes: { from: pos, to: pos, insert: normalized },
 							selection: { anchor: pos + normalized.length }
 						})
+						currentOutputLength += normalized.length
+						// 动态更新高亮范围
+						updateHighlight(outputStartPos, outputStartPos + currentOutputLength)
 					}
 				} else {
 					// 续写模式：追加到末尾
 					appendAtEnd(normalized)
+					currentOutputLength += normalized.length
+					// 动态更新高亮范围
+					updateHighlight(outputStartPos, outputStartPos + currentOutputLength)
 				}
 			}
 			if (chunk.length > accumulated.length) accumulated = chunk
@@ -851,11 +1182,13 @@ function executeAIGeneration(
 					setText(text)
 				}
 			} catch {}
+			console.log('✅ [AI] 生成完成，高亮已保留（点击编辑器任意位置可清除）')
 			ElMessage.success(`${taskName}完成！`)
 		},
 		(error) => {
 			aiLoading.value = false
 			streamHandle = null
+			clearHighlight()
 			console.error(`${taskName}失败:`, error)
 			ElMessage.error(`${taskName}失败`)
 		}
@@ -935,7 +1268,6 @@ function extractCharacterParticipantsForCurrentChapter(): string[] {
 	return []
 }
 
-// 上下文相关功能已移至右栏，此处移除相关方法
 
 // 触发“动态信息提取”（右栏调用）
 editorStore.setTriggerExtractDynamicInfo(async (opts) => {
@@ -1149,9 +1481,36 @@ onMounted(() => {
 	// 监听提取事件
 	window.addEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
 	window.addEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
+	
+	// ESC 键关闭右键菜单
+	window.addEventListener('keydown', handleKeyDown)
 })
 
+function handleClickOutside(e: MouseEvent) {
+	if (!contextMenu.visible) return
+	const target = e.target as HTMLElement
+	// 点击菜单外部时关闭
+	if (!target.closest('.context-menu-popup')) {
+		closeContextMenu()
+	}
+}
+
+// 按 ESC 键关闭菜单
+function handleKeyDown(e: KeyboardEvent) {
+	if (contextMenu.visible && e.key === 'Escape') {
+		closeContextMenu()
+	}
+}
+
 onUnmounted(() => {
+	// 移除右键菜单监听器
+	if (cmRoot.value) {
+		const editorDom = cmRoot.value.querySelector('.cm-editor') as HTMLElement
+		if (editorDom) {
+			editorDom.removeEventListener('contextmenu', handleEditorContextMenu)
+		}
+	}
+	
 	try { view?.destroy() } catch {}
 	editorStore.setApplyChapterReplacements(null)
 	try { streamHandle?.cancel(); } catch {}
@@ -1159,6 +1518,13 @@ onUnmounted(() => {
 	// 移除事件监听
 	window.removeEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
 	window.removeEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
+	window.removeEventListener('keydown', handleKeyDown)
+	
+	// 清理右键菜单的点击监听器（如果还在）
+	if (contextMenuClickListenerAdded) {
+		window.removeEventListener('click', handleClickOutside, { capture: true })
+		contextMenuClickListenerAdded = false
+	}
 })
 
 // 恢复历史版本内容
@@ -1341,11 +1707,11 @@ defineExpose({
 }
 
 .editor-content {
-	flex: 1 1 0; /* 关键：flex-basis为0，避免被内容撑开 */
-	min-height: 0; /* 关键：允许flex子元素正确收缩和滚动 */
-	overflow: hidden; /* 隐藏溢出，让内部CodeMirror处理滚动 */
+	flex: 1 1 0; /* flex-basis为0，避免被内容撑开 */
+	min-height: 0; /* 允许flex子元素正确收缩和滚动 */
+	overflow: hidden; 
 	background-color: var(--el-bg-color);
-	position: relative; /* 为子元素提供定位上下文 */
+	position: relative; 
 }
 
 /* CodeMirror 内部样式 */
@@ -1386,5 +1752,82 @@ defineExpose({
 .event-meta {
 	color: var(--el-text-color-secondary);
 	margin-left: 8px;
+}
+
+/* 右键快速编辑菜单 */
+.context-menu-popup {
+	position: fixed;
+	z-index: 9999;
+	background: var(--el-bg-color-overlay);
+	border: 1px solid var(--el-border-color);
+	border-radius: 8px;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+	padding: 12px;
+	min-width: 280px;
+	max-width: 400px;
+	animation: fadeInScale 0.15s ease-out;
+}
+
+@keyframes fadeInScale {
+	from {
+		opacity: 0;
+		transform: scale(0.95);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+.context-menu-compact {
+	display: flex;
+	justify-content: center;
+}
+
+.context-menu-expanded {
+	display: flex;
+	flex-direction: column;
+}
+
+.context-menu-actions {
+	display: flex;
+	gap: 8px;
+	justify-content: space-between;
+}
+
+.context-menu-actions .el-button {
+	flex: 1;
+}
+
+/* 自定义 AI 高亮效果 */
+.editor-content :deep(.cm-ai-highlight) {
+	background: linear-gradient(120deg, 
+		rgba(96, 165, 250, 0.2) 0%, 
+		rgba(129, 140, 248, 0.2) 50%, 
+		rgba(96, 165, 250, 0.2) 100%);
+	background-size: 200% 100%;
+	animation: highlightPulse 2s ease-in-out infinite;
+	border-radius: 2px;
+	padding: 2px 0;
+	box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3);
+}
+
+@keyframes highlightPulse {
+	0%, 100% {
+		background-position: 0% 50%;
+	}
+	50% {
+		background-position: 100% 50%;
+	}
+}
+
+/* 暗色模式下的高亮 */
+.dark .editor-content :deep(.cm-ai-highlight) {
+	background: linear-gradient(120deg, 
+		rgba(59, 130, 246, 0.25) 0%, 
+		rgba(99, 102, 241, 0.25) 50%, 
+		rgba(59, 130, 246, 0.25) 100%);
+	background-size: 200% 100%;
+	box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
 }
 </style>

@@ -3,7 +3,7 @@ from fastapi import Response
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -13,8 +13,9 @@ from pydantic_ai.settings import ModelSettings
 from sqlmodel import Session
 from app.services import llm_config_service
 from loguru import logger
-from app.schemas.ai import ContinuationRequest
+from app.schemas.ai import ContinuationRequest, AssistantChatRequest
 from app.services import prompt_service
+from app.db.models import LLMConfig
 import asyncio
 import json
 
@@ -73,15 +74,22 @@ def _record_usage(session: Session, llm_config_id: int, input_tokens: int, outpu
 def _get_agent(
     session: Session,
     llm_config_id: int,
-    output_type: Type[BaseModel],
+    output_type: Optional[Type[BaseModel]] = None,
     system_prompt: str = '',
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     timeout: float = 64,
+    deps_type: Type = str,
+    tools: list = None,
 ) -> Agent:
     """
     根据LLM配置和期望的输出类型，获取一个配置好的LLM Agent实例。
     统一使用 ModelSettings 设置 temperature/max_tokens/timeout（无需按提供商分支分别设置）。
+    
+    新增参数：
+    - deps_type: 依赖注入类型（默认 str）
+    - tools: 工具列表（Pydantic AI Tool 对象）
+    - output_type: 输出类型（None 表示允许文本和工具调用）
     """
     llm_config = llm_config_service.get_llm_config(session, llm_config_id)
     if not llm_config:
@@ -96,7 +104,7 @@ def _get_agent(
         if llm_config.api_base:
             provider_config["base_url"] = llm_config.api_base
         provider = OpenAIProvider(**provider_config)
-        model = OpenAIModel(llm_config.model_name, provider=provider)
+        model = OpenAIChatModel(llm_config.model_name, provider=provider)
     elif llm_config.provider == "anthropic":
         provider_config = {"api_key": llm_config.api_key}
         if llm_config.api_base:
@@ -112,7 +120,7 @@ def _get_agent(
         if llm_config.api_base:
             provider_config["base_url"] = llm_config.api_base
         provider = OpenAIProvider(**provider_config)
-        model = OpenAIModel(llm_config.model_name, provider=provider)
+        model = OpenAIChatModel(llm_config.model_name, provider=provider)
     else:
         raise ValueError(f"不支持的提供商类型: {llm_config.provider}")
 
@@ -124,9 +132,28 @@ def _get_agent(
         extra_body=None,
     )
 
-    agent = Agent(model, system_prompt=system_prompt, model_settings=settings,deps_type=str)
-    agent.output_type = Union[output_type, str]
-    agent.output_validator(create_validator(output_type))
+    # 创建 Agent（支持工具和自定义依赖类型）
+    if output_type is None:
+        # 不指定 output_type，默认允许文本输出和工具调用
+        agent = Agent(
+            model, 
+            system_prompt=system_prompt, 
+            model_settings=settings,
+            deps_type=deps_type,
+            tools=tools or []
+        )
+    else:
+        # 指定了 output_type，使用 Union[output_type, str] 允许文本回退
+        agent = Agent(
+            model, 
+            system_prompt=system_prompt, 
+            model_settings=settings,
+            output_type=Union[output_type, str],
+            deps_type=deps_type,
+            tools=tools or []
+        )
+        agent.output_validator(create_validator(output_type))
+    
     return agent
 
 async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
@@ -136,6 +163,120 @@ async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
     """
     async with agent.run_stream(*args, **kwargs) as stream:
         return await stream.get_output()
+
+
+async def stream_agent_response(
+    agent: Agent,
+    user_prompt: str,
+    *,
+    deps=None,
+    message_history: list = None,
+    track_tool_calls: bool = True
+) -> AsyncGenerator[str, None]:
+    """
+    通用的流式 Agent 响应生成器，支持工具调用和文本流式输出。
+    
+    **基于 Pydantic AI 官方示例实现**：
+    https://ai.pydantic.dev/agents/#iterating-over-an-agents-graph
+    
+    工作原理：
+    1. 使用 agent.iter() 迭代每个节点（UserPrompt/ModelRequest/CallTools/End）
+    2. 对于 ModelRequestNode：检测 FinalResultEvent 后流式输出文本
+    3. 对于 CallToolsNode：监听 FunctionToolCallEvent 和 FunctionToolResultEvent
+    4. 工具已在 Agent 创建时绑定，会自动执行
+    5. 流结束后返回工具调用摘要
+    
+    Args:
+        agent: Pydantic AI Agent 实例（工具已绑定）
+        user_prompt: 用户输入的提示词
+        deps: 依赖注入的上下文对象
+        message_history: 消息历史
+        track_tool_calls: 是否在流结束后返回工具调用摘要
+        
+    Yields:
+        增量文本内容或工具调用摘要（JSON 格式）
+    """
+    from pydantic_ai import (
+        FinalResultEvent,
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
+    )
+    
+    run_kwargs = {"message_history": message_history} if message_history else {}
+    
+    tool_calls_info = []
+    
+    # 使用 iter() 迭代节点（基于官方示例）
+    async with agent.iter(user_prompt, deps=deps, **run_kwargs) as run:
+        async for node in run:
+            # ModelRequestNode - 模型请求节点，可能包含流式文本输出
+            
+            if Agent.is_model_request_node(node):
+                async with node.stream(run.ctx) as request_stream:
+                    final_result_found = False
+                    async for event in request_stream:
+                        # 检测到最终结果开始
+                        if isinstance(event, FinalResultEvent):
+                            final_result_found = True
+                            break
+                    
+                    # 如果检测到最终结果，流式输出文本（增量模式）
+                    if final_result_found:
+                        async for output in request_stream.stream_text(delta=True):
+                            yield output
+            
+            # CallToolsNode - 工具调用节点
+            elif Agent.is_call_tools_node(node):
+                logger.info(node)
+                logger.info(f"🔧 [stream_agent_response] 检测到工具调用节点, track_tool_calls={track_tool_calls}")
+                if track_tool_calls:
+                    async with node.stream(run.ctx) as handle_stream:
+                        event_count = 0
+                        async for event in handle_stream:
+                            event_count += 1
+                            logger.info(f"🔍 [stream_agent_response] 收到事件 #{event_count}, 类型: {type(event).__name__}")
+                            
+                            # 工具调用事件
+                            if isinstance(event, FunctionToolCallEvent):
+                                logger.info(f" [stream_agent_response] 立即推送工具调用开始: {event.part.tool_name}")
+                                logger.info(f"   参数: {event.part.args}")
+                                # 立即通知前端工具调用开始
+                                notification = f"\n\n__TOOL_CALL_START__:{json.dumps({'tool_name': event.part.tool_name, 'args': event.part.args}, ensure_ascii=False)}"
+                                yield notification
+                                logger.info(f"✅ [stream_agent_response] 已推送通知到流")
+                                
+                                tool_calls_info.append({
+                                    "tool_name": event.part.tool_name,
+                                    "args": event.part.args,
+                                    "tool_call_id": event.part.tool_call_id
+                                })
+                            # 工具返回事件
+                            elif isinstance(event, FunctionToolResultEvent):
+                                logger.info(f"✅ [stream_agent_response] 工具执行完成: {event.tool_call_id}")
+                                logger.info(f"   返回结果: {event.result.content}")
+                                # 查找对应的工具调用并添加返回结果
+                                for call_info in tool_calls_info:
+                                    if call_info.get("tool_call_id") == event.tool_call_id:
+                                        call_info["result"] = event.result.content
+                                        logger.info(f" [stream_agent_response] 已记录工具结果")
+                                        break
+                        
+                        logger.info(f"🏁 [stream_agent_response] 工具调用节点处理完成，共 {event_count} 个事件")
+                        
+                        # 工具调用完成后，在后续文本前加上换行，避免紧挨在一起
+                        if event_count > 0:
+                            yield "\n\n"
+                else:
+                    logger.warning(f"⚠️ [stream_agent_response] track_tool_calls=False，跳过工具调用追踪")
+            
+            # End - 结束节点
+            elif Agent.is_end_node(node):
+                # 运行完成
+                pass
+    
+    # 流结束后，返回工具调用摘要
+    if track_tool_calls and tool_calls_info:
+        yield f"\n\n__TOOL_SUMMARY__:{json.dumps({'type': 'tools_executed', 'tools': tool_calls_info}, ensure_ascii=False)}"
 
 async def run_llm_agent(
     session: Session,
@@ -169,19 +310,14 @@ async def run_llm_agent(
         max_tokens=max_tokens,
         timeout=timeout,
     )
-    logger.info(f"system_prompt\n {system_prompt}")
+    
+    logger.info(f"system_prompt: {system_prompt}")
+    logger.info(f"user_prompt: {user_prompt}")
+    
     last_exception = None
     for attempt in range(max_retries):
         try:
-            logger.debug(f"Running agent with prompt (Attempt {attempt + 1}/{max_retries}): {user_prompt}")
-            logger.info(f"llm_config_id: {llm_config_id}")
-            # max_tokens 已在 ModelSettings 中设置
-            # response = (await agent.run(user_prompt,deps=deps)).output
-            len_system_prompt = _estimate_tokens(system_prompt)
-            len_user_prompt = _estimate_tokens(user_prompt)
-            len_total = len_system_prompt + len_user_prompt
-            logger.info(f"system_prompt token长度:{len_system_prompt},user_prompt token长度:{len_user_prompt},总token 长度:{len_total}")
-            response = await run_agent_with_streaming(agent, user_prompt, deps=deps) #为避免生成内容过长时容易出现网络中断问题，这里都用流式结果，只不过run_agent_with_streaming会将流式输出结果全部接收完成后整合起来返回
+            response=await run_agent_with_streaming(agent, user_prompt, deps=deps)
 
             # 统计：输入/输出 tokens 与调用次数
             if track_stats:
@@ -207,6 +343,100 @@ async def run_llm_agent(
     raise ValueError(f"调用LLM服务失败，已重试 {max_retries} 次: {str(last_exception)}")
 
 
+
+
+async def generate_assistant_chat_streaming(
+    session: Session,
+    request: AssistantChatRequest,
+    system_prompt: str,
+    tools: list,  #  直接接受工具函数列表
+    deps,  #  依赖上下文（AssistantDeps 实例）
+    track_stats: bool = True
+) -> AsyncGenerator[str, None]:
+    """
+    灵感助手专用流式对话生成。
+    
+    参数：
+    - request: AssistantChatRequest（包含对话历史、卡片上下文等）
+    - system_prompt: 系统提示词
+    - tools: 工具函数列表（直接传函数，符合 Pydantic AI 标准用法）
+    - deps: 工具依赖上下文（AssistantDeps 实例）
+    - track_stats: 是否统计 token 使用
+    """
+    
+    # 直接使用前端发送的上下文和用户输入
+    parts = []
+    
+    # 1. 项目上下文信息（包含结构树、统计、操作历史等）
+    if request.context_info:
+        parts.append(request.context_info)
+    
+    # 2. 用户当前输入
+    if request.user_prompt:
+        parts.append(f"\n**用户说**：{request.user_prompt}")
+    
+    final_user_prompt = "\n\n".join(parts) if parts else "（用户未输入文字，可能是想查看项目信息或需要帮助）"
+    
+    logger.info(f"灵感助手 system_prompt: {system_prompt}...")
+    logger.info(f"灵感助手 final_user_prompt: {final_user_prompt}...")
+    
+    # 限额预检
+    if track_stats:
+        ok, reason = _precheck_quota(session, request.llm_config_id, _calc_input_tokens(system_prompt, final_user_prompt), need_calls=1)
+        if not ok:
+            raise ValueError(f"LLM 配额不足:{reason}")
+    
+    # 创建 Agent（带工具）
+    from app.services.assistant_tools.pydantic_ai_tools import AssistantDeps
+    
+    # 直接在创建时传入工具列表（Pydantic AI 推荐方式）
+    agent = _get_agent(
+        session=session,
+        llm_config_id=request.llm_config_id,
+        output_type=None,  # 允许工具调用
+        system_prompt=system_prompt,
+        temperature=request.temperature or 0.7,
+        max_tokens=request.max_tokens or 4096,
+        timeout=request.timeout or 60,
+        deps_type=AssistantDeps,
+        tools=tools  # 直接传入工具函数列表
+    )
+    
+    # 流式生成响应
+    accumulated = ""
+    
+    try:
+        async for chunk in stream_agent_response(
+            agent,
+            final_user_prompt,
+            deps=deps,  # 传入依赖上下文
+            track_tool_calls=True
+        ):
+            accumulated += chunk
+            yield chunk
+        
+    except asyncio.CancelledError:
+        if track_stats:
+            in_tokens = _calc_input_tokens(system_prompt, final_user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=True)
+        return
+    except Exception as e:
+        logger.error(f"灵感助手生成失败: {e}")
+        # 即使失败也要发送错误摘要，让前端清除"正在调用工具"状态
+        yield f"\n\n__ERROR__:{json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}"
+        raise
+    
+    # 统计
+    if track_stats:
+        try:
+            in_tokens = _calc_input_tokens(system_prompt, final_user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=False)
+        except Exception as stat_e:
+            logger.warning(f"记录灵感助手统计失败: {stat_e}")
+
+
 async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str, track_stats: bool = True) -> AsyncGenerator[str, None]:
     """以流式方式生成续写内容。system_prompt 由外部显式传入。"""
     # 组装用户消息
@@ -215,9 +445,17 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
     # 1. 添加上下文信息（引用上下文 + 事实子图）
     context_info = (getattr(request, 'context_info', None) or '').strip()
     if context_info:
-        user_prompt_parts.append(f"【参考上下文】\n{context_info}")
+        # 检测 context_info 是否已包含结构化标记（如【引用上下文】、【上文】等）
+        has_structured_marks = any(mark in context_info for mark in ['【引用上下文】', '【上文】', '【需要润色', '【需要扩写'])
+        
+        if has_structured_marks:
+            # 已经是结构化的上下文，直接使用，不再额外包裹
+            user_prompt_parts.append(context_info)
+        else:
+            # 未结构化的上下文（老格式），添加标记
+            user_prompt_parts.append(f"【参考上下文】\n{context_info}")
     
-    # 2. 添加已有章节内容
+    # 2. 添加已有章节内容（仅当 previous_content 非空时）
     previous_content = (request.previous_content or '').strip()
     if previous_content:
         user_prompt_parts.append(f"【已有章节内容】\n{previous_content}")
@@ -231,16 +469,16 @@ async def generate_continuation_streaming(session: Session, request: Continuatio
         if getattr(request, 'append_continuous_novel_directive', True):
             user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
     else:
-        # 新写模式
+        # 新写模式或润色/扩写模式（previous_content 为空）
+        # 只在需要时添加指令
         if getattr(request, 'append_continuous_novel_directive', True):
-            user_prompt_parts.append("【指令】请开始创作新章节。直接输出小说正文。")
+            # 如果 context_info 中有续写相关标记，说明是续写场景
+            if context_info and '【已有章节内容】' in context_info:
+                user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
+            else:
+                user_prompt_parts.append("【指令】请开始创作新章节。直接输出小说正文。")
     
     user_prompt = "\n\n".join(user_prompt_parts)
-
-    logger.info(f"system_prompt: {system_prompt}")
-    logger.info(f"user_prompt: {user_prompt}")
-    
-    logger.info(f"===========system_prompt长度:{len(system_prompt)},user_prompt长度:{len(user_prompt)},总长度:{len(system_prompt)+len(user_prompt)}=============")
     
     # 限额预检
     if track_stats:
@@ -313,7 +551,7 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
         通用结果验证函数
         """
         try:
-            if model_type is BaseModel or model_type is str:  # type: ignore[comparison-overlap]
+            if model_type is BaseModel or model_type is str: 
                 return result
         except Exception:
             return result
@@ -376,6 +614,6 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
             # 校验过程中不应阻塞主流程，如解析失败则忽略
             pass
 
-        return parsed  # type: ignore[return-value]
+        return parsed 
 
     return validate_result
