@@ -33,6 +33,7 @@
           <div class="bubble">
             <XMarkdown 
               :markdown="filterMessageContent(m.content)" 
+              :default-theme-mode="isDarkMode ? 'dark' : 'light'"
               class="bubble-markdown"
             />
           </div>
@@ -43,7 +44,7 @@
             <pre class="tools-progress-text">{{ m.toolsInProgress }}</pre>
           </div>
           
-          <!-- ✅ 工具调用展示（醒目样式） -->
+          <!-- 工具调用展示 -->
           <div v-if="m.tools && m.tools.length" class="tools-summary">
             <div class="tools-header">
               <el-icon class="tools-icon"><Tools /></el-icon>
@@ -168,6 +169,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { generateContinuationStreaming, renderPromptWithKnowledge } from '@renderer/api/ai'
 import { getProjects } from '@renderer/api/projects'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
@@ -178,6 +180,7 @@ import {XMarkdown} from 'vue-element-plus-x'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { useCardStore } from '@renderer/stores/useCardStore'
+import { useAppStore } from '@renderer/stores/useAppStore'
 
 const props = defineProps<{ resolvedContext: string; llmConfigId?: number | null; promptName?: string | null; temperature?: number | null; max_tokens?: number | null; timeout?: number | null; effectiveSchema?: any; generationPromptName?: string | null; currentCardTitle?: string | null; currentCardContent?: any }>()
 const emit = defineEmits<{ 'finalize': [string]; 'refresh-context': []; 'reset-selection': []; 'jump-to-card': [{ projectId: number; cardId: number }] }>()
@@ -255,6 +258,8 @@ const canSend = computed(() => {
 // ---- 多卡片数据引用（跨项目，使用 Pinia） ----
 const assistantStore = useAssistantStore()
 const projectStore = useProjectStore()
+const appStore = useAppStore()
+const { isDarkMode } = storeToRefs(appStore)
 const selectorVisible = ref(false)
 const selectorSourcePid = ref<number | null>(null)
 const selectorCards = ref<CardRead[]>([])
@@ -684,13 +689,6 @@ onMounted(async () => {
       overrideLlmId.value = llmOptions.value[0].id
     }
   } catch {}
-  try {
-    const pid = projectStore.currentProject?.id
-    if (!pid) { messages.value = []; return }
-    const hist = assistantStore.getHistory(pid) || []
-    messages.value = hist.map(h => ({ role: h.role, content: h.content }))
-    nextTick(() => scrollToBottom())
-  } catch {}
 })
 
 async function handleCopy(idx: number) {
@@ -963,11 +961,23 @@ function filterMessageContent(content: string): string {
 }
 
 // 项目切换时加载该项目的历史会话
-watch(() => projectStore.currentProject?.id, (newProjectId) => {
+watch(() => projectStore.currentProject?.id, (newProjectId, oldProjectId) => {
   if (newProjectId) {
     loadHistorySessions(newProjectId)
-    // 创建新会话
-    createNewSession()
+    
+    // 如果有历史会话，加载最近的一个（避免重复创建新会话）
+    // 只有在无历史会话时才创建新会话
+    if (historySessions.value.length > 0) {
+      // 加载最近的会话
+      const latestSession = historySessions.value[0]
+      currentSession.value = { ...latestSession }
+      messages.value = [...latestSession.messages]
+      console.log('📖 加载最近会话:', latestSession.title)
+      nextTick(() => scrollToBottom())
+    } else {
+      // 无历史会话：创建新会话
+      createNewSession()
+    }
   }
 }, { immediate: true })
 
@@ -986,7 +996,13 @@ watch(messages, () => {
 </script>
 
 <style scoped>
-.assistant-panel { display: flex; flex-direction: column; height: 100%; font-size: 13px; }
+.assistant-panel { 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+  font-size: 13px;
+  font-family:"Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
 .panel-header { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-bg-color); }
 .header-title-row { 
   display: flex; 
@@ -1027,11 +1043,14 @@ watch(messages, () => {
 .bubble { max-width: 80%; padding: 8px 10px; border-radius: 8px; }
 .bubble-text { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--el-text-color-primary); user-select: text; cursor: text; }
 
-/* Markdown 渲染样式（最小化自定义，主要依赖 XMarkdown 内置样式） */
+/* Markdown 渲染样式 */
 .bubble-markdown { 
   font-size: 13px;
   line-height: 1.6;
+  font-family: 、"Segoe UI",  "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--el-text-color-primary);
 }
+
 
 /* 用户消息白色主题适配 */
 .msg.user .bubble-markdown :deep(*) { 
@@ -1039,6 +1058,13 @@ watch(messages, () => {
 }
 .msg.user .bubble-markdown :deep(code) { 
   background: rgba(255, 255, 255, 0.2) !important; 
+}
+.msg.user .bubble-markdown :deep(pre) { 
+  background: rgba(255, 255, 255, 0.15) !important; 
+}
+.msg.user .bubble-markdown :deep(a) { 
+  color: var(--el-color-white) !important;
+  text-decoration: underline;
 }
 
 .msg.assistant .bubble { background: var(--el-fill-color-light); border: 1px solid var(--el-border-color); }
@@ -1089,7 +1115,7 @@ watch(messages, () => {
   color: var(--el-color-warning-dark-2);
 }
 
-/* ✅ 工具调用相关样式（醒目设计） */
+/* 工具调用相关样式（醒目设计） */
 .tools-summary {
   margin-top: 8px;
   max-width: 80%;

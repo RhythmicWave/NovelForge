@@ -41,11 +41,15 @@
           @node-click="handleNodeClick"
           @node-expand="onNodeExpand"
           @node-collapse="onNodeCollapse"
+          draggable
+          :allow-drop="handleAllowDrop"
+          :allow-drag="handleAllowDrag"
+          @node-drop="handleNodeDrop"
           class="card-tree"
         >
           <template #default="{ node, data }">
             <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
-              <div class="custom-tree-node full-row" draggable="true" @dragstart="onCardDragStart(data)" @dragover.prevent @drop="(e:any) => onTypeDropToNode(e, data)" @dragenter.prevent>
+              <div class="custom-tree-node full-row" @dragover.prevent @drop="(e:any) => onExternalDropToNode(e, data)" @dragenter.prevent>
                 <el-icon class="card-icon"> 
                   <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
                 </el-icon>
@@ -478,14 +482,14 @@ async function onCardsPaneDrop(e: DragEvent) {
  try {
    const typeId = e.dataTransfer?.getData('application/x-card-type-id')
    if (typeId) {
-     // 在根创建一个该类型的新卡片，标题默认与类型同名（可后续弹框重命名）
+     // 从类型列表拖拽到空白区域，在根创建新卡片
      newCardForm.title = (cardStore.cardTypes.find(ct => ct.id === Number(typeId))?.name || '新卡片')
      newCardForm.card_type_id = Number(typeId)
      newCardForm.parent_id = '' as any
      handleCreateCard()
      return
    }
-   // 优先处理从 __free__ 跨项目拖拽复制
+   // 从 __free__ 项目跨项目拖拽复制到空白区域
    const freeCardId = e.dataTransfer?.getData('application/x-free-card-id')
    if (freeCardId) {
      await copyCard(Number(freeCardId), { target_project_id: projectStore.currentProject!.id, parent_id: null as any })
@@ -493,13 +497,7 @@ async function onCardsPaneDrop(e: DragEvent) {
      ElMessage.success('已复制自由卡片到根目录')
      return
    }
-   // 其次处理同项目移动到根
-   const movedCardId = e.dataTransfer?.getData('application/x-card-id')
-   if (movedCardId) {
-     // 设为根
-     await cardStore.modifyCard(Number(movedCardId), { parent_id: null, display_order: 999999 }, { skipHooks: true })
-     return
-   }
+   // 注意：同项目内的卡片拖拽现在由 el-tree 的原生拖拽处理（handleNodeDrop）
  } catch {}
 }
 
@@ -531,20 +529,126 @@ async function onTypesPaneDrop(e: DragEvent) {
  }
 }
 
-// 从卡片到类型区域：派生为新类型（稍后实现完整流程）
-function onCardDragStart(card: any) {
- try { (event as DragEvent).dataTransfer?.setData('application/x-card-id', String(card?.id || '')) } catch {}
- // 若当前项目是 __free__，同时写入自由卡专用的拖拽数据，便于跨项目复制
- try {
-   const isFree = (projectStore.currentProject?.name || '') === '__free__'
-   if (isFree && card?.id) {
-     (event as DragEvent).dataTransfer?.setData('application/x-free-card-id', String(card.id))
-   }
- } catch {}
+// ===== el-tree 原生拖拽功能 =====
+
+// 控制哪些节点可以被拖拽
+function handleAllowDrag(draggingNode: any): boolean {
+  // 分组节点不允许拖拽
+  if (draggingNode.data.__isGroup) {
+    return false
+  }
+  return true
 }
 
+// 控制拖拽放置的位置
+// type: 'prev' | 'inner' | 'next' 表示放置在目标节点的前/内/后
+function handleAllowDrop(draggingNode: any, dropNode: any, type: 'prev' | 'inner' | 'next'): boolean {
+  // 分组节点只允许作为"inner"目标（即将卡片放入分组内）
+  if (dropNode.data.__isGroup) {
+    return type === 'inner'
+  }
+  
+  // 普通卡片节点允许所有放置方式
+  return true
+}
 
- // --- 拖拽：从类型列表到卡片树 ---
+// 处理拖拽完成
+async function handleNodeDrop(
+  draggingNode: any,
+  dropNode: any,
+  dropType: 'before' | 'after' | 'inner',
+  ev: DragEvent
+) {
+  try {
+    const draggedCard = draggingNode.data
+    const targetCard = dropNode.data
+    
+    console.log('🔄 [拖拽] 拖拽卡片:', draggedCard.title, '目标:', targetCard.title || targetCard.__groupType, '位置:', dropType)
+    
+    // 如果是拖到分组内，设置 parent_id 为 null（根级）
+    if (targetCard.__isGroup && dropType === 'inner') {
+      // 计算根级的下一个 display_order
+      const rootCards = cards.value.filter(c => c.parent_id === null)
+      const maxOrder = rootCards.length > 0 ? Math.max(...rootCards.map(c => c.display_order || 0)) : -1
+      
+      await cardStore.modifyCard(draggedCard.id, { 
+        parent_id: null,
+        display_order: maxOrder + 1
+      }, { skipHooks: true })
+      ElMessage.success(`已将「${draggedCard.title}」移到根级`)
+      await cardStore.fetchCards(projectStore.currentProject!.id)
+      return
+    }
+    
+    // 如果是拖到卡片内部（成为子卡片）
+    if (dropType === 'inner') {
+      // 计算目标卡片的子卡片的下一个 display_order
+      const children = cards.value.filter(c => c.parent_id === targetCard.id)
+      const maxOrder = children.length > 0 ? Math.max(...children.map(c => c.display_order || 0)) : -1
+      
+      await cardStore.modifyCard(draggedCard.id, { 
+        parent_id: targetCard.id,
+        display_order: maxOrder + 1
+      }, { skipHooks: true })
+      ElMessage.success(`已将「${draggedCard.title}」设为「${targetCard.title}」的子卡片`)
+      await cardStore.fetchCards(projectStore.currentProject!.id)
+      return
+    }
+    
+    // 如果是拖到卡片前/后（同级排序）
+    const newParentId = targetCard.parent_id || null
+    
+    // 获取同级的所有卡片，按 display_order 排序（不包括拖拽的卡片）
+    const siblings = cards.value
+      .filter(c => (c.parent_id || null) === newParentId && c.id !== draggedCard.id)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    
+    // 找到目标卡片在同级中的位置
+    const targetIndex = siblings.findIndex(c => c.id === targetCard.id)
+    
+    // 构建新的顺序数组（插入拖拽的卡片）
+    let newSiblings = [...siblings]
+    if (dropType === 'before') {
+      // 插入到目标卡片之前
+      newSiblings.splice(targetIndex, 0, draggedCard)
+    } else {
+      // 插入到目标卡片之后
+      newSiblings.splice(targetIndex + 1, 0, draggedCard)
+    }
+    
+    // 批量更新所有受影响卡片的 display_order（使用整数）
+    const updatePromises = newSiblings.map((card, index) => {
+      if (card.id === draggedCard.id) {
+        // 拖拽的卡片需要同时更新 parent_id 和 display_order
+        return cardStore.modifyCard(card.id, { 
+          parent_id: newParentId,
+          display_order: index
+        }, { skipHooks: true })
+      } else if (card.display_order !== index) {
+        // 其他卡片只需要更新 display_order（如果有变化）
+        return cardStore.modifyCard(card.id, { 
+          display_order: index
+        }, { skipHooks: true })
+      }
+      return Promise.resolve()
+    })
+    
+    await Promise.all(updatePromises)
+    
+    ElMessage.success(`已调整「${draggedCard.title}」的位置`)
+    await cardStore.fetchCards(projectStore.currentProject!.id)
+    
+  } catch (err: any) {
+    console.error('拖拽失败:', err)
+    ElMessage.error(err?.message || '拖拽失败')
+    // 刷新以恢复状态
+    await cardStore.fetchCards(projectStore.currentProject!.id)
+  }
+}
+
+// --- 拖拽：从外部（类型列表、自由卡片）到卡片树 ---
+// 注意：el-tree 内部的卡片拖拽由 handleNodeDrop 处理，这里只处理外部拖入
+
 function getDraggedTypeId(e: DragEvent): number | null {
  try {
    const raw = e.dataTransfer?.getData('application/x-card-type-id') || ''
@@ -553,10 +657,11 @@ function getDraggedTypeId(e: DragEvent): number | null {
  } catch { return null }
 }
 
-async function onTypeDropToNode(e: DragEvent, nodeData: any) {
+async function onExternalDropToNode(e: DragEvent, nodeData: any) {
+ // 只处理从类型列表或跨项目的拖拽，不处理树内部的卡片拖拽
  const typeId = getDraggedTypeId(e)
  if (typeId) {
-   // 仅对真实卡片节点生效，分组节点不接收
+   // 从类型列表拖拽创建新卡片
    if (nodeData?.__isGroup) return
    const newCard = await cardStore.addCard({ title: '新建卡片', card_type_id: typeId, parent_id: nodeData?.id } as any)
    
@@ -573,8 +678,9 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
    
    return
  }
+ 
  try {
-   // 优先处理从 __free__ 跨项目拖拽复制
+   // 处理从 __free__ 跨项目拖拽复制
    const freeCardId = e.dataTransfer?.getData('application/x-free-card-id')
    if (freeCardId) {
      if (nodeData?.__isGroup) return
@@ -583,13 +689,9 @@ async function onTypeDropToNode(e: DragEvent, nodeData: any) {
      ElMessage.success('已复制自由卡片到该节点下')
      return
    }
-   const movedCardId = e.dataTransfer?.getData('application/x-card-id')
-   if (movedCardId) {
-     if (nodeData?.__isGroup) return
-     await cardStore.modifyCard(Number(movedCardId), { parent_id: Number(nodeData?.id) }, { skipHooks: true })
-     return
-   }
- } catch {}
+ } catch (err) {
+   console.error('外部拖拽失败:', err)
+ }
 }
 
  // --- Methods ---
@@ -1156,7 +1258,6 @@ onMounted(async () => {
 .card-tree {
   background-color: transparent;
   flex-grow: 1;
-  overflow-y: auto;
 }
 
 .custom-tree-node {

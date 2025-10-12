@@ -2,7 +2,10 @@
 	<div class="ai-param-inline">
 		<el-popover placement="bottom" trigger="manual" v-model:visible="visible" width="360">
 			<template #reference>
-				<el-button type="primary" size="small" :icon="Setting" class="model-trigger" @click="visible = !visible">
+				<el-button type="primary" size="small" class="model-trigger" @click="visible = !visible">
+					<template #icon>
+						<el-icon><Setting /></el-icon>
+					</template>
 					<span class="model-label">模型：</span>
 					<span class="model-name">{{ selectedModelName || '未设置' }}</span>
 				</el-button>
@@ -153,7 +156,42 @@ async function applyToType() {
 </script>
 
 <style scoped>
-.ai-param-inline { display: inline-flex; align-items: center; }
-.model-label { flex: 0 0 auto; }
-.model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-param-inline { 
+  display: inline-flex; 
+  align-items: center; 
+}
+
+.model-trigger { 
+  min-width: 200px;
+  max-width: 320px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden; /* 确保按钮本身不超出 */
+}
+
+.model-trigger :deep(.el-button__content) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+.model-label { 
+  flex-shrink: 0;
+  margin-right: 4px;
+  font-weight: 500;
+}
+
+.model-name { 
+  flex: 1; 
+  min-width: 0; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap;
+  text-align: left;
+}
 </style> 

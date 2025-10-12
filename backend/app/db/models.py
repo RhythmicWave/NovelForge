@@ -10,22 +10,8 @@ class Project(SQLModel, table=True):
     name: str = Field(index=True)
     description: Optional[str] = None
 
-    # Relations
-    chapters: List["Chapter"] = Relationship(back_populates="project")
     cards: List["Card"] = Relationship(back_populates="project", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
-
-class Chapter(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    title: str = Field(index=True)
-    content: Optional[str] = Field(default=None)
-    outline: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-    word_count: int = Field(default=0)
-
-    # 仍保留 volume_id 作为分组字段，但不再建立外键关系（线性分卷已废弃）
-    volume_id: Optional[int] = Field(default=None)
-    project_id: int = Field(foreign_key="project.id")
-    project: "Project" = Relationship(back_populates="chapters")
 
 
 class LLMConfig(SQLModel, table=True):
@@ -159,9 +145,6 @@ class Knowledge(SQLModel, table=True):
     description: Optional[str] = None
     content: str
     built_in: bool = Field(default=False)
-
-
-# 项目模板
 
 
 # 工作流系统

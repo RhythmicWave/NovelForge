@@ -2,7 +2,7 @@
 from typing import List, Optional
 from sqlmodel import Session, select
 
-from app.db.models import Project, Chapter, Workflow
+from app.db.models import Project, Workflow
 from app.services import workflow_triggers
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
