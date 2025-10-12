@@ -262,6 +262,7 @@ npm run dev
 5.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
 6.  返回上一级，运行 `NovelForge.exe` 启动主程序。
 
+> 大部分数据都存储在backend/aiauthor.db数据库中，当版本更新/迁移时，将该数据库文件复制到对应位置即可。
 ---
 
 ## ✍️ 创作流程
