@@ -56,7 +56,7 @@ async def assistant_chat(
             session=session,
             request=request,
             system_prompt=system_prompt,
-            tools=ASSISTANT_TOOLS,  # ✅ 直接传函数列表
+            tools=ASSISTANT_TOOLS,  # 直接传函数列表
             deps=deps,
             track_stats=True
         ):

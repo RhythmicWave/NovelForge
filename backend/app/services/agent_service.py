@@ -18,13 +18,15 @@ from app.services import prompt_service
 from app.db.models import LLMConfig
 import asyncio
 import json
+import re
+import os
 
-# 上下文装配
-from app.services.context_service import assemble_context, ContextAssembleParams
 # 导入需要校验的模型
 from app.schemas.wizard import StageLine, ChapterOutline, Chapter
 import re
 
+# 从环境变量读取工具调用最大重试次数，默认为 3
+MAX_TOOL_CALL_RETRIES = int(os.getenv('MAX_TOOL_CALL_RETRIES', '3'))
 
 _TOKEN_REGEX = re.compile(
     r"""
@@ -86,7 +88,6 @@ def _get_agent(
     根据LLM配置和期望的输出类型，获取一个配置好的LLM Agent实例。
     统一使用 ModelSettings 设置 temperature/max_tokens/timeout（无需按提供商分支分别设置）。
     
-    新增参数：
     - deps_type: 依赖注入类型（默认 str）
     - tools: 工具列表（Pydantic AI Tool 对象）
     - output_type: 输出类型（None 表示允许文本和工具调用）
@@ -165,26 +166,57 @@ async def run_agent_with_streaming(agent: Agent, *args, **kwargs):
         return await stream.get_output()
 
 
+def check_tool_call(parts: list,is_in_retry_state: bool) -> bool:
+    need_tool_call=is_in_retry_state
+    include_tool_call=False
+    for part in parts:
+        if part.part_kind=="text":
+            if re.search(r"<notify>[\w\-]+</notify>", part.content):
+                need_tool_call=True
+    if need_tool_call:
+        for part in parts:
+            if part.part_kind=="tool-call":
+                include_tool_call=True
+                break
+    return (not need_tool_call) or include_tool_call
+
+from pydantic_ai import (
+        FinalResultEvent,
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
+    )
+from pydantic_ai.messages import (
+    ModelRequest,
+    RetryPromptPart
+)
+
+from pydantic_ai import _agent_graph
+
 async def stream_agent_response(
     agent: Agent,
     user_prompt: str,
     *,
     deps=None,
     message_history: list = None,
-    track_tool_calls: bool = True
+    track_tool_calls: bool = True,
+    max_tool_call_retries: int = None
 ) -> AsyncGenerator[str, None]:
     """
     通用的流式 Agent 响应生成器，支持工具调用和文本流式输出。
     
-    **基于 Pydantic AI 官方示例实现**：
-    https://ai.pydantic.dev/agents/#iterating-over-an-agents-graph
+    **基于 Pydantic AI 官方文档实现**：
+    - 自动迭代：https://ai.pydantic.dev/agents/#iterating-over-an-agents-graph
+    - 手动迭代：https://ai.pydantic.dev/agents/#using-next-manually
+    - 图节点：https://ai.pydantic.dev/graph/
     
     工作原理：
-    1. 使用 agent.iter() 迭代每个节点（UserPrompt/ModelRequest/CallTools/End）
+    1. 使用手动迭代模式 run.next() 逐个处理节点
     2. 对于 ModelRequestNode：检测 FinalResultEvent 后流式输出文本
-    3. 对于 CallToolsNode：监听 FunctionToolCallEvent 和 FunctionToolResultEvent
-    4. 工具已在 Agent 创建时绑定，会自动执行
-    5. 流结束后返回工具调用摘要
+    3. 对于 CallToolsNode：
+       - 检测模型是否正确调用了工具（通过 check_tool_call）
+       - 如果未正确调用，注入重试提示并跳过节点，最多重试 max_tool_call_retries 次
+       - 如果正确调用，监听工具执行事件并流式推送状态
+    4. 流结束后返回工具调用摘要
     
     Args:
         agent: Pydantic AI Agent 实例（工具已绑定）
@@ -192,25 +224,38 @@ async def stream_agent_response(
         deps: 依赖注入的上下文对象
         message_history: 消息历史
         track_tool_calls: 是否在流结束后返回工具调用摘要
+        max_tool_call_retries: 工具调用失败时的最大重试次数
         
     Yields:
         增量文本内容或工具调用摘要（JSON 格式）
     """
-    from pydantic_ai import (
-        FinalResultEvent,
-        FunctionToolCallEvent,
-        FunctionToolResultEvent,
-    )
+    
     
     run_kwargs = {"message_history": message_history} if message_history else {}
     
-    tool_calls_info = []
+    # 使用全局配置的最大重试次数（如果未传入）
+    if max_tool_call_retries is None:
+        max_tool_call_retries = MAX_TOOL_CALL_RETRIES
     
-    # 使用 iter() 迭代节点（基于官方示例）
+    tool_calls_info = []
+    tool_call_retry_count = 0  # 工具调用重试计数器
+    
+    is_in_retry_state = False
+    
+    # 使用手动迭代模式（基于官方文档）
     async with agent.iter(user_prompt, deps=deps, **run_kwargs) as run:
-        async for node in run:
-            # ModelRequestNode - 模型请求节点，可能包含流式文本输出
+        node = run.next_node
+        while True:
+            # 手动获取下一个节点
+            node = await run.next(node)
             
+            # 迭代结束
+            if node is None:
+                break
+            
+            logger.info(f"📍 [stream_agent_response] 当前节点: {type(node).__name__}")
+            
+            # ModelRequestNode - 模型请求节点，可能包含流式文本输出
             if Agent.is_model_request_node(node):
                 async with node.stream(run.ctx) as request_stream:
                     final_result_found = False
@@ -228,51 +273,106 @@ async def stream_agent_response(
             # CallToolsNode - 工具调用节点
             elif Agent.is_call_tools_node(node):
                 logger.info(node)
-                logger.info(f"🔧 [stream_agent_response] 检测到工具调用节点, track_tool_calls={track_tool_calls}")
-                if track_tool_calls:
-                    async with node.stream(run.ctx) as handle_stream:
-                        event_count = 0
-                        async for event in handle_stream:
-                            event_count += 1
-                            logger.info(f"🔍 [stream_agent_response] 收到事件 #{event_count}, 类型: {type(event).__name__}")
-                            
-                            # 工具调用事件
-                            if isinstance(event, FunctionToolCallEvent):
-                                logger.info(f" [stream_agent_response] 立即推送工具调用开始: {event.part.tool_name}")
-                                logger.info(f"   参数: {event.part.args}")
-                                # 立即通知前端工具调用开始
-                                notification = f"\n\n__TOOL_CALL_START__:{json.dumps({'tool_name': event.part.tool_name, 'args': event.part.args}, ensure_ascii=False)}"
-                                yield notification
-                                logger.info(f"✅ [stream_agent_response] 已推送通知到流")
+                parts = node.model_response.parts
+                
+                # 检查工具调用是否正确
+                is_valid_tool_call = check_tool_call(parts,is_in_retry_state)
+                
+                if not is_valid_tool_call:
+                    tool_call_retry_count += 1
+                    logger.warning(f"⚠️ [stream_agent_response] 工具调用验证失败（重试 {tool_call_retry_count}/{max_tool_call_retries}）")
+                    logger.warning(f"   模型输出: {[p for p in parts if p.part_kind == 'text']}")
+                    
+                    if tool_call_retry_count < max_tool_call_retries:
+                        # 提取模型输出的文本（包含 <notify>xxx</notify> 标记）
+                        text_parts = [p.content for p in parts if p.part_kind == 'text']
+                        model_text = '\n'.join(text_parts) if text_parts else '(无文本输出)'
+                        
+                        # 构造重试提示
+                        retry_message = (
+                            f"你输出了工具标记但没有实际调用工具。请正确使用函数调用功能。\n"
+                            f"你的输出：{model_text}\n"
+                            f"请重新尝试，使用正确的工具调用格式。"
+                        )
+                        
+                        logger.info(f"🔄 [stream_agent_response] 注入重试提示: {retry_message[:100]}...")
+                        
+                        
+                        
+                        # 手动添加重试消息到节点
+                        # 使用 RetryPromptPart 添加重试提示作为用户消息
+                        from datetime import datetime
+                        node=_agent_graph.ModelRequestNode(request=ModelRequest(parts=[RetryPromptPart(
+                                content=retry_message,
+                                timestamp=datetime.now()
+                            )]))
+                        
+                        logger.info(f"📨 [stream_agent_response] 已添加重试消息到上下文，继续下一轮迭代")
+                        is_in_retry_state = True
+                        
+                        # 通知前端正在重试
+                        yield f"\n\n__RETRY__:{json.dumps({'reason': '工具调用格式错误', 'retry': tool_call_retry_count, 'max': max_tool_call_retries}, ensure_ascii=False)}\n\n"
+                        
+                        # 跳过当前节点，继续下一个迭代（模型会重新尝试）
+                        continue
+                    else:
+                        # 超过最大重试次数，放弃并报错
+                        error_msg = f"工具调用失败，已达到最大重试次数 {max_tool_call_retries}！请中止或重新生成"
+                        logger.error(f"❌ [stream_agent_response] {error_msg}")
+                        yield f"\n\n__ERROR__:{json.dumps({'error': error_msg}, ensure_ascii=False)}\n\n"
+                        # 继续执行，让模型尝试生成文本响应
+                
+                # 重置重试计数器（成功调用或超过重试次数）
+                if is_valid_tool_call:
+                    tool_call_retry_count = 0
+                    is_in_retry_state = False
+                    
+                    logger.info(f"🔧 [stream_agent_response] 检测到有效工具调用节点, track_tool_calls={track_tool_calls}")
+                    if track_tool_calls:
+                        async with node.stream(run.ctx) as handle_stream:
+                            event_count = 0
+                            async for event in handle_stream:
+                                event_count += 1
+                                logger.info(f"🔍 [stream_agent_response] 收到事件 #{event_count}, 类型: {type(event).__name__}")
                                 
-                                tool_calls_info.append({
-                                    "tool_name": event.part.tool_name,
-                                    "args": event.part.args,
-                                    "tool_call_id": event.part.tool_call_id
-                                })
-                            # 工具返回事件
-                            elif isinstance(event, FunctionToolResultEvent):
-                                logger.info(f"✅ [stream_agent_response] 工具执行完成: {event.tool_call_id}")
-                                logger.info(f"   返回结果: {event.result.content}")
-                                # 查找对应的工具调用并添加返回结果
-                                for call_info in tool_calls_info:
-                                    if call_info.get("tool_call_id") == event.tool_call_id:
-                                        call_info["result"] = event.result.content
-                                        logger.info(f" [stream_agent_response] 已记录工具结果")
-                                        break
-                        
-                        logger.info(f"🏁 [stream_agent_response] 工具调用节点处理完成，共 {event_count} 个事件")
-                        
-                        # 工具调用完成后，在后续文本前加上换行，避免紧挨在一起
-                        if event_count > 0:
-                            yield "\n\n"
-                else:
-                    logger.warning(f"⚠️ [stream_agent_response] track_tool_calls=False，跳过工具调用追踪")
+                                # 工具调用事件
+                                if isinstance(event, FunctionToolCallEvent):
+                                    logger.info(f"📞 [stream_agent_response] 立即推送工具调用开始: {event.part.tool_name}")
+                                    logger.info(f"   参数: {event.part.args}")
+                                    # 立即通知前端工具调用开始
+                                    notification = f"\n\n__TOOL_CALL_START__:{json.dumps({'tool_name': event.part.tool_name, 'args': event.part.args}, ensure_ascii=False)}"
+                                    yield notification
+                                    logger.info(f"✅ [stream_agent_response] 已推送通知到流")
+                                    
+                                    tool_calls_info.append({
+                                        "tool_name": event.part.tool_name,
+                                        "args": event.part.args,
+                                        "tool_call_id": event.part.tool_call_id
+                                    })
+                                # 工具返回事件
+                                elif isinstance(event, FunctionToolResultEvent):
+                                    logger.info(f"✅ [stream_agent_response] 工具执行完成: {event.tool_call_id}")
+                                    logger.info(f"   返回结果: {event.result.content}")
+                                    # 查找对应的工具调用并添加返回结果
+                                    for call_info in tool_calls_info:
+                                        if call_info.get("tool_call_id") == event.tool_call_id:
+                                            call_info["result"] = event.result.content
+                                            logger.info(f"📝 [stream_agent_response] 已记录工具结果")
+                                            break
+                            
+                            logger.info(f"🏁 [stream_agent_response] 工具调用节点处理完成，共 {event_count} 个事件")
+                            
+                            # 工具调用完成后，在后续文本前加上换行，避免紧挨在一起
+                            if event_count > 0:
+                                yield "\n\n"
+                    else:
+                        logger.warning(f"⚠️ [stream_agent_response] track_tool_calls=False，跳过工具调用追踪")
             
             # End - 结束节点
             elif Agent.is_end_node(node):
-                # 运行完成
-                pass
+                logger.info(f"🎬 [stream_agent_response] 到达结束节点")
+                # 运行完成，立即退出循环
+                break
     
     # 流结束后，返回工具调用摘要
     if track_tool_calls and tool_calls_info:
@@ -344,6 +444,7 @@ async def run_llm_agent(
 
 
 
+from app.services.assistant_tools.pydantic_ai_tools import AssistantDeps
 
 async def generate_assistant_chat_streaming(
     session: Session,
@@ -386,17 +487,15 @@ async def generate_assistant_chat_streaming(
         if not ok:
             raise ValueError(f"LLM 配额不足:{reason}")
     
-    # 创建 Agent（带工具）
-    from app.services.assistant_tools.pydantic_ai_tools import AssistantDeps
     
-    # 直接在创建时传入工具列表（Pydantic AI 推荐方式）
+    # 直接在创建时传入工具列表
     agent = _get_agent(
         session=session,
         llm_config_id=request.llm_config_id,
-        output_type=None,  # 允许工具调用
+  
         system_prompt=system_prompt,
-        temperature=request.temperature or 0.7,
-        max_tokens=request.max_tokens or 4096,
+        temperature=request.temperature or 0.6,
+        max_tokens=request.max_tokens or 8192,
         timeout=request.timeout or 60,
         deps_type=AssistantDeps,
         tools=tools  # 直接传入工具函数列表

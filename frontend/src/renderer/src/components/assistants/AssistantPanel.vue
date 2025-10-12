@@ -31,7 +31,10 @@
       <div class="messages" ref="messagesEl">
         <div v-for="(m, idx) in messages" :key="idx" :class="['msg', m.role]">
           <div class="bubble">
-            <pre class="bubble-text">{{ m.content }}</pre>
+            <XMarkdown 
+              :markdown="filterMessageContent(m.content)" 
+              class="bubble-markdown"
+            />
           </div>
           
           <!-- ⏳ 临时显示"正在调用工具"（在工具执行期间） -->
@@ -171,6 +174,7 @@ import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
 import { Plus, Promotion, Refresh, DocumentCopy, Tools, Loading, ChatDotRound, ArrowDown, Delete, Clock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {XMarkdown} from 'vue-element-plus-x'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { useCardStore } from '@renderer/stores/useCardStore'
@@ -436,17 +440,20 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     max_tokens: props.max_tokens ?? 8192,
     timeout: props.timeout ?? undefined
   } as any, (chunk) => {
-    // 🔑 检测工具调用开始（立即显示"正在调用工具"）
+    // 🔑 优先检测所有特殊标记（这些标记不应该显示在消息内容中）
+    
+    // 检测 __TOOL_CALL_START__
     if (chunk.includes('__TOOL_CALL_START__:')) {
-      const match = chunk.match(/__TOOL_CALL_START__:(.+)$/)
+      const match = chunk.match(/__TOOL_CALL_START__:(.+)/)
       if (match) {
         try {
           const toolCall = JSON.parse(match[1])
           pendingToolCalls.push(toolCall)
           
-          // 立即在消息中添加临时的工具调用提示
-          const toolsPreview = pendingToolCalls.map(t => `⏳ 正在调用工具: ${t.tool_name}...`).join('\n')
-          messages.value[targetIdx].toolsInProgress = toolsPreview
+          if (!messages.value[targetIdx].toolsInProgress) {
+            const toolsPreview = pendingToolCalls.map(t => `⏳ 正在调用工具: ${t.tool_name}...`).join('\n')
+            messages.value[targetIdx].toolsInProgress = toolsPreview
+          }
           scrollToBottom()
         } catch (e) {
           console.warn('解析工具调用开始失败', e)
@@ -455,67 +462,113 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
       return  // 不添加到消息内容
     }
     
-    // 🔑 检测工具调用摘要（用最终结果替换临时提示）
+    // 检测 __RETRY__
+    if (chunk.includes('__RETRY__:')) {
+      const match = chunk.match(/__RETRY__:(.+)/)
+      if (match) {
+        try {
+          const retryInfo = JSON.parse(match[1])
+          messages.value[targetIdx].toolsInProgress = 
+            `🔄 工具调用失败，${retryInfo.reason}，正在重试 (${retryInfo.retry}/${retryInfo.max})...`
+          scrollToBottom()
+        } catch (e) {
+          console.warn('解析重试信息失败', e)
+        }
+      }
+      return  // 不添加到消息内容
+    }
+    
+    // 检测 __TOOL_SUMMARY__
     if (chunk.includes('__TOOL_SUMMARY__:')) {
-      const match = chunk.match(/__TOOL_SUMMARY__:(.+)$/)
+      const match = chunk.match(/__TOOL_SUMMARY__:(.+)/)
       if (match) {
         try {
           const summary = JSON.parse(match[1])
           handleToolsExecuted(summary.tools)
-          
-          // 清除临时的"正在调用"提示
           messages.value[targetIdx].toolsInProgress = undefined
           pendingToolCalls = []
-          
-          return  // 不显示这个特殊标记
         } catch (e) {
           console.warn('解析工具摘要失败', e)
         }
       }
+      return  // 不添加到消息内容
     }
     
-    // 🔑 检测错误（清除"正在调用工具"状态）
+    // 检测 __ERROR__
     if (chunk.includes('__ERROR__:')) {
-      const match = chunk.match(/__ERROR__:(.+)$/)
+      const match = chunk.match(/__ERROR__:(.+)/)
       if (match) {
         try {
-          const error = JSON.parse(match[1])
-          
-          // 清除"正在调用"提示
-          messages.value[targetIdx].toolsInProgress = undefined
+          const errorInfo = JSON.parse(match[1])
+          messages.value[targetIdx].toolsInProgress = `❌ 工具调用失败: ${errorInfo.error || '执行失败'}`
           pendingToolCalls = []
-          
-          // 显示错误信息
-          messages.value[targetIdx].content += `\n\n❌ 执行失败: ${error.message}`
           scrollToBottom()
-          
-          return  // 不显示原始错误标记
         } catch (e) {
           console.warn('解析错误信息失败', e)
         }
       }
+      return  // 不添加到消息内容
+    }
+    
+    // 检测并处理 <notify>tool_name</notify> 标记
+    let hasToolTag = false
+    const toolMatch = chunk.match(/<notify>([\w\-]+)<\/notify>/)
+    if (toolMatch) {
+      hasToolTag = true
+      const toolName = toolMatch[1]
+      
+      // 立即显示工具调用状态
+      if (!messages.value[targetIdx].toolsInProgress) {
+        messages.value[targetIdx].toolsInProgress = `⏳ 正在调用工具: ${toolName}...`
+        scrollToBottom()
+      }
+      
+      // 从chunk中移除 <notify> 标记
+      chunk = chunk.replace(/<notify>[\w\-]+<\/notify>/g, '')
+    }
+    
+    // 过滤后如果没有实际内容，不添加
+    const trimmedChunk = chunk.trim()
+    if (!trimmedChunk) {
+      if (hasToolTag) scrollToBottom()
+      return
     }
     
     // 正常文本追加
     messages.value[targetIdx].content += chunk
     
     // 🔑 当收到正常文本时，清除工具调用进度提示（说明AI已经开始输出结果）
-    if (chunk.trim().length>0&&!(chunk.includes('__TOOL_CALL_START__:')||chunk.includes('__TOOL_SUMMARY__:')||chunk.includes('__ERROR__:'))&&messages.value[targetIdx].toolsInProgress) {
-      nextTick(
-        () => {
+    if (trimmedChunk.length > 0 && messages.value[targetIdx].toolsInProgress) {
+      // 只有当工具调用状态不是失败状态时才清除（失败状态需要保留显示）
+      if (!messages.value[targetIdx].toolsInProgress.includes('❌')) {
+        nextTick(() => {
           messages.value[targetIdx].toolsInProgress = undefined
           pendingToolCalls = []
-        }
-      )
+        })
+      }
     }
     
     scrollToBottom()
   }, () => {
-    isStreaming.value = false; streamCtl = null
-    try { const pid = projectStore.currentProject?.id; if (pid) assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content }) } catch {}
+    // 流结束时的清理
+    isStreaming.value = false
+    streamCtl = null
+    
+    // 如果工具调用状态不是失败状态，则清除（失败状态保留以供用户查看）
+    if (messages.value[targetIdx]?.toolsInProgress && 
+        !messages.value[targetIdx].toolsInProgress.includes('❌')) {
+      messages.value[targetIdx].toolsInProgress = undefined
+      pendingToolCalls = []
+    }
+    
+    try { 
+      const pid = projectStore.currentProject?.id
+      if (pid) assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content }) 
+    } catch {}
   }, (err) => { 
     // ✅ 错误时也要清除"正在调用工具"状态
     messages.value[targetIdx].toolsInProgress = undefined
+    pendingToolCalls = []
     ElMessage.error(err?.message || '生成失败')
     isStreaming.value = false
     streamCtl = null 
@@ -735,23 +788,48 @@ function loadHistorySessions(projectId: number) {
 
 function saveCurrentSession() {
   if (!projectStore.currentProject?.id) return
+  if (messages.value.length === 0) return  // 空会话不保存
   
   try {
-    currentSession.value.messages = messages.value
-    currentSession.value.updatedAt = Date.now()
-    currentSession.value.projectId = projectStore.currentProject.id
+    // 深拷贝当前会话以避免引用问题
+    const sessionToSave = {
+      ...currentSession.value,
+      messages: JSON.parse(JSON.stringify(messages.value)),
+      updatedAt: Date.now(),
+      projectId: projectStore.currentProject.id
+    }
     
     // 自动生成标题（使用第一条用户消息的前20个字符）
-    if (currentSession.value.title === '新对话' && messages.value.length > 0) {
+    if (sessionToSave.title === '新对话') {
       const firstUserMsg = messages.value.find(m => m.role === 'user')
       if (firstUserMsg) {
-        currentSession.value.title = firstUserMsg.content.substring(0, 20) + (firstUserMsg.content.length > 20 ? '...' : '')
+        sessionToSave.title = firstUserMsg.content.substring(0, 20) + (firstUserMsg.content.length > 20 ? '...' : '')
       }
     }
     
     const key = getSessionStorageKey(projectStore.currentProject.id)
-    const sessions = historySessions.value.filter(s => s.id !== currentSession.value.id)
-    sessions.unshift(currentSession.value)
+    
+    // 从 localStorage 读取最新的会话列表（避免并发问题）
+    let sessions: ChatSession[] = []
+    try {
+      const stored = localStorage.getItem(key)
+      sessions = stored ? JSON.parse(stored) : []
+    } catch {
+      sessions = []
+    }
+    
+    // 查找并更新现有会话，或添加新会话
+    const existingIndex = sessions.findIndex(s => s.id === sessionToSave.id)
+    if (existingIndex >= 0) {
+      // 更新现有会话
+      sessions[existingIndex] = sessionToSave
+      // 将更新的会话移到最前面
+      const [updated] = sessions.splice(existingIndex, 1)
+      sessions.unshift(updated)
+    } else {
+      // 添加新会话到最前面
+      sessions.unshift(sessionToSave)
+    }
     
     // 最多保留50个会话
     if (sessions.length > 50) {
@@ -760,7 +838,11 @@ function saveCurrentSession() {
     
     localStorage.setItem(key, JSON.stringify(sessions))
     historySessions.value = sessions
-    console.log('💾 会话已保存:', currentSession.value.title)
+    
+    // 更新当前会话的标题（如果改变了）
+    if (currentSession.value.title !== sessionToSave.title) {
+      currentSession.value.title = sessionToSave.title
+    }
   } catch (e) {
     console.error('保存会话失败:', e)
   }
@@ -861,6 +943,25 @@ function formatSessionTime(timestamp: number): string {
   }
 }
 
+// 过滤消息内容中的特殊标记
+function filterMessageContent(content: string): string {
+  if (!content) return ''
+  
+  // 移除完整的 <notify>xxx</tool> 标记
+  let filtered = content.replace(/<notify>[\w\-]*<\/notify>/g, '')
+  
+  // 移除末尾不完整的 <tool 标记（流式传输时可能出现，如 "<notify"、"<notify>" 等）
+  filtered = filtered.replace(/<tool[^>]*$/g, '')
+  
+  // 移除所有协议标记（以防万一）
+  filtered = filtered.replace(/__TOOL_CALL_START__:.*/g, '')
+  filtered = filtered.replace(/__RETRY__:.*/g, '')
+  filtered = filtered.replace(/__TOOL_SUMMARY__:.*/g, '')
+  filtered = filtered.replace(/__ERROR__:.*/g, '')
+  
+  return filtered
+}
+
 // 项目切换时加载该项目的历史会话
 watch(() => projectStore.currentProject?.id, (newProjectId) => {
   if (newProjectId) {
@@ -870,10 +971,16 @@ watch(() => projectStore.currentProject?.id, (newProjectId) => {
   }
 }, { immediate: true })
 
-// 消息变化时自动保存
+// 消息变化时自动保存（防抖，避免频繁保存）
+let saveDebounceTimer: any = null
 watch(messages, () => {
   if (messages.value.length > 0) {
-    saveCurrentSession()
+    // 清除之前的定时器
+    if (saveDebounceTimer) clearTimeout(saveDebounceTimer)
+    // 300ms 后保存
+    saveDebounceTimer = setTimeout(() => {
+      saveCurrentSession()
+    }, 300)
   }
 }, { deep: true })
 </script>
@@ -919,6 +1026,21 @@ watch(messages, () => {
 .msg.assistant { align-items: flex-start; }
 .bubble { max-width: 80%; padding: 8px 10px; border-radius: 8px; }
 .bubble-text { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--el-text-color-primary); user-select: text; cursor: text; }
+
+/* Markdown 渲染样式（最小化自定义，主要依赖 XMarkdown 内置样式） */
+.bubble-markdown { 
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 用户消息白色主题适配 */
+.msg.user .bubble-markdown :deep(*) { 
+  color: var(--el-color-white) !important; 
+}
+.msg.user .bubble-markdown :deep(code) { 
+  background: rgba(255, 255, 255, 0.2) !important; 
+}
+
 .msg.assistant .bubble { background: var(--el-fill-color-light); border: 1px solid var(--el-border-color); }
 .msg.user .bubble { background: var(--el-color-primary); color: var(--el-color-white); }
 .msg.user .bubble-text { color: var(--el-color-white); }
