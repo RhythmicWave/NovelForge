@@ -1,7 +1,7 @@
 {
   "name": "frontend",
-  "version": "0.8.0",
-  "buildVersion": "0.8.0",
+  "version": "0.8.2",
+  "buildVersion": "0.8.2",
   "description": "Novel Forege",
   "main": "./out/main/index.js",
   "author": "NovelForge Team",

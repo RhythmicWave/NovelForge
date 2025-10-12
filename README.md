@@ -53,6 +53,17 @@
 
 <details>
 
+<summary>v0.8.2</summary>
+
+- 优化灵感助手工具调用，增加自动重试功能。可通过.env文件配置最大重试次数
+- 增强卡片拖拽功能，可自由排序
+- 优化灵感助手UI、支持markdown显示
+- 修复bug、清理代码
+
+</details>
+
+<details>
+
 <summary>v0.8.0</summary>
 
 - 章节编辑器重构
