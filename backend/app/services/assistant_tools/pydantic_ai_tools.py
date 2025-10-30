@@ -1,6 +1,7 @@
 """
 灵感助手工具函数集合
 """
+import json
 from typing import Dict, Any, List, Optional
 from pydantic_ai import RunContext
 from loguru import logger
@@ -91,9 +92,13 @@ def create_card(
     
     Returns:
         success: True 表示成功，False 表示失败
-        error: 错误信息
+        error: 错误信息（失败时）
         card_id: 卡片ID
         card_title: 卡片标题
+        card_type: 卡片类型
+        parent_id: 父卡片ID（None表示在根目录创建）
+        parent_title: 父卡片标题（如果有父卡片）
+        parent_type: 父卡片类型（如果有父卡片）
         message: 用户友好的消息
     """
     
@@ -131,12 +136,23 @@ def create_card(
     
     logger.info(f"✅ [PydanticAI.create_card] 创建成功: {result}")
     
-    return {
+    # 获取创建的卡片以返回完整信息
+    created_card = result.get("card")
+    response = {
         "success": True,
-        "card_id": result.get("card_id"),
-        "card_title": result.get("card_title", title),
+        "card_id": created_card.id if created_card else result.get("card_id"),
+        "card_title": created_card.title if created_card else result.get("card_title", title),
+        "card_type": card_type,
+        "parent_id": created_card.parent_id if created_card else parent_card_id,
         "message": f"✅ 已创建{card_type}「{title}」"
     }
+    
+    # 如果有父卡片，添加父卡片信息
+    if created_card and created_card.parent_id and created_card.parent:
+        response["parent_title"] = created_card.parent.title
+        response["parent_type"] = created_card.parent.card_type.name if created_card.parent.card_type else "Unknown"
+    
+    return response
 
 
 def modify_card_field(
@@ -346,13 +362,15 @@ def get_card_content(
     
     Returns:
         success: True 表示成功，False 表示失败
-        error: 错误信息
+        error: 错误信息（失败时）
         card_id: 卡片ID
         title: 卡片标题
         card_type: 卡片类型
+        parent_id: 父卡片ID（None表示根级卡片）
+        parent_title: 父卡片标题（如果有父卡片）
+        parent_type: 父卡片类型（如果有父卡片）
         content: 卡片内容
         created_at: 卡片创建时间
-        message: 用户友好的消息
     """
     logger.info(f" [PydanticAI.get_card_content] card_id={card_id}")
     
@@ -370,11 +388,17 @@ def get_card_content(
         "card_id": card.id,
         "title": card.title,
         "card_type": card.card_type.name if card.card_type else "Unknown",
+        "parent_id": card.parent_id,  # 父卡片ID，用于了解层级关系
         "content": card.content or {},
         "created_at": str(card.created_at) if card.created_at else None
     }
     
-    logger.info(f"✅ [PydanticAI.get_card_content] 已返回卡片内容")
+    # 如果有父卡片，添加父卡片信息
+    if card.parent_id and card.parent:
+        result["parent_title"] = card.parent.title
+        result["parent_type"] = card.parent.card_type.name if card.parent.card_type else "Unknown"
+    
+    logger.info(f"✅ [PydanticAI.get_card_content] 已返回卡片内容 (parent_id={card.parent_id})")
     return result
 
 
@@ -477,7 +501,7 @@ def replace_field_text(
 
 
 
-# ✅ 导出所有工具函数列表（Pydantic AI 标准方式）
+# 导出所有工具函数列表（Pydantic AI 标准方式）
 ASSISTANT_TOOLS = [
     search_cards,
     create_card,
@@ -490,3 +514,33 @@ ASSISTANT_TOOLS = [
 ]
 
 
+from pydantic_ai import Agent, ModelMessage, ModelResponse, TextPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+tools_schema=None
+
+def _get_tools_json_schema(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    tools=[]
+    for tool in info.function_tools:
+        tools.append({
+            "name":tool.name,
+            "description":tool.description,
+            "parameters_json_schema":tool.parameters_json_schema
+        })
+    return ModelResponse(parts=[TextPart(json.dumps(tools,ensure_ascii=False))])
+
+async def get_tools_schema():
+    """异步获取工具 schema"""
+    global tools_schema
+    if tools_schema is None:
+        agent = Agent(tools=ASSISTANT_TOOLS)
+        result = await agent.run('hello', model=FunctionModel(_get_tools_json_schema))
+        # AgentRunResult 使用 .output 属性获取输出
+        tools_schema = json.loads(result.output)
+    
+    return tools_schema
+
+
+
+
+    

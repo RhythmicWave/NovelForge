@@ -22,7 +22,7 @@ export default defineConfig({
         name: 'configure-response-headers',
         configureServer: (server) => {
           server.middlewares.use((_req, res, next) => {
-            res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:8000;");
+            res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' http://127.0.0.1:8000;");
             next();
           });
         }

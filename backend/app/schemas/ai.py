@@ -43,6 +43,7 @@ class AssistantChatRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=None, description="最大token数")
     timeout: Optional[float] = Field(default=None, description="超时秒数")
     stream: bool = Field(default=True, description="是否流式输出")
+    use_react_mode: bool = Field(default=False, description="是否使用 ReAct 模式（文本格式工具调用）")
 
 
 class GeneralAIRequest(BaseModel):

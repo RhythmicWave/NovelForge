@@ -87,4 +87,16 @@ class CardRead(CardBase):
 
 class CardCopyOrMoveRequest(BaseModel):
     target_project_id: int
-    parent_id: Optional[int] = None 
+    parent_id: Optional[int] = None
+
+
+class CardOrderItem(BaseModel):
+    """单个卡片的排序信息"""
+    card_id: int
+    display_order: int
+    parent_id: Optional[int] = None
+
+
+class CardBatchReorderRequest(BaseModel):
+    """批量更新卡片排序请求"""
+    updates: List[CardOrderItem] = Field(description="要更新的卡片排序列表") 

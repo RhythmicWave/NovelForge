@@ -4,7 +4,11 @@ from typing import List, Dict, Any
 
 from app.db.session import get_session
 from app.services.card_service import CardService, CardTypeService
-from app.schemas.card import CardRead, CardCreate, CardUpdate, CardTypeRead, CardTypeCreate, CardTypeUpdate
+from app.schemas.card import (
+    CardRead, CardCreate, CardUpdate, 
+    CardTypeRead, CardTypeCreate, CardTypeUpdate,
+    CardBatchReorderRequest
+)
 from app.db.models import Card, CardType, LLMConfig
 from loguru import logger
 
@@ -173,6 +177,55 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
     except Exception:
         logger.exception("OnSave workflow trigger failed")
     return db_card
+
+
+@router.post("/cards/batch-reorder")
+def batch_reorder_cards(request: CardBatchReorderRequest, db: Session = Depends(get_session)):
+    """
+    批量更新卡片排序
+    
+    Args:
+        request: 包含要更新的卡片列表，每个卡片包含 card_id, display_order, parent_id
+        
+    Returns:
+        更新的卡片数量和成功状态
+    """
+    try:
+        updated_count = 0
+        
+        # 批量更新所有卡片
+        for item in request.updates:
+            card = db.get(Card, item.card_id)
+            if card:
+                # 只更新变化的字段
+                if card.display_order != item.display_order:
+                    card.display_order = item.display_order
+                
+                # 如果提供了 parent_id 且不同，也更新它
+                if item.parent_id is not None and card.parent_id != item.parent_id:
+                    card.parent_id = item.parent_id
+                elif item.parent_id is None and card.parent_id is not None:
+                    card.parent_id = None
+                    
+                db.add(card)
+                updated_count += 1
+        
+        # 一次性提交所有更新
+        db.commit()
+        
+        logger.info(f"批量更新排序完成，共更新 {updated_count} 张卡片")
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "message": f"成功更新 {updated_count} 张卡片的排序"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"批量更新排序失败: {e}")
+        raise HTTPException(status_code=500, detail=f"批量更新失败: {str(e)}")
+
 
 @router.delete("/cards/{card_id}", status_code=204)
 def delete_card(card_id: int, db: Session = Depends(get_session)):

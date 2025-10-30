@@ -577,6 +577,18 @@ async function handleNodeDrop(
       }, { skipHooks: true })
       ElMessage.success(`已将「${draggedCard.title}」移到根级`)
       await cardStore.fetchCards(projectStore.currentProject!.id)
+      
+      // 记录移动操作（包含层级变化信息）
+      assistantStore.recordOperation(projectStore.currentProject!.id, {
+        type: 'move',
+        cardId: draggedCard.id,
+        cardTitle: draggedCard.title,
+        cardType: draggedCard.card_type?.name || 'Unknown',
+        detail: '从子卡片移到根级'
+      })
+      
+      // 更新项目结构
+      updateProjectStructureContext(activeCard.value?.id)
       return
     }
     
@@ -592,6 +604,18 @@ async function handleNodeDrop(
       }, { skipHooks: true })
       ElMessage.success(`已将「${draggedCard.title}」设为「${targetCard.title}」的子卡片`)
       await cardStore.fetchCards(projectStore.currentProject!.id)
+      
+      // 记录移动操作（包含层级变化信息）
+      assistantStore.recordOperation(projectStore.currentProject!.id, {
+        type: 'move',
+        cardId: draggedCard.id,
+        cardTitle: draggedCard.title,
+        cardType: draggedCard.card_type?.name || 'Unknown',
+        detail: `设为「${targetCard.title}」(${targetCard.card_type?.name || 'Unknown'} #${targetCard.id})的子卡片`
+      })
+      
+      // 更新项目结构
+      updateProjectStructureContext(activeCard.value?.id)
       return
     }
     
@@ -616,33 +640,71 @@ async function handleNodeDrop(
       newSiblings.splice(targetIndex + 1, 0, draggedCard)
     }
     
-    // 批量更新所有受影响卡片的 display_order（使用整数）
-    const updatePromises = newSiblings.map((card, index) => {
+    // 批量更新所有受影响卡片的 display_order（使用批量API）
+    const updates: Array<{ card_id: number; display_order: number; parent_id?: number | null }> = []
+    
+    newSiblings.forEach((card, index) => {
       if (card.id === draggedCard.id) {
         // 拖拽的卡片需要同时更新 parent_id 和 display_order
-        return cardStore.modifyCard(card.id, { 
-          parent_id: newParentId,
-          display_order: index
-        }, { skipHooks: true })
+        updates.push({
+          card_id: card.id,
+          display_order: index,
+          parent_id: newParentId
+        })
       } else if (card.display_order !== index) {
         // 其他卡片只需要更新 display_order（如果有变化）
-        return cardStore.modifyCard(card.id, { 
+        updates.push({
+          card_id: card.id,
           display_order: index
-        }, { skipHooks: true })
+        })
       }
-      return Promise.resolve()
     })
     
-    await Promise.all(updatePromises)
+    // 调用批量更新API
+    if (updates.length > 0) {
+      const { batchReorderCards } = await import('@renderer/api/cards')
+      await batchReorderCards({ updates })
+    }
     
     ElMessage.success(`已调整「${draggedCard.title}」的位置`)
     await cardStore.fetchCards(projectStore.currentProject!.id)
+    
+    // 记录移动操作（包含位置和父级信息）
+    const targetCardTitle = targetCard?.title || '根目录'
+    const positionText = dropType === 'before' ? '之前' : '之后'
+    let moveDetail = `移动到「${targetCardTitle}」${positionText}`
+    
+    // 如果改变了父级，特别标注
+    if (draggedCard.parent_id !== newParentId) {
+      // 优化：创建 Map 避免多次 find（仅在父级变化时）
+      const cardMap = new Map(cards.value.map(c => [(c as any).id, c.title]))
+      const oldParentName = draggedCard.parent_id 
+        ? cardMap.get(draggedCard.parent_id) || '未知' 
+        : '根目录'
+      const newParentName = newParentId 
+        ? cardMap.get(newParentId) || '未知' 
+        : '根目录'
+      moveDetail += ` (从「${oldParentName}」移到「${newParentName}」)`
+    }
+    
+    assistantStore.recordOperation(projectStore.currentProject!.id, {
+      type: 'move',
+      cardId: draggedCard.id,
+      cardTitle: draggedCard.title,
+      cardType: draggedCard.card_type?.name || 'Unknown',
+      detail: moveDetail
+    })
+    
+    // 立即更新项目结构，让灵感助手感知层级变化
+    updateProjectStructureContext(activeCard.value?.id)
     
   } catch (err: any) {
     console.error('拖拽失败:', err)
     ElMessage.error(err?.message || '拖拽失败')
     // 刷新以恢复状态
     await cardStore.fetchCards(projectStore.currentProject!.id)
+    // 即使失败也更新结构
+    updateProjectStructureContext(activeCard.value?.id)
   }
 }
 
@@ -755,7 +817,8 @@ watch(() => projectStore.currentProject, (newProject) => {
   }
 }, { immediate: true })
 
-//  监听卡片数据变化，自动更新项目结构
+//  监听卡片数量变化（新增/删除），自动更新项目结构
+// 优化：只监听数量变化，层级变化由拖拽操作手动触发
 watch(() => cards.value.length, () => {
   try {
     updateProjectStructureContext(activeCard.value?.id)

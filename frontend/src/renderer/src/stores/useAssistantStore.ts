@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import { getProjects, type ProjectRead } from '@renderer/api/projects'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 
@@ -21,10 +21,11 @@ export interface CardContextInfo {
 // 用户操作记录接口
 export interface UserOperation {
   timestamp: number
-  type: 'create' | 'edit' | 'delete'
+  type: 'create' | 'edit' | 'delete' | 'move'  // 增加 'move' 类型
   cardId: number
   cardTitle: string
   cardType: string
+  detail?: string  // 操作详情（如层级变化、移动位置等）
 }
 
 // 项目结构化上下文接口
@@ -52,8 +53,9 @@ function projectOperationsKey(projectId: number) { return `${OPERATIONS_KEY_PREF
 
 export const useAssistantStore = defineStore('assistant', () => {
   const projects = ref<ProjectRead[]>([])
-  const cardsByProject = ref<Record<number, CardRead[]>>({})
-  const injectedRefs = ref<InjectRef[]>([])
+  // 使用 shallowRef 避免深度响应式包装卡片内容，提升性能
+  const cardsByProject = shallowRef<Record<number, CardRead[]>>({})
+  const injectedRefs = shallowRef<InjectRef[]>([])
   
   const activeCardContext = ref<CardContextInfo | null>(null)
   const cardRegistry = ref<Map<number, CardContextInfo>>(new Map())
@@ -71,7 +73,8 @@ export const useAssistantStore = defineStore('assistant', () => {
 
   async function loadCardsForProject(pid: number) {
     const list = await getCardsForProject(pid)
-    cardsByProject.value[pid] = list
+    // 创建新对象以触发 shallowRef 更新
+    cardsByProject.value = { ...cardsByProject.value, [pid]: list }
     return list
   }
 
@@ -79,35 +82,47 @@ export const useAssistantStore = defineStore('assistant', () => {
     const list = cardsByProject.value[pid] || []
     const map = new Map<number, CardRead>()
     list.forEach(c => map.set(c.id, c))
+    
+    // 创建新数组以触发 shallowRef 更新
+    const newRefs = [...injectedRefs.value]
+    
     for (const id of ids) {
       const c = map.get(id)
       if (!c) continue
-      const existingIdx = injectedRefs.value.findIndex(r => r.projectId === pid && r.cardId === id)
+      const existingIdx = newRefs.findIndex(r => r.projectId === pid && r.cardId === id)
       if (existingIdx >= 0) {
         // 升级为 manual（若原为 auto）并刷新标题/内容
-        const prev = injectedRefs.value[existingIdx]
-        injectedRefs.value[existingIdx] = { ...prev, projectName: pname, cardTitle: c.title, content: (c as any).content, source: 'manual' }
+        const prev = newRefs[existingIdx]
+        newRefs[existingIdx] = { ...prev, projectName: pname, cardTitle: c.title, content: (c as any).content, source: 'manual' }
         continue
       }
-      injectedRefs.value.push({ projectId: pid, projectName: pname, cardId: id, cardTitle: c.title, content: (c as any).content, source: 'manual' })
+      newRefs.push({ projectId: pid, projectName: pname, cardId: id, cardTitle: c.title, content: (c as any).content, source: 'manual' })
     }
+    
+    injectedRefs.value = newRefs
   }
 
   function addInjectedRefDirect(ref: InjectRef, source: 'auto' | 'manual' = 'manual') {
     if (!ref) return
-    const idx = injectedRefs.value.findIndex(r => r.projectId === ref.projectId && r.cardId === ref.cardId)
-    const prev = idx >= 0 ? injectedRefs.value[idx] : null
+    
+    // 创建新数组以触发 shallowRef 更新
+    const newRefs = [...injectedRefs.value]
+    const idx = newRefs.findIndex(r => r.projectId === ref.projectId && r.cardId === ref.cardId)
+    const prev = idx >= 0 ? newRefs[idx] : null
+    
     // 规则：manual 永远不被 auto 覆盖；manual 会覆盖 auto；同源则更新内容
     if (idx >= 0) {
       if (prev?.source === 'manual' && source === 'auto') {
         // 保留 manual，不做降级，仅更新显示信息/内容
-        injectedRefs.value[idx] = { ...prev, projectName: ref.projectName, cardTitle: ref.cardTitle, content: ref.content, source: 'manual' }
-        return
+        newRefs[idx] = { ...prev, projectName: ref.projectName, cardTitle: ref.cardTitle, content: ref.content, source: 'manual' }
+      } else {
+        newRefs[idx] = { ...prev, ...ref, source }
       }
-      injectedRefs.value[idx] = { ...prev, ...ref, source }
     } else {
-      injectedRefs.value.push({ ...ref, source })
+      newRefs.push({ ...ref, source })
     }
+    
+    injectedRefs.value = newRefs
   }
 
   function clearAutoRefs() {
@@ -120,7 +135,10 @@ export const useAssistantStore = defineStore('assistant', () => {
     addInjectedRefDirect(ref, 'auto')
   }
 
-  function removeInjectedRefAt(index: number) { injectedRefs.value.splice(index, 1) }
+  function removeInjectedRefAt(index: number) { 
+    // 创建新数组以触发 shallowRef 更新
+    injectedRefs.value = injectedRefs.value.filter((_, i) => i !== index)
+  }
   function clearInjectedRefs() { injectedRefs.value = [] }
 
   // --- 对话历史（按项目持久化到 localStorage）---
@@ -435,9 +453,23 @@ export const useAssistantStore = defineStore('assistant', () => {
         hour: '2-digit',
         minute: '2-digit'
       })
-      const emoji = op.type === 'create' ? '➕' : op.type === 'edit' ? '✏️' : '🗑️'
-      const action = op.type === 'create' ? '创建' : op.type === 'edit' ? '编辑' : '删除'
-      return `${idx + 1}. [${time}] ${emoji} ${action} "${op.cardTitle}" (${op.cardType} #${op.cardId})`
+      const emoji = op.type === 'create' ? '➕' : 
+                    op.type === 'edit' ? '✏️' : 
+                    op.type === 'move' ? '📦' : 
+                    '🗑️'
+      const action = op.type === 'create' ? '创建' : 
+                     op.type === 'edit' ? '编辑' : 
+                     op.type === 'move' ? '移动' : 
+                     '删除'
+      
+      let line = `${idx + 1}. [${time}] ${emoji} ${action} "${op.cardTitle}" (${op.cardType} #${op.cardId})`
+      
+      // 如果有详细信息，添加到下一行
+      if (op.detail) {
+        line += `\n   详情: ${op.detail}`
+      }
+      
+      return line
     })
     
     return lines.join('\n')

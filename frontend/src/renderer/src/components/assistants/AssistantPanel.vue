@@ -56,19 +56,52 @@
                   <span class="tools-expand-label">查看详情</span>
                 </template>
                 <div v-for="(tool, tidx) in m.tools" :key="tidx" class="tool-item">
-                  <el-tag size="small" type="success">{{ formatToolName(tool.tool_name) }}</el-tag>
-                  <span class="tool-msg">{{ tool.result?.message || '完成' }}</span>
-                  <el-link 
-                    v-if="tool.result?.card_id" 
-                    type="primary" 
-                    size="small"
-                    @click="emit('jump-to-card', { 
-                      projectId: projectStore.currentProject?.id || 0, 
-                      cardId: tool.result.card_id 
-                    })"
-                  >
-                    查看 →
-                  </el-link>
+                  <div class="tool-header">
+                    <el-tag size="small" type="success">{{ formatToolName(tool.tool_name) }}</el-tag>
+                    <span class="tool-status">{{ tool.result?.success ? '✅ 成功' : '❌ 失败' }}</span>
+                    <el-link 
+                      v-if="tool.result?.card_id" 
+                      type="primary" 
+                      size="small"
+                      @click="emit('jump-to-card', { 
+                        projectId: projectStore.currentProject?.id || 0, 
+                        cardId: tool.result.card_id 
+                      })"
+                    >
+                      跳转到卡片 →
+                    </el-link>
+                  </div>
+                  
+                  <!-- 工具调用详细信息 -->
+                  <div class="tool-details">
+                    <!-- 简要消息 -->
+                    <div v-if="tool.result?.message" class="tool-message">
+                      {{ tool.result.message }}
+                    </div>
+                    
+                    <!-- 关键返回数据 -->
+                    <div v-if="tool.result" class="tool-result-summary">
+                      <div v-if="tool.result.card_id" class="result-field">
+                        <span class="field-label">卡片 ID:</span>
+                        <span class="field-value">{{ tool.result.card_id }}</span>
+                      </div>
+                      <div v-if="tool.result.cards_created" class="result-field">
+                        <span class="field-label">创建数量:</span>
+                        <span class="field-value">{{ tool.result.cards_created.length }} 张</span>
+                      </div>
+                      <div v-if="tool.result.data" class="result-field">
+                        <span class="field-label">返回数据:</span>
+                        <span class="field-value">{{ typeof tool.result.data === 'object' ? JSON.stringify(tool.result.data).substring(0, 100) + '...' : tool.result.data }}</span>
+                      </div>
+                    </div>
+                    
+                    <!-- 完整 JSON（折叠显示） -->
+                    <el-collapse class="tool-json-collapse">
+                      <el-collapse-item title="查看完整返回数据">
+                        <pre class="tool-json">{{ JSON.stringify(tool.result, null, 2) }}</pre>
+                      </el-collapse-item>
+                    </el-collapse>
+                  </div>
                 </div>
               </el-collapse-item>
             </el-collapse>
@@ -85,20 +118,93 @@
 
     <div class="composer">
       <div class="inject-toolbar">
+        <!-- 引用卡片显示区（分成两个容器：标签区 + 更多按钮区） -->
         <div class="chips">
-          <el-tag v-for="(r, idx) in assistantStore.injectedRefs" :key="r.projectId + '-' + r.cardId" closable @close="removeInjectedRef(idx)" size="small" effect="plain" class="chip-tag" @click="onChipClick(r)">
-            {{ r.projectName }} / {{ r.cardTitle }}
-          </el-tag>
+          <!-- 标签显示区（可滚动溢出） -->
+          <div class="chips-tags">
+            <el-tag 
+              v-for="(r, idx) in visibleRefs" 
+              :key="r.projectId + '-' + r.cardId" 
+              closable 
+              @close="removeInjectedRef(idx)" 
+              size="small" 
+              effect="plain" 
+              class="chip-tag" 
+              @click="onChipClick(r)"
+            >
+              {{ r.projectName }} / {{ r.cardTitle }}
+            </el-tag>
+          </div>
+          
+          <!-- 更多按钮区（固定显示，不受宽度影响） -->
+          <div v-if="assistantStore.injectedRefs.length > 0" class="chips-more">
+            <el-popover
+              placement="bottom-start"
+              :width="380"
+              trigger="click"
+            >
+              <template #reference>
+                <el-button 
+                  size="small" 
+                  text
+                  class="more-refs-btn"
+                  :title="`共 ${assistantStore.injectedRefs.length} 个引用卡片`"
+                >
+                  <span class="more-refs-dots">...</span>
+                  <span class="more-refs-count">({{ assistantStore.injectedRefs.length }})</span>
+                </el-button>
+              </template>
+              
+              <!-- Popover 内容 -->
+              <div class="more-refs-popover">
+                <div class="popover-header">
+                  <span>引用卡片</span>
+                  <span class="popover-count">{{ assistantStore.injectedRefs.length }} 个</span>
+                </div>
+                <div class="more-refs-list">
+                  <div 
+                    v-for="(r, idx) in assistantStore.injectedRefs" 
+                    :key="r.projectId + '-' + r.cardId"
+                    class="more-ref-item"
+                  >
+                    <span class="ref-info" @click="onChipClick(r)">
+                      <el-icon><Document /></el-icon>
+                      {{ r.projectName }} / {{ r.cardTitle }}
+                    </span>
+                    <el-button 
+                      :icon="Close" 
+                      size="small" 
+                      text 
+                      @click="removeInjectedRef(idx)"
+                      title="删除引用"
+                    />
+                  </div>
+                </div>
+              </div>
+            </el-popover>
+          </div>
         </div>
-        <el-button size="small" :icon="Plus" @click="openInjectSelector">添加引用</el-button>
+        
+        <el-button size="small" :icon="Plus" @click="openInjectSelector" class="add-ref-btn">添加引用</el-button>
       </div>
+      
       <div class="composer-subbar">
         <el-select v-model="overrideLlmId" placeholder="选择模型" size="small" style="width: 200px">
           <el-option v-for="m in llmOptions" :key="m.id" :label="(m.display_name || m.model_name)" :value="m.id" />
         </el-select>
       </div>
-      <el-input v-model="draft" type="textarea" :rows="3" placeholder="输入你的想法、约束或追问" :disabled="isStreaming" @keydown="onComposerKeydown" />
+      
+      <el-input v-model="draft" type="textarea" :rows="4" placeholder="输入你的想法、约束或追问" :disabled="isStreaming" @keydown="onComposerKeydown" class="composer-input" />
+      
       <div class="composer-actions">
+        <el-tooltip content="React模式：通过文本格式调用工具，兼容更多模型" placement="top">
+          <el-switch 
+            v-model="useReactMode" 
+            size="small"
+            active-text="React"
+            style="margin-right: auto"
+          />
+        </el-tooltip>
         <el-button :disabled="!isStreaming" @click="handleCancel">中止</el-button>
         <el-button type="primary" :icon="Promotion" circle :disabled="isStreaming || !canSend" @click="handleSend" title="发送" />
       </div>
@@ -174,7 +280,7 @@ import { generateContinuationStreaming, renderPromptWithKnowledge } from '@rende
 import { getProjects } from '@renderer/api/projects'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
-import { Plus, Promotion, Refresh, DocumentCopy, Tools, Loading, ChatDotRound, ArrowDown, Delete, Clock } from '@element-plus/icons-vue'
+import { Plus, Promotion, Refresh, DocumentCopy, Tools, Loading, ChatDotRound, ArrowDown, Delete, Clock, Document, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {XMarkdown} from 'vue-element-plus-x'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
@@ -233,8 +339,29 @@ const effectiveLlmId = computed(() => overrideLlmId.value || (props.llmConfigId 
 const MODEL_KEY_PREFIX = 'nf:assistant:model:'
 function modelKeyForProject(pid: number) { return `${MODEL_KEY_PREFIX}${pid}` }
 
+// ReAct 模式开关（按项目记忆）
+const useReactMode = ref(false)
+const REACT_MODE_KEY_PREFIX = 'nf:assistant:react:'
+function reactModeKeyForProject(pid: number) { return `${REACT_MODE_KEY_PREFIX}${pid}` }
+
+// 引用卡片显示控制
+const MAX_VISIBLE_REFS = 5  // 最多显示5个引用（约两行，每行2-3个）
+
+const visibleRefs = computed(() => {
+  return assistantStore.injectedRefs.slice(0, MAX_VISIBLE_REFS)
+})
+
+const hiddenRefsCount = computed(() => {
+  const total = assistantStore.injectedRefs.length
+  return total > MAX_VISIBLE_REFS ? total - MAX_VISIBLE_REFS : 0
+})
+
 watch(overrideLlmId, (val) => {
   try { const pid = projectStore.currentProject?.id; if (pid && val) localStorage.setItem(modelKeyForProject(pid), String(val)) } catch {}
+})
+
+watch(useReactMode, (val) => {
+  try { const pid = projectStore.currentProject?.id; if (pid) localStorage.setItem(reactModeKeyForProject(pid), String(val)) } catch {}
 })
 
 const injectedCardPrompt = ref<string>('')
@@ -336,7 +463,25 @@ function pruneEmpty(val: any): any {
   return out
 }
 
-function buildConversationText() { return messages.value.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n') }
+function buildConversationText() { 
+  return messages.value.map(m => {
+    const prefix = m.role === 'user' ? 'User:' : 'Assistant:'
+    let text = `${prefix} ${m.content}`
+    
+    // 如果有工具调用历史，添加到对话中（让 LLM 知道工具执行结果）
+    if (m.tools && m.tools.length > 0) {
+      text += '\n\n[工具调用记录]'
+      for (const tool of m.tools) {
+        text += `\n- 工具: ${tool.tool_name}`
+        if (tool.result) {
+          text += `\n  结果: ${JSON.stringify(tool.result, null, 2)}`
+        }
+      }
+    }
+    
+    return text
+  }).join('\n\n')
+}
 
 //  构建灵感助手请求参数（使用新的项目结构化上下文）
 function buildAssistantChatRequest() {
@@ -418,8 +563,12 @@ function buildAssistantChatRequest() {
   parts.push(`## 💬 对话历史`)
   parts.push(buildConversationText())
   
+  // 从messages中获取最后一条用户消息，而不是从draft（draft在handleSend中已被清空）
+  const lastUserMessage = messages.value.filter(m => m.role === 'user').pop()
+  const userPrompt = lastUserMessage?.content?.trim() || ''
+  
   return {
-    user_prompt: draft.value.trim(),
+    user_prompt: userPrompt,
     context_info: parts.join('\n')
   }
 }
@@ -443,14 +592,51 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     stream: true,
     temperature: props.temperature ?? 0.7,
     max_tokens: props.max_tokens ?? 8192,
-    timeout: props.timeout ?? undefined
+    timeout: props.timeout ?? undefined,
+    use_react_mode: useReactMode.value  // ReAct 模式开关
   } as any, (chunk) => {
     // 🔑 优先检测所有特殊标记（这些标记不应该显示在消息内容中）
     
-    // 检测 __TOOL_CALL_START__
+    // ReAct 模式：检测工具调用开始
+    if (chunk.includes('__TOOL_CALL_DETECTED__')) {
+      if (messages.value[targetIdx]) {
+        messages.value[targetIdx].toolsInProgress = '⏳ 正在调用工具...'
+      }
+      scrollToBottom()
+      return
+    }
+    
+    // ReAct 模式：检测工具执行完成
+    if (chunk.includes('__TOOL_EXECUTED__:')) {
+      const match = chunk.match(/__TOOL_EXECUTED__:(.+)/)
+      if (match && messages.value[targetIdx]) {
+        try {
+          const toolResult = JSON.parse(match[1])
+          
+          // 记录工具调用
+          if (!messages.value[targetIdx].tools) {
+            messages.value[targetIdx].tools = []
+          }
+          messages.value[targetIdx].tools.push(toolResult)
+          
+          // 清除进度状态
+          messages.value[targetIdx].toolsInProgress = undefined
+          
+          // 🔑 关键：调用刷新逻辑（与标准模式相同）
+          handleToolsExecuted([toolResult])
+          
+          scrollToBottom()
+        } catch (e) {
+          console.warn('[ReAct] 解析工具执行结果失败', e)
+        }
+      }
+      return
+    }
+    
+    // 检测 __TOOL_CALL_START__（标准模式）
     if (chunk.includes('__TOOL_CALL_START__:')) {
       const match = chunk.match(/__TOOL_CALL_START__:(.+)/)
-      if (match) {
+      if (match && messages.value[targetIdx]) {
         try {
           const toolCall = JSON.parse(match[1])
           pendingToolCalls.push(toolCall)
@@ -470,7 +656,7 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     // 检测 __RETRY__
     if (chunk.includes('__RETRY__:')) {
       const match = chunk.match(/__RETRY__:(.+)/)
-      if (match) {
+      if (match && messages.value[targetIdx]) {
         try {
           const retryInfo = JSON.parse(match[1])
           messages.value[targetIdx].toolsInProgress = 
@@ -486,7 +672,7 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     // 检测 __TOOL_SUMMARY__
     if (chunk.includes('__TOOL_SUMMARY__:')) {
       const match = chunk.match(/__TOOL_SUMMARY__:(.+)/)
-      if (match) {
+      if (match && messages.value[targetIdx]) {
         try {
           const summary = JSON.parse(match[1])
           handleToolsExecuted(summary.tools)
@@ -502,7 +688,7 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     // 检测 __ERROR__
     if (chunk.includes('__ERROR__:')) {
       const match = chunk.match(/__ERROR__:(.+)/)
-      if (match) {
+      if (match && messages.value[targetIdx]) {
         try {
           const errorInfo = JSON.parse(match[1])
           messages.value[targetIdx].toolsInProgress = `❌ 工具调用失败: ${errorInfo.error || '执行失败'}`
@@ -518,7 +704,7 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     // 检测并处理 <notify>tool_name</notify> 标记
     let hasToolTag = false
     const toolMatch = chunk.match(/<notify>([\w\-]+)<\/notify>/)
-    if (toolMatch) {
+    if (toolMatch && messages.value[targetIdx]) {
       hasToolTag = true
       const toolName = toolMatch[1]
       
@@ -539,16 +725,24 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
       return
     }
     
+    // 安全检查：确保目标消息仍然存在
+    if (!messages.value[targetIdx]) {
+      console.warn(`⚠️ [AssistantPanel] 目标消息索引 ${targetIdx} 不存在，停止流式输出`)
+      return
+    }
+    
     // 正常文本追加
     messages.value[targetIdx].content += chunk
     
     // 🔑 当收到正常文本时，清除工具调用进度提示（说明AI已经开始输出结果）
-    if (trimmedChunk.length > 0 && messages.value[targetIdx].toolsInProgress) {
+    if (trimmedChunk.length > 0 && messages.value[targetIdx]?.toolsInProgress) {
       // 只有当工具调用状态不是失败状态时才清除（失败状态需要保留显示）
       if (!messages.value[targetIdx].toolsInProgress.includes('❌')) {
         nextTick(() => {
-          messages.value[targetIdx].toolsInProgress = undefined
-          pendingToolCalls = []
+          if (messages.value[targetIdx]) {  // 再次检查，防止在 nextTick 期间被删除
+            messages.value[targetIdx].toolsInProgress = undefined
+            pendingToolCalls = []
+          }
         })
       }
     }
@@ -568,11 +762,15 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     
     try { 
       const pid = projectStore.currentProject?.id
-      if (pid) assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content }) 
+      if (pid && messages.value[targetIdx]) {
+        assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content })
+      }
     } catch {}
   }, (err) => { 
     // ✅ 错误时也要清除"正在调用工具"状态
-    messages.value[targetIdx].toolsInProgress = undefined
+    if (messages.value[targetIdx]) {
+      messages.value[targetIdx].toolsInProgress = undefined
+    }
     pendingToolCalls = []
     ElMessage.error(err?.message || '生成失败')
     isStreaming.value = false
@@ -644,7 +842,10 @@ function onChipClick(refItem: { projectId: number; cardId: number }) {
 }
 
 function toConversationText(list: Array<{ role: 'user'|'assistant'; content: string }>) {
-  return list.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n')
+  return list.map(m => {
+    const prefix = m.role === 'user' ? 'User:' : 'Assistant:'
+    return `${prefix} ${m.content}`
+  }).join('\n\n')
 }
 
 function handleRegenerateAt(idx: number) {
@@ -680,13 +881,22 @@ function onComposerKeydown(e: KeyboardEvent) {
 onMounted(async () => {
   try {
     llmOptions.value = await listLLMConfigs()
-    // 先尝试读取项目记忆；否则默认第一个模型
     const pid = projectStore.currentProject?.id
+    
+    // 恢复模型选择
     const saved = pid ? Number(localStorage.getItem(modelKeyForProject(pid)) || '') : NaN
     if (saved && Number.isFinite(saved)) {
       overrideLlmId.value = saved
     } else if (!overrideLlmId.value && llmOptions.value.length > 0) {
       overrideLlmId.value = llmOptions.value[0].id
+    }
+    
+    // 恢复 React 模式设置
+    if (pid) {
+      const reactModeSaved = localStorage.getItem(reactModeKeyForProject(pid))
+      if (reactModeSaved !== null) {
+        useReactMode.value = reactModeSaved === 'true'
+      }
     }
   } catch {}
 })
@@ -945,19 +1155,30 @@ function formatSessionTime(timestamp: number): string {
 function filterMessageContent(content: string): string {
   if (!content) return ''
   
-  // 移除完整的 <notify>xxx</tool> 标记
+  // 移除完整的 <notify>xxx</notify> 标记
   let filtered = content.replace(/<notify>[\w\-]*<\/notify>/g, '')
   
-  // 移除末尾不完整的 <tool 标记（流式传输时可能出现，如 "<notify"、"<notify>" 等）
-  filtered = filtered.replace(/<tool[^>]*$/g, '')
+  // 移除末尾不完整的 <notify 标记（流式传输时可能出现）
+  filtered = filtered.replace(/<notify[^>]*$/g, '')
   
-  // 移除所有协议标记（以防万一）
+  // ReAct 模式：移除 <tool_call>...</tool_call> 标记及其内容
+  filtered = filtered.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+  
+  // 移除不完整的 <tool_call> 标记
+  filtered = filtered.replace(/<tool_call[^>]*$/g, '')
+  
+  // 移除所有协议标记
   filtered = filtered.replace(/__TOOL_CALL_START__:.*/g, '')
+  filtered = filtered.replace(/__TOOL_CALL_DETECTED__.*/g, '')
+  filtered = filtered.replace(/__TOOL_EXECUTED__:.*/g, '')
   filtered = filtered.replace(/__RETRY__:.*/g, '')
   filtered = filtered.replace(/__TOOL_SUMMARY__:.*/g, '')
   filtered = filtered.replace(/__ERROR__:.*/g, '')
   
-  return filtered
+  // ReAct 模式：移除工具执行结果文本块（**工具执行结果**：...）
+  filtered = filtered.replace(/\*\*工具执行结果\*\*：[\s\S]*?```json[\s\S]*?```/g, '')
+  
+  return filtered.trim()
 }
 
 // 项目切换时加载该项目的历史会话
@@ -982,8 +1203,12 @@ watch(() => projectStore.currentProject?.id, (newProjectId, oldProjectId) => {
 }, { immediate: true })
 
 // 消息变化时自动保存（防抖，避免频繁保存）
+// 优化：仅监听数组长度和最后一条消息，避免深度监听导致性能问题
 let saveDebounceTimer: any = null
-watch(messages, () => {
+watch([
+  () => messages.value.length,
+  () => messages.value[messages.value.length - 1]?.content
+], () => {
   if (messages.value.length > 0) {
     // 清除之前的定时器
     if (saveDebounceTimer) clearTimeout(saveDebounceTimer)
@@ -992,7 +1217,7 @@ watch(messages, () => {
       saveCurrentSession()
     }, 300)
   }
-}, { deep: true })
+})
 </script>
 
 <style scoped>
@@ -1072,13 +1297,198 @@ watch(messages, () => {
 .msg.user .bubble-text { color: var(--el-color-white); }
 .msg-toolbar { display: flex; gap: 6px; padding: 4px 0 0 2px; }
 .streaming-tip { color: var(--el-text-color-secondary); padding-left: 4px; font-size: 12px; }
-.composer { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--el-border-color-light); }
-.inject-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; }
-.inject-toolbar .chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.chip-tag { cursor: pointer; }
-.composer-subbar { display: flex; align-items: center; gap: 8px; }
-.composer-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
+.composer { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 6px; 
+  padding: 10px; 
+  border-top: 1px solid var(--el-border-color-light); 
+}
+
+/* 引用卡片工具栏 - 固定高度，更紧凑 */
+.inject-toolbar { 
+  display: flex; 
+  align-items: flex-start; 
+  justify-content: space-between; 
+  gap: 8px; 
+  padding-bottom: 6px; 
+  min-height: 28px;
+  max-height: 64px; /* 稍微增加高度容纳两行 + 间距 */
+}
+
+.inject-toolbar .chips { 
+  display: flex; 
+  align-items: flex-start; /* 改为顶部对齐 */
+  gap: 6px; 
+  flex: 1;
+  overflow: hidden;
+  max-height: 58px; /* 限制最多两行（24px×2 + 6px间距 + 4px余量） */
+}
+
+/* 标签显示区（可换行，整齐排列） */
+.chips-tags {
+  display: flex;
+  align-items: flex-start; /* 顶部对齐 */
+  gap: 6px; /* 统一间距 */
+  row-gap: 6px; /* 行间距 */
+  flex-wrap: wrap;
+  flex: 1;
+  overflow: hidden;
+  line-height: 1.2;
+  align-content: flex-start; /* 多行时从顶部开始排列 */
+  min-height: 24px; /* 至少一行的高度 */
+}
+
+/* 更多按钮区（固定显示） */
+.chips-more {
+  flex-shrink: 0; /* 不允许收缩 */
+  display: flex;
+  align-items: flex-start; /* 与标签顶部对齐 */
+  padding-top: 2px; /* 微调对齐 */
+}
+
+.chip-tag { 
+  cursor: pointer;
+  font-size: 12px !important;
+  height: 24px !important;
+  line-height: 22px !important;
+  padding: 0 8px !important;
+  margin: 0; /* 移除上下边距，使用 gap 统一间距 */
+  flex-shrink: 0; /* 防止标签被压缩 */
+  white-space: nowrap; /* 防止标签内文字换行 */
+}
+
+/* 输入框样式 */
+.composer-input {
+  flex: 1;
+  min-height: 90px;
+}
+
+::deep(.composer-input .el-textarea__inner) {
+  min-height: 90px !important;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.more-refs-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  padding: 0 10px !important;
+  height: 24px !important;
+  line-height: 22px !important;
+  border: 1px dashed var(--el-color-primary);
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin: 0; /* 与标签对齐 */
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.more-refs-btn:hover {
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary);
+}
+
+.more-refs-dots {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.more-refs-count {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* 添加引用按钮 */
+.add-ref-btn {
+  flex-shrink: 0;
+  align-self: flex-start; /* 顶部对齐 */
+  margin-top: 2px; /* 微调对齐 */
+}
+
+/* 更多引用 Popover */
+.more-refs-popover {
+  padding: 0;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.popover-count {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-weight: normal;
+}
+
+.more-refs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.more-ref-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.more-ref-item:hover {
+  background: var(--el-fill-color);
+}
+
+.more-ref-item .ref-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--el-text-color-regular);
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more-ref-item .ref-info:hover {
+  color: var(--el-color-primary);
+}
+
+.composer-subbar { 
+  display: flex; 
+  align-items: center; 
+  gap: 8px; 
+  padding: 2px 0;
+}
+
+.composer-actions { 
+  display: flex; 
+  gap: 6px; 
+  justify-content: flex-end; 
+  flex-wrap: nowrap; 
+  align-items: center; 
+  padding: 4px 0 0 0;
+}
+
 ::deep(.composer .el-button) { padding: 6px 8px; font-size: 12px; }
+::deep(.inject-toolbar .el-button) { padding: 4px 8px !important; font-size: 12px; height: 24px; }
 
 /* ⏳ 正在调用工具的临时提示样式 */
 .tools-in-progress {
@@ -1153,17 +1563,84 @@ watch(messages, () => {
 }
 
 .tool-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  padding: 12px;
   border-bottom: 1px dashed var(--el-border-color-lighter);
+  background: var(--el-fill-color-blank);
+  border-radius: 6px;
+  margin-bottom: 8px;
 }
 
 .tool-item:last-child {
   border-bottom: none;
+  margin-bottom: 0;
 }
 
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tool-status {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.tool-details {
+  margin-top: 8px;
+}
+
+.tool-message {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+
+.tool-result-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.result-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.field-label {
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  min-width: 70px;
+}
+
+.field-value {
+  color: var(--el-text-color-primary);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.tool-json-collapse {
+  margin-top: 4px;
+}
+
+.tool-json {
+  font-size: 11px;
+  background: var(--el-fill-color-darker);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 300px;
+  color: var(--el-text-color-primary);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+/* 旧样式（兼容性保留） */
 .tool-msg {
   color: var(--el-text-color-regular);
   font-size: 12px;

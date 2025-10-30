@@ -22,6 +22,24 @@ export const createCard = (projectId: number, data: CardCreate): Promise<CardRea
 export const updateCard = (id: number, data: CardUpdate): Promise<CardRead> => request.put(`/cards/${id}`, data)
 // 原始响应：用于读取 X-Workflows-Started
 export const updateCardRaw = (id: number, data: CardUpdate): Promise<AxiosResponse<CardRead>> => (request as any).request({ method: 'PUT', url: `/api/cards/${id}`, data, rawResponse: true })
+
+// 批量更新卡片排序
+export interface CardOrderItem {
+  card_id: number
+  display_order: number
+  parent_id?: number | null
+}
+export interface CardBatchReorderRequest {
+  updates: CardOrderItem[]
+}
+export interface CardBatchReorderResponse {
+  success: boolean
+  updated_count: number
+  message: string
+}
+export const batchReorderCards = (data: CardBatchReorderRequest): Promise<CardBatchReorderResponse> => 
+  request.post('/cards/batch-reorder', data)
+
 export const deleteCard = (id: number): Promise<void> => request.delete(`/cards/${id}`)
 export const copyCard = (id: number, params: { target_project_id: number; parent_id?: number | null }): Promise<CardRead> => request.post(`/cards/${id}/copy`, params)
 export const moveCard = (id: number, params: { target_project_id: number; parent_id?: number | null }): Promise<CardRead> => request.post(`/cards/${id}/move`, params)

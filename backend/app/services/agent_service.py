@@ -2,7 +2,7 @@ from typing import Awaitable, Callable, Optional, Type, Any, Dict, AsyncGenerato
 from fastapi import Response
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
-from pydantic_ai import Agent, ModelRetry
+from pydantic_ai import Agent, ModelResponse, ModelRetry
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -20,6 +20,7 @@ import asyncio
 import json
 import re
 import os
+from datetime import datetime
 
 # 导入需要校验的模型
 from app.schemas.wizard import StageLine, ChapterOutline, Chapter
@@ -187,10 +188,166 @@ from pydantic_ai import (
     )
 from pydantic_ai.messages import (
     ModelRequest,
-    RetryPromptPart
+    RetryPromptPart,
+    ToolCallPart
 )
 
 from pydantic_ai import _agent_graph
+
+
+async def execute_react_tool(
+    tool_name: str,
+    tool_args: Dict[str, Any],
+    deps: Any,
+    tools_map: Dict[str, Callable]
+) -> Dict[str, Any]:
+    """
+    执行 ReAct 模式的工具调用
+    
+    Args:
+        tool_name: 工具名称
+        tool_args: 工具参数
+        deps: 依赖上下文
+        tools_map: 工具函数映射表
+        
+    Returns:
+        工具执行结果 {"tool_name": str, "args": dict, "result": Any, "success": bool, "error": Optional[str]}
+    """
+    logger.info(f"🔧 [ReAct] 执行工具: {tool_name}")
+    logger.info(f"   参数: {json.dumps(tool_args, ensure_ascii=False)[:200]}...")
+    
+    # 验证工具名称
+    if tool_name not in tools_map:
+        error_msg = f"未知工具: {tool_name}"
+        logger.error(f"❌ [ReAct] {error_msg}")
+        return {
+            "tool_name": tool_name,
+            "args": tool_args,
+            "success": False,
+            "error": error_msg
+        }
+    
+    try:
+        tool_func = tools_map[tool_name]
+        
+        # 创建简单的上下文对象（兼容 Pydantic AI 工具签名）
+        class SimpleContext:
+            def __init__(self, deps):
+                self.deps = deps
+        
+        ctx = SimpleContext(deps=deps)
+        
+        # 调用工具（检查是否需要 ctx 参数）
+        import inspect
+        sig = inspect.signature(tool_func)
+        if 'ctx' in sig.parameters:
+            result = tool_func(ctx, **tool_args)
+        else:
+            result = tool_func(**tool_args)
+        
+        logger.info(f"✅ [ReAct] 工具执行成功: {tool_name}")
+        
+        return {
+            "tool_name": tool_name,
+            "args": tool_args,
+            "result": result,
+            "success": True
+        }
+    
+    except Exception as e:
+        error_msg = f"工具执行失败: {str(e)}"
+        logger.error(f"❌ [ReAct] {error_msg}", exc_info=True)
+        return {
+            "tool_name": tool_name,
+            "args": tool_args,
+            "success": False,
+            "error": error_msg
+        }
+
+
+async def process_react_text(
+    text: str,
+    react_accumulated_text: str,
+    react_processed_calls: list,
+    tool_calls_info: list,
+    deps: Any,
+    react_tools_map: Dict[str, Callable]
+) -> AsyncGenerator[Union[str, tuple], None]:
+    """
+    处理 ReAct 模式的文本：检测工具调用、执行工具、输出文本
+    
+    Args:
+        text: 当前文本块
+        react_accumulated_text: 累积的文本
+        react_processed_calls: 已处理的工具调用位置列表
+        tool_calls_info: 工具调用信息列表
+        deps: 依赖上下文
+        react_tools_map: 工具函数映射表
+        
+    Yields:
+        - str: 协议标记和文本内容
+        - tuple: 最后一个 yield 返回 (updated_accumulated_text, new_tool_count) 元组
+    """
+    # 累积文本
+    react_accumulated_text += text
+    new_tool_count = 0
+    
+    # 检测并处理工具调用
+    tool_call_pattern = re.compile(r'<tool_call>(.*?)</tool_call>', re.DOTALL)
+    
+    for match in tool_call_pattern.finditer(react_accumulated_text):
+        match_key = (match.start(), match.end())
+        
+        # 避免重复处理
+        if match_key in react_processed_calls:
+            continue
+        
+        react_processed_calls.append(match_key)
+        logger.info(f"[ReAct] 检测到工具调用 (位置 {match.start()}-{match.end()})")
+        
+        # 通知前端工具调用开始
+        yield "\n\n__TOOL_CALL_DETECTED__\n\n"
+        
+        # 解析并执行工具
+        try:
+            tool_json = match.group(1).strip()
+            try:
+                tool_call_data = json.loads(tool_json)
+            except json.JSONDecodeError:
+                logger.warning(f"[ReAct] JSON 解析失败，尝试自动修复...")
+                repaired_json = repair_json(tool_json)
+                tool_call_data = json.loads(repaired_json)
+                logger.info(f"[ReAct] JSON 修复成功")
+            
+            tool_name = tool_call_data.get("name")
+            tool_args = tool_call_data.get("args", {})
+            
+            # 执行工具
+            tool_result = await execute_react_tool(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                deps=deps,
+                tools_map=react_tools_map
+            )
+            
+            # 通知前端工具执行完成
+            yield f"__TOOL_EXECUTED__:{json.dumps(tool_result, ensure_ascii=False)}\n\n"
+            
+            # 记录工具调用
+            tool_calls_info.append(tool_result)
+            new_tool_count += 1
+            
+        except Exception as e:
+            error_msg = f"工具调用处理失败: {str(e)}"
+            logger.error(f"[ReAct] {error_msg}", exc_info=True)
+            yield f"\n\n❌ {error_msg}\n\n"
+    
+    # 输出文本（前端会过滤掉 <tool_call> 标记）
+    yield text
+    
+    # 最后 yield 更新后的累积文本和新工具数量
+    yield (react_accumulated_text, new_tool_count)
+
 
 async def stream_agent_response(
     agent: Agent,
@@ -199,7 +356,9 @@ async def stream_agent_response(
     deps=None,
     message_history: list = None,
     track_tool_calls: bool = True,
-    max_tool_call_retries: int = None
+    max_tool_call_retries: int = None,
+    use_react_mode: bool = False,
+    react_tools_map: Optional[Dict[str, Callable]] = None
 ) -> AsyncGenerator[str, None]:
     """
     通用的流式 Agent 响应生成器，支持工具调用和文本流式输出。
@@ -211,20 +370,25 @@ async def stream_agent_response(
     
     工作原理：
     1. 使用手动迭代模式 run.next() 逐个处理节点
-    2. 对于 ModelRequestNode：检测 FinalResultEvent 后流式输出文本
-    3. 对于 CallToolsNode：
+    2. 对于 ModelRequestNode：
+       - 检测 FinalResultEvent 后流式输出文本
+       - **ReAct 模式**：实时检测 <tool_call>...</tool_call> 并手动执行工具
+    3. 对于 CallToolsNode（仅标准模式）：
        - 检测模型是否正确调用了工具（通过 check_tool_call）
        - 如果未正确调用，注入重试提示并跳过节点，最多重试 max_tool_call_retries 次
        - 如果正确调用，监听工具执行事件并流式推送状态
     4. 流结束后返回工具调用摘要
+    5. **ReAct 模式**：工具执行后注入结果节点，继续迭代让 agent 基于结果生成
     
     Args:
-        agent: Pydantic AI Agent 实例（工具已绑定）
+        agent: Pydantic AI Agent 实例（标准模式需绑定工具，ReAct 模式无需绑定）
         user_prompt: 用户输入的提示词
         deps: 依赖注入的上下文对象
         message_history: 消息历史
         track_tool_calls: 是否在流结束后返回工具调用摘要
         max_tool_call_retries: 工具调用失败时的最大重试次数
+        use_react_mode: 是否使用 ReAct 模式（文本格式工具调用）
+        react_tools_map: ReAct 模式的工具函数映射表
         
     Yields:
         增量文本内容或工具调用摘要（JSON 格式）
@@ -241,6 +405,11 @@ async def stream_agent_response(
     tool_call_retry_count = 0  # 工具调用重试计数器
     
     is_in_retry_state = False
+    
+    # ReAct 模式相关变量
+    react_accumulated_text = ""  # ReAct 模式累积的文本
+    react_processed_calls = []  # 已处理的工具调用（存储位置）
+    react_last_tool_count = 0  # 上一轮的工具调用总数（用于计算本轮新增）
     
     # 使用手动迭代模式（基于官方文档）
     async with agent.iter(user_prompt, deps=deps, **run_kwargs) as run:
@@ -267,15 +436,141 @@ async def stream_agent_response(
                     
                     # 如果检测到最终结果，流式输出文本（增量模式）
                     if final_result_found:
-                        async for output in request_stream.stream_text(delta=True):
-                            yield output
+                        # ReAct 模式：累积文本并实时检测工具调用
+                        if use_react_mode and react_tools_map:
+                            async for output in request_stream.stream_text(delta=True):
+                                # 使用统一的 process_react_text 函数处理文本
+                                async for chunk in process_react_text(
+                                    text=output,
+                                    react_accumulated_text=react_accumulated_text,
+                                    react_processed_calls=react_processed_calls,
+                                    tool_calls_info=tool_calls_info,
+                                    deps=deps,
+                                    react_tools_map=react_tools_map
+                                ):
+                                    # 最后一个返回值是 tuple，包含更新后的累积文本
+                                    if isinstance(chunk, tuple):
+                                        react_accumulated_text, _ = chunk
+                                    else:
+                                        yield chunk
+                        
+                        # 标准模式：直接流式输出
+                        else:
+                            async for output in request_stream.stream_text(delta=True):
+                                yield output
+                
+                # ReAct 模式：如果有新的工具调用，注入工具结果节点并继续迭代
+                if use_react_mode and react_processed_calls and final_result_found:
+                    # 计算本轮新增的工具调用数量（当前总数 - 上一轮总数）
+                    current_tool_count = len(tool_calls_info)
+                    new_tools_count = current_tool_count - react_last_tool_count
+                    
+                    if new_tools_count > 0:
+                        logger.info(f"[ReAct] 本轮新增 {new_tools_count} 个工具调用，注入结果节点")
+                        
+                        # 构建工具结果摘要文本
+                        tool_results_text = "\n\n**工具执行结果**：\n\n"
+                        for tool_info in tool_calls_info[-new_tools_count:]:
+                            if tool_info.get('success'):
+                                tool_results_text += f"✅ {tool_info['tool_name']}\n"
+                                tool_results_text += f"```json\n{json.dumps(tool_info['result'], ensure_ascii=False, indent=2)}\n```\n\n"
+                            else:
+                                tool_results_text += f"❌ {tool_info['tool_name']}: {tool_info.get('error', '未知错误')}\n\n"
+                        
+                        tool_results_text += "请基于以上工具调用结果继续回答用户。\n"
+                        
+                        logger.info(f"[ReAct] 工具结果摘要:\n{tool_results_text[:300]}...")
+                        
+                        # 创建新的请求节点（注入工具结果）
+                
+                        node = _agent_graph.ModelRequestNode(
+                            request=ModelRequest(parts=[
+                                RetryPromptPart(
+                                    content=tool_results_text,
+                                    timestamp=datetime.now()
+                                )
+                            ])
+                        )
+                        
+                        
+                        # 更新上一轮工具数量
+                        react_last_tool_count = current_tool_count
+                        
+                        # 清空累积文本和处理记录，准备下一轮
+                        react_accumulated_text = ""
+                        react_processed_calls = []
+                        
+                        logger.info(f"[ReAct] 已注入工具结果节点，继续下一轮迭代")
+                        continue  # 继续迭代，让 agent 基于工具结果生成
             
             # CallToolsNode - 工具调用节点
             elif Agent.is_call_tools_node(node):
                 logger.info(node)
                 parts = node.model_response.parts
                 
-                # 检查工具调用是否正确
+                # 🔑 ReAct 模式特殊处理：CallToolsNode 可能只包含 TextPart
+                # 在 ReAct 模式下，LLM 不使用原生工具调用，而是输出文本格式的 <tool_call>
+                if use_react_mode:
+                    # 提取所有 TextPart
+                    text_parts = [p.content for p in parts if p.part_kind == 'text']
+                    if text_parts:
+                        logger.info(f"[ReAct] CallToolsNode 包含 {len(text_parts)} 个 TextPart，处理工具调用")
+                        
+                        for text in text_parts:
+                            # 使用统一的 process_react_text 函数处理文本
+                            async for chunk in process_react_text(
+                                text=text,
+                                react_accumulated_text=react_accumulated_text,
+                                react_processed_calls=react_processed_calls,
+                                tool_calls_info=tool_calls_info,
+                                deps=deps,
+                                react_tools_map=react_tools_map
+                            ):
+                                # 最后一个返回值是 tuple，包含更新后的累积文本
+                                if isinstance(chunk, tuple):
+                                    react_accumulated_text, _ = chunk
+                                else:
+                                    yield chunk
+                        
+                        # 检查是否需要注入工具结果节点（与 ModelRequestNode 后的逻辑相同）
+                        if react_processed_calls:
+                            current_tool_count = len(tool_calls_info)
+                            new_tools_count = current_tool_count - react_last_tool_count
+                            
+                            if new_tools_count > 0:
+                                logger.info(f"[ReAct] CallToolsNode 中执行了 {new_tools_count} 个工具，注入结果节点")
+                                
+                                tool_results_text = "\n\n**工具执行结果**：\n\n"
+                                for tool_info in tool_calls_info[-new_tools_count:]:
+                                    if tool_info.get('success'):
+                                        tool_results_text += f"✅ {tool_info['tool_name']}\n"
+                                        tool_results_text += f"```json\n{json.dumps(tool_info['result'], ensure_ascii=False, indent=2)}\n```\n\n"
+                                    else:
+                                        tool_results_text += f"❌ {tool_info['tool_name']}: {tool_info.get('error', '未知错误')}\n\n"
+                                
+                                tool_results_text += "请基于以上工具调用结果继续回答用户。\n"
+                                
+                       
+                                node = _agent_graph.ModelRequestNode(
+                                    request=ModelRequest(parts=[
+                                        RetryPromptPart(
+                                            content=tool_results_text,
+                                            timestamp=datetime.now()
+                                        )
+                                    ])
+                                )
+                                
+                                react_last_tool_count = current_tool_count
+                                react_accumulated_text = ""
+                                react_processed_calls = []
+                                
+                                logger.info(f"[ReAct] 已注入工具结果节点，继续迭代")
+                                continue
+                    
+                    # 没有工具调用或已处理完，继续下一个节点
+                    continue
+                
+                # 标准模式：检查工具调用是否正确
                 is_valid_tool_call = check_tool_call(parts,is_in_retry_state)
                 
                 if not is_valid_tool_call:
@@ -290,9 +585,9 @@ async def stream_agent_response(
                         
                         # 构造重试提示
                         retry_message = (
-                            f"你输出了工具标记但没有实际调用工具。请正确使用函数调用功能。\n"
+                            f"你输出了工具标记<notify></notify>但没有实际调用工具。请正确使用函数调用功能。\n"
                             f"你的输出：{model_text}\n"
-                            f"请重新尝试，使用正确的工具调用格式。"
+                            f"请重新尝试，必须调用具体工具！而不是仅声明<notify>tool_name</notify>！"
                         )
                         
                         logger.info(f"🔄 [stream_agent_response] 注入重试提示: {retry_message[:100]}...")
@@ -301,7 +596,7 @@ async def stream_agent_response(
                         
                         # 手动添加重试消息到节点
                         # 使用 RetryPromptPart 添加重试提示作为用户消息
-                        from datetime import datetime
+                        
                         node=_agent_graph.ModelRequestNode(request=ModelRequest(parts=[RetryPromptPart(
                                 content=retry_message,
                                 timestamp=datetime.now()
@@ -374,8 +669,9 @@ async def stream_agent_response(
                 # 运行完成，立即退出循环
                 break
     
-    # 流结束后，返回工具调用摘要
-    if track_tool_calls and tool_calls_info:
+    # 流结束后，返回工具调用摘要（仅标准模式）
+    # ReAct 模式已经通过 __TOOL_EXECUTED__ 逐个通知前端，无需再发送摘要
+    if track_tool_calls and tool_calls_info and not use_react_mode:
         yield f"\n\n__TOOL_SUMMARY__:{json.dumps({'type': 'tools_executed', 'tools': tool_calls_info}, ensure_ascii=False)}"
 
 async def run_llm_agent(
@@ -444,7 +740,7 @@ async def run_llm_agent(
 
 
 
-from app.services.assistant_tools.pydantic_ai_tools import AssistantDeps
+from app.services.assistant_tools.pydantic_ai_tools import AssistantDeps, get_tools_schema, ASSISTANT_TOOLS
 
 async def generate_assistant_chat_streaming(
     session: Session,
@@ -474,7 +770,39 @@ async def generate_assistant_chat_streaming(
     
     # 2. 用户当前输入
     if request.user_prompt:
-        parts.append(f"\n**用户说**：{request.user_prompt}")
+        parts.append(f"\nUser: {request.user_prompt}")
+        
+        # 3. 在用户输入后立即添加工具调用强化提示（紧邻模型输出位置）
+        tool_reminder = """
+
+---
+**【⚠️ 来自系统的关键提醒】**
+
+**项目结构基准原则**：
+你必须以**当前提示词中的项目结构树**为准，忽略历史对话中的任何过时信息！
+- 项目结构树会实时更新（用户可能移动、重组卡片）
+- 如果用户询问卡片位置或层级关系，以**最新的树形结构**为准
+- 历史对话中的结构信息可能已过时，不要依赖它
+- 近期操作记录会显示最新的移动/变更信息
+
+**卡片创作规则**：
+在创建卡片或讨论卡片方案之前，必须确保已知该类型卡片的 Schema 结构！
+- 如果不确定字段，先调用 get_card_type_schema 获取结构
+- 不要凭想象猜测字段名，必须精确匹配 Schema
+
+**工具调用步骤**：
+如果需要执行操作（查询、创建、修改卡片等），你必须严格按以下步骤执行：
+1. 先输出 `<notify>工具名</notify>` 标记（如 `<notify>create_card</notify>`）
+2. 立即调用对应的函数工具！特别注意，<notify>tool_name</notify>仅仅是声明你要调用工具，并不会触发实际的工具调用，你还需要进行实际调用！
+3. 等待工具返回 `{"success": true, ...}` 后再向用户确认
+
+❌ 严禁：只描述要调用什么工具，却不实际调用函数
+✅ 正确：输出 <notify> 标记 → 调用函数 → 确认结果
+
+请立即按此流程处理用户请求。
+---
+"""
+        parts.append(tool_reminder)
     
     final_user_prompt = "\n\n".join(parts) if parts else "（用户未输入文字，可能是想查看项目信息或需要帮助）"
     
@@ -534,6 +862,170 @@ async def generate_assistant_chat_streaming(
             _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=False)
         except Exception as stat_e:
             logger.warning(f"记录灵感助手统计失败: {stat_e}")
+
+
+async def generate_assistant_chat_streaming_react(
+    session: Session,
+    request: AssistantChatRequest,
+    system_prompt: str,
+    track_stats: bool = True
+) -> AsyncGenerator[str, None]:
+    """
+    灵感助手 ReAct 模式流式对话生成。
+    
+    与标准模式的区别：
+    - 不使用原生 Function Calling，而是让模型以文本格式输出工具调用
+    - 系统负责解析 <tool_call> 标记并执行工具
+    - 兼容更多不支持 Function Calling 的模型
+    
+    工具调用格式：
+    ```
+    <tool_call>
+    {
+      "name": "tool_name",
+      "args": {...}
+    }
+    </tool_call>
+    ```
+    
+    ⚠️ 重要注意事项：
+    1. **卡片创作规则**：在创建卡片或讨论卡片方案时，LLM 必须先调用 get_card_type_schema 
+       获取该类型卡片的 Schema 结构，不能凭想象猜测字段
+    2. **JSON 格式**：使用 json_repair 自动修复常见错误，但仍建议提示词中强调正确格式
+    3. **工具结果反馈**：工具执行结果会通过 __TOOL_EXECUTED__ 协议标记发送给前端
+    4. **对话历史**：工具调用记录会被前端添加到对话历史中，供后续对话参考
+    """
+    from app.services.assistant_tools.pydantic_ai_tools import (
+        search_cards, create_card, modify_card_field, replace_field_text,
+        batch_create_cards, get_card_type_schema, get_card_content
+    )
+    
+    # 工具映射表（手动执行）
+    TOOL_FUNCTIONS = {
+        "search_cards": search_cards,
+        "create_card": create_card,
+        "modify_card_field": modify_card_field,
+        "replace_field_text": replace_field_text,
+        "batch_create_cards": batch_create_cards,
+        "get_card_type_schema": get_card_type_schema,
+        "get_card_content": get_card_content,
+    }
+    
+    # 获取工具 schema
+    tools_schema = await get_tools_schema()
+    tools_schema_text = json.dumps(tools_schema, ensure_ascii=False, indent=2)
+    
+    # 在系统提示中注入工具定义
+    enhanced_system_prompt = system_prompt.replace("{tools_schema}", tools_schema_text)
+    
+    # 组装用户提示（与标准模式相同）
+    parts = []
+    if request.context_info:
+        parts.append(request.context_info)
+    
+    if request.user_prompt:
+        parts.append(f"\nUser: {request.user_prompt}")
+        
+        # React 模式的工具调用提醒
+        tool_reminder = """
+
+---
+**【⚠️ ReAct 模式关键提醒】**
+
+**0. 项目结构基准原则**：
+你必须以**当前提示词中的项目结构树**为准，忽略历史对话中的任何过时信息！
+- 项目结构树会实时更新（用户可能移动、重组卡片）
+- 如果用户询问卡片位置或层级关系，以**最新的树形结构**为准
+- 历史对话中的结构信息可能已过时，不要依赖它
+- 近期操作记录会显示最新的移动/变更信息
+
+**1. 卡片创作规则**：
+在创建卡片或讨论卡片方案之前，必须确保已知该类型卡片的 Schema 结构！
+- 如果不确定字段，先调用 get_card_type_schema 获取结构
+- 不要凭想象猜测字段名，必须精确匹配 Schema
+- 每种卡片类型的字段都不同
+
+**2. 工具调用格式**：
+<tool_call>
+{
+  "name": "工具名称",
+  "args": { "参数名": "参数值" }
+}
+</tool_call>
+
+**3. JSON 格式要求**：
+- 所有字符串必须正确闭合（每个 " 都要有闭合的 "）
+- 数组必须正确闭合（每个 [ 都要有闭合的 ]）
+- 字符串内换行使用 \n，不要使用真实换行
+- 确保所有括号、引号都成对出现
+
+❌ 错误："description": "文本，
+✅ 正确："description": "文本"
+---
+"""
+        parts.append(tool_reminder)
+    
+    final_user_prompt = "\n\n".join(parts) if parts else "（用户未输入文字，可能是想查看项目信息或需要帮助）"
+    
+    logger.info(f"[ReAct] system_prompt 长度: {len(enhanced_system_prompt)}")
+    logger.info(f"[ReAct] final_user_prompt: {final_user_prompt}...")
+    
+    # 限额预检
+    if track_stats:
+        ok, reason = _precheck_quota(session, request.llm_config_id, _calc_input_tokens(enhanced_system_prompt, final_user_prompt), need_calls=1)
+        if not ok:
+            raise ValueError(f"LLM 配额不足:{reason}")
+    
+    # 创建不带工具绑定的 Agent
+    agent = _get_agent(
+        session=session,
+        llm_config_id=request.llm_config_id,
+        system_prompt=enhanced_system_prompt,
+        temperature=request.temperature or 0.6,
+        max_tokens=request.max_tokens or 8192,
+        timeout=request.timeout or 60,
+        deps_type=AssistantDeps,
+        tools=[]  # ReAct 模式不绑定工具
+    )
+    
+    # 创建依赖上下文
+    deps = AssistantDeps(session=session, project_id=request.project_id)
+    
+    # 使用统一的 stream_agent_response，传入 ReAct 参数
+    accumulated = ""
+    
+    try:
+        async for chunk in stream_agent_response(
+            agent=agent,
+            user_prompt=final_user_prompt,
+            deps=deps,
+            message_history=None,
+            track_tool_calls=True,
+            use_react_mode=True,
+            react_tools_map=TOOL_FUNCTIONS
+        ):
+            accumulated += chunk
+            yield chunk
+    
+    except asyncio.CancelledError:
+        if track_stats:
+            in_tokens = _calc_input_tokens(enhanced_system_prompt, final_user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=True)
+        return
+    except Exception as e:
+        logger.error(f"[ReAct] 生成失败: {e}")
+        yield f"\n\n__ERROR__:{json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}"
+        raise
+    
+    # 统计
+    if track_stats:
+        try:
+            in_tokens = _calc_input_tokens(enhanced_system_prompt, final_user_prompt)
+            out_tokens = _estimate_tokens(accumulated)
+            _record_usage(session, request.llm_config_id, in_tokens, out_tokens, calls=1, aborted=False)
+        except Exception as stat_e:
+            logger.warning(f"[ReAct] 记录统计失败: {stat_e}")
 
 
 async def generate_continuation_streaming(session: Session, request: ContinuationRequest, system_prompt: str, track_stats: bool = True) -> AsyncGenerator[str, None]:
