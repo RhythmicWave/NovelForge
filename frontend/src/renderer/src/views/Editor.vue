@@ -653,9 +653,11 @@ async function handleNodeDrop(
         })
       } else if (card.display_order !== index) {
         // 其他卡片只需要更新 display_order（如果有变化）
+        // ⚠️ 重要：必须传递 parent_id，否则后端会错误地将其设置为 null！
         updates.push({
           card_id: card.id,
-          display_order: index
+          display_order: index,
+          parent_id: card.parent_id || null  // 保持原有的 parent_id
         })
       }
     })

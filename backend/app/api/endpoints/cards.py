@@ -197,15 +197,12 @@ def batch_reorder_cards(request: CardBatchReorderRequest, db: Session = Depends(
         for item in request.updates:
             card = db.get(Card, item.card_id)
             if card:
-                # 只更新变化的字段
-                if card.display_order != item.display_order:
-                    card.display_order = item.display_order
+                # 更新 display_order
+                card.display_order = item.display_order
                 
-                # 如果提供了 parent_id 且不同，也更新它
-                if item.parent_id is not None and card.parent_id != item.parent_id:
-                    card.parent_id = item.parent_id
-                elif item.parent_id is None and card.parent_id is not None:
-                    card.parent_id = None
+                # 更新 parent_id（无论是否变化都更新，因为前端已经明确传递了值）
+                # 这样可以正确处理：设置为根级(null)、设置为子卡片(有值)、保持不变(传递当前值)
+                card.parent_id = item.parent_id
                     
                 db.add(card)
                 updated_count += 1

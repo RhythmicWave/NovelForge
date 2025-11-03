@@ -1274,6 +1274,13 @@ watch([
   line-height: 1.6;
   font-family: 、"Segoe UI",  "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--el-text-color-primary);
+  user-select: text;  /* 允许选中文本 */
+  cursor: text;  /* 显示文本光标 */
+}
+
+/* XMarkdown 内部元素也允许选中 */
+.bubble-markdown :deep(*) {
+  user-select: text !important;
 }
 
 
