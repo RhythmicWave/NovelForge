@@ -8,4 +8,4 @@
 - knowledge:
     - @KB{ name=起名指南 }
 
--OutputFormat：请严格根据提供的Json Schema返回结果
+-OutputFormat：请严格根据提供的Json Schema返回结果，自行决定不确定信息，不要返回任何其它多余的信息！

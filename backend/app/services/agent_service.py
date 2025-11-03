@@ -83,8 +83,7 @@ def _get_agent(
     max_tokens: Optional[int] = None,
     timeout: float = 64,
     deps_type: Type = str,
-    tools: list = None,
-) -> Agent:
+    tools: list = None,) -> Agent:
     """
     根据LLM配置和期望的输出类型，获取一个配置好的LLM Agent实例。
     统一使用 ModelSettings 设置 temperature/max_tokens/timeout（无需按提供商分支分别设置）。
@@ -199,8 +198,7 @@ async def execute_react_tool(
     tool_name: str,
     tool_args: Dict[str, Any],
     deps: Any,
-    tools_map: Dict[str, Callable]
-) -> Dict[str, Any]:
+    tools_map: Dict[str, Callable]) -> Dict[str, Any]:
     """
     执行 ReAct 模式的工具调用
     
@@ -271,8 +269,7 @@ async def process_react_text(
     react_processed_calls: list,
     tool_calls_info: list,
     deps: Any,
-    react_tools_map: Dict[str, Callable]
-) -> AsyncGenerator[Union[str, tuple], None]:
+    react_tools_map: Dict[str, Callable]) -> AsyncGenerator[Union[str, tuple], None]:
     """
     处理 ReAct 模式的文本：检测工具调用、执行工具、输出文本
     
@@ -358,8 +355,7 @@ async def stream_agent_response(
     track_tool_calls: bool = True,
     max_tool_call_retries: int = None,
     use_react_mode: bool = False,
-    react_tools_map: Optional[Dict[str, Callable]] = None
-) -> AsyncGenerator[str, None]:
+    react_tools_map: Optional[Dict[str, Callable]] = None) -> AsyncGenerator[str, None]:
     """
     通用的流式 Agent 响应生成器，支持工具调用和文本流式输出。
     
@@ -685,8 +681,7 @@ async def run_llm_agent(
     max_retries: int = 3,
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
-    track_stats: bool = True,
-) -> BaseModel:
+    track_stats: bool = True,) -> BaseModel:
     """
     运行LLM Agent的核心封装。
     支持温度/最大tokens/超时（通过 ModelSettings 注入）。
@@ -713,8 +708,9 @@ async def run_llm_agent(
     last_exception = None
     for attempt in range(max_retries):
         try:
-            response=await run_agent_with_streaming(agent, user_prompt, deps=deps)
-
+            response=await agent.run(user_prompt, deps=deps) #await run_agent_with_streaming(agent, user_prompt, deps=deps)
+            response=response.output
+            logger.info(f"response: {response}")
             # 统计：输入/输出 tokens 与调用次数
             if track_stats:
                 in_tokens = _calc_input_tokens(system_prompt, user_prompt)
@@ -748,8 +744,7 @@ async def generate_assistant_chat_streaming(
     system_prompt: str,
     tools: list,  #  直接接受工具函数列表
     deps,  #  依赖上下文（AssistantDeps 实例）
-    track_stats: bool = True
-) -> AsyncGenerator[str, None]:
+    track_stats: bool = True) -> AsyncGenerator[str, None]:
     """
     灵感助手专用流式对话生成。
     
@@ -1157,11 +1152,11 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
                 parsed = model_type.model_validate_json(repair_json(result))
             except ValidationError as e:
                 err_msg = e.json(include_url=False)
-                print(f"Invalid {err_msg}")
-                raise ModelRetry(f"Invalid  {err_msg}")
+                print(f"Invalid {err_msg}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！")
+                raise ModelRetry(f"Invalid  {err_msg}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！")
             except Exception as e:
                 print("Exception:", e)
-                raise ModelRetry(f'Invalid {e}') from e
+                raise ModelRetry(f'Invalid {e}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！') from e
 
         # === 针对 StageLine/ChapterOutline/Chapter 的实体存在性校验 ===
         try:
