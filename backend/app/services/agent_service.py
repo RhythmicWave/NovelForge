@@ -1152,11 +1152,11 @@ def create_validator(model_type: Type[BaseModel]) -> Callable[[Any, Any], Awaita
                 parsed = model_type.model_validate_json(repair_json(result))
             except ValidationError as e:
                 err_msg = e.json(include_url=False)
-                print(f"Invalid {err_msg}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！")
-                raise ModelRetry(f"Invalid  {err_msg}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！")
+                print(f"Invalid {err_msg}\n请严格按照OutputFormat格式返回，禁止询问细节，自行创作/推断不确定信息，不要返回任何多余的信息！")
+                raise ModelRetry(f"Invalid  {err_msg}\n请严格按照OutputFormat格式返回，禁止询问细节，自行创作/推断不确定信息，不要返回任何多余的信息！")
             except Exception as e:
                 print("Exception:", e)
-                raise ModelRetry(f'Invalid {e}\n请严格按照OutputFormat格式返回，自行决定不确定信息，不要返回任何多余的信息！') from e
+                raise ModelRetry(f'Invalid {e}\n请严格按照OutputFormat格式返回，禁止询问细节，自行创作/推断不确定信息，不要返回任何多余的信息！') from e
 
         # === 针对 StageLine/ChapterOutline/Chapter 的实体存在性校验 ===
         try:
