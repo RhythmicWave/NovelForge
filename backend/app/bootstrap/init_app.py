@@ -124,6 +124,7 @@ def create_default_card_types(db: Session):
             "该卷的角色行动简述:@parent.content.character_action_list\n"
             "之前的阶段故事大纲，确保章节范围、剧情能够衔接:@type:阶段大纲[previous:global:1].{content.stage_name,content.reference_chapter,content.analysis,content.overview,content.entity_snapshot}\n"
             "上一章节大纲概述，确保能够衔接剧情:@type:章节大纲[previous:global:1].{content.overview}\n"
+            "本卷的StageCount总数为：@parent.content.stage_count\n"
             "注意，请务必在@parent.content.stage_count 个阶段内将故事按分卷主线收束，并达到卷末实体快照状态:@parent.content.entity_snapshot\n"
             "该卷的写作注意事项:@type:写作指南[sibling].content.content \n"
             "接下来请你创作第 @self.content.stage_number 阶段的故事细纲。"
