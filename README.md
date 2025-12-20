@@ -61,7 +61,9 @@
 - 其它若干优化
 
 - 代码优化与修复bug
+</details>
 
+<details>
 <summary>v0.8.3</summary>
 
 - 灵感助手功能增强
