@@ -43,7 +43,11 @@ class AssistantChatRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=None, description="最大token数")
     timeout: Optional[float] = Field(default=None, description="超时秒数")
     stream: bool = Field(default=True, description="是否流式输出")
-    use_react_mode: bool = Field(default=False, description="是否使用 ReAct 模式（文本格式工具调用）")
+    thinking_enabled: Optional[bool] = Field(default=None, description="是否启用推理/Thinking 输出（仅部分模型支持）")
+    # 上下文摘要配置（仅灵感助手使用，前端可选传入）
+    context_summarization_enabled: Optional[bool] = Field(default=None, description="是否启用上下文摘要中间件（对过长对话做摘要压缩）")
+    context_summarization_threshold: Optional[int] = Field(default=None, description="触发上下文摘要的 token 阈值")
+    react_mode_enabled: Optional[bool] = Field(default=None, description="是否启用 React 文本协议工具调用模式")
 
 
 class GeneralAIRequest(BaseModel):

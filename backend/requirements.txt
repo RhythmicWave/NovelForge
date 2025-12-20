@@ -5,7 +5,10 @@ sqlmodel
 alembic
 loguru
 pydantic==2.11.7
-pydantic_ai>=1.0.14
-openai>=1.0.0
 neo4j
 python-dotenv
+langchain>1.0
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+langchain_qwq

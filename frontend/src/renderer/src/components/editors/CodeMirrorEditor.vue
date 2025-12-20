@@ -457,6 +457,26 @@ const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
 const previewBeforeUpdate = ref(true)
 
+// 章节正文：保存时是否自动触发提取（角色动态信息 / 关系入图）
+const AUTO_EXTRACT_DYNAMIC_KEY = 'nf:chapter:auto_extract_dynamic_on_save'
+const AUTO_EXTRACT_RELATIONS_KEY = 'nf:chapter:auto_extract_relations_on_save'
+
+function isDynamicAutoExtractEnabled(): boolean {
+	try {
+		return localStorage.getItem(AUTO_EXTRACT_DYNAMIC_KEY) === '1'
+	} catch {
+		return false
+	}
+}
+
+function isRelationsAutoExtractEnabled(): boolean {
+	try {
+		return localStorage.getItem(AUTO_EXTRACT_RELATIONS_KEY) === '1'
+	} catch {
+		return false
+	}
+}
+
 // 右键菜单状态
 const contextMenu = reactive({
 	visible: false,
@@ -753,12 +773,35 @@ async function handleSave() {
 		}
 	}
 	await cardStore.modifyCard(localCard.id, updatePayload)
-	
+		
 	// 保存成功后重置dirty状态
 	originalContent.value = getText()
 	isDirty.value = false
 	emit('update:dirty', false)
-	
+
+	// 若当前卡片为章节正文，且开启了“保存时自动提取”，则在保存成功后自动触发提取
+	try {
+		const typeName = (props.card as any)?.card_type?.name || ''
+		const needDynamic = isDynamicAutoExtractEnabled()
+		const needRelations = isRelationsAutoExtractEnabled()
+		if (typeName === '章节正文' && (needDynamic || needRelations)) {
+			const llmConfigId = resolveLlmConfigId()
+			if (llmConfigId) {
+				if (needDynamic) {
+					await extractDynamicInfoWithLlm(llmConfigId)
+				}
+				if (needRelations) {
+					await extractRelationsWithLlm(llmConfigId)
+				}
+			} else if (needDynamic || needRelations) {
+				ElMessage.warning('未找到章节对应的AI参数配置，自动提取已跳过，请在右侧手动执行提取')
+			}
+		}
+	} catch (e) {
+		console.error('自动提取失败:', e)
+		ElMessage.error('自动提取失败，请在右侧手动点击重试')
+	}
+		
 	// 返回保存的内容供历史版本使用
 	return updatePayload.content
 }

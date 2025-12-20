@@ -52,6 +52,15 @@
 ## 📅 更新日志
 
 <details>
+<summary>v0.8.5</summary>
+
+- 使用新的agent框架进行了全面替换；优化灵感助手功能、UI
+- 重新实现了React模式来为模型实现文本格式工具调用，适用工具调用能力不强的模型。可在设置-灵感助手处开启（默认关闭）
+- 兼容了推理模型，增加了thinking模式
+- 建议将DeepSeek、Qwen之类的模型选择/修改提供商为OpenAI兼容，而OpenAI则仅设置为GPT 5等官方模型。
+- 其它若干优化
+
+- 代码优化与修复bug
 
 <summary>v0.8.3</summary>
 
@@ -230,6 +239,9 @@
 # 克隆仓库
 git clone https://github.com/RhythmicWave/NovelForge.git
 cd NovelForge/backend
+
+conda create -n NovelForge python=3.11
+conda activate NovelForge
 
 # 安装依赖
 pip install -r requirements.txt

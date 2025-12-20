@@ -27,16 +27,165 @@
       </div>
     </div>
 
-    <div class="chat-area">
+    <div class="chat-area reasoning-container">
       <div class="messages" ref="messagesEl">
         <div v-for="(m, idx) in messages" :key="idx" :class="['msg', m.role]">
-          <div class="bubble">
-            <XMarkdown 
-              :markdown="filterMessageContent(m.content)" 
-              :default-theme-mode="isDarkMode ? 'dark' : 'light'"
-              class="bubble-markdown"
-            />
-          </div>
+          <!-- 文本内容：
+               - 对于用户或无工具调用的助手消息：直接显示 content
+               - 对于有工具调用的助手消息：使用 preToolText + 按波次拆分的 toolGroups 展示
+          -->
+          <template v-if="m.role !== 'assistant' || !m.toolGroups || !m.toolGroups.length">
+            <!-- 无分波次信息时的思考过程展示（整体按顺序渲染，每段可单独折叠） -->
+            <div
+              v-if="m.role === 'assistant' && ((m as any).reasoningSegments && (m as any).reasoningSegments.length || m.reasoning)"
+            >
+              <Thinking
+                v-for="(seg, sidx) in ((m as any).reasoningSegments && (m as any).reasoningSegments.length ? (m as any).reasoningSegments : (m.reasoning ? [m.reasoning] : []))"
+                :key="'plain-r-' + sidx"
+                v-model="reasoningBucketsOpen[`plain-${idx}-${sidx}`]"
+                :status="isStreaming && idx === messages.length - 1 && m._lastAssistantEvent === 'reasoning' && m._lastReasoningBucketKey === `plain-${idx}-${sidx}` ? 'thinking' : 'end'"
+                auto-collapse
+                max-width="100%"
+                :background-color="isDarkMode ? 'rgba(255,255,255,0.16)' : 'var(--el-fill-color-light)'"
+                :color="isDarkMode ? 'var(--el-text-color-primary)' : 'var(--el-text-color-primary)'"
+                :content="filterMessageContent(seg)"
+              />
+            </div>
+            <div v-if="m.role !== 'assistant' || (!m.preToolText && !m.postToolText)" class="bubble">
+              <XMarkdown 
+                :markdown="filterMessageContent(m.content)" 
+                :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                class="bubble-markdown"
+              />
+            </div>
+            <div v-else>
+              <div v-if="m.preToolText && m.preToolText.trim()" class="bubble">
+                <XMarkdown 
+                  :markdown="filterMessageContent(m.preToolText)" 
+                  :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                  class="bubble-markdown"
+                />
+              </div>
+              <div v-if="m.postToolText && m.postToolText.trim()" class="bubble">
+                <XMarkdown 
+                  :markdown="filterMessageContent(m.postToolText)" 
+                  :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                  class="bubble-markdown"
+                />
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <!-- 1) 工具调用前的思考过程（可折叠） -->
+            <div
+              v-if="(m as any).preToolReasoningSegments && (m as any).preToolReasoningSegments.length"
+            >
+              <Thinking
+                v-for="(seg, sidx) in (m as any).preToolReasoningSegments"
+                :key="'pre-r-' + sidx"
+                v-model="reasoningBucketsOpen[`pre-${idx}-${sidx}`]"
+                :status="isStreaming && idx === messages.length - 1 && m._lastAssistantEvent === 'reasoning' && m._lastReasoningBucketKey === `pre-${idx}-${sidx}` ? 'thinking' : 'end'"
+                auto-collapse
+                max-width="100%"
+                :background-color="isDarkMode ? 'rgba(255,255,255,0.16)' : 'var(--el-fill-color-light)'"
+                :color="isDarkMode ? 'var(--el-text-color-primary)' : 'var(--el-text-color-primary)'"
+                :content="filterMessageContent(seg)"
+              />
+            </div>
+
+            <!-- 2) 工具调用前的文本 -->
+            <div v-if="m.preToolText && m.preToolText.trim() && !shouldHidePreToolText(m)" class="bubble">
+              <XMarkdown 
+                :markdown="filterMessageContent(m.preToolText)" 
+                :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                class="bubble-markdown"
+              />
+            </div>
+            <!-- 3) 按波次拆分的工具调用 + 每波后的补充文本和思考过程（每波可单独折叠） -->
+            <div v-for="(group, gidx) in m.toolGroups" :key="gidx">
+              <div v-if="group.tools && group.tools.length" class="tools-summary">
+                <div class="tools-header">
+                  <el-icon class="tools-icon"><Tools /></el-icon>
+                  <span class="tools-count">执行了 {{ group.tools.length }} 个操作</span>
+                </div>
+                <el-collapse class="tools-collapse">
+                  <el-collapse-item>
+                    <template #title>
+                      <span class="tools-expand-label">查看详情</span>
+                    </template>
+                    <div v-for="(tool, tidx) in group.tools" :key="tidx" class="tool-item">
+                      <div class="tool-header">
+                        <el-tag size="small" type="success">{{ formatToolName(tool.tool_name) }}</el-tag>
+                        <span class="tool-status">{{ tool.result?.success ? '✅ 成功' : '❌ 失败' }}</span>
+                        <el-link 
+                          v-if="tool.result?.card_id" 
+                          type="primary" 
+                          size="small"
+                          @click="emit('jump-to-card', { 
+                            projectId: projectStore.currentProject?.id || 0, 
+                            cardId: tool.result.card_id 
+                          })"
+                        >
+                          跳转到卡片 →
+                        </el-link>
+                      </div>
+                      <div class="tool-details">
+                        <div v-if="tool.result?.message" class="tool-message">
+                          {{ tool.result.message }}
+                        </div>
+                        <div v-if="tool.result" class="tool-result-summary">
+                          <div v-if="tool.result.card_id" class="result-field">
+                            <span class="field-label">卡片 ID:</span>
+                            <span class="field-value">{{ tool.result.card_id }}</span>
+                          </div>
+                          <div v-if="tool.result.cards_created" class="result-field">
+                            <span class="field-label">创建数量:</span>
+                            <span class="field-value">{{ tool.result.cards_created.length }} 张</span>
+                          </div>
+                          <div v-if="tool.result.data" class="result-field">
+                            <span class="field-label">返回数据:</span>
+                            <span class="field-value">{{ typeof tool.result.data === 'object' ? JSON.stringify(tool.result.data).substring(0, 100) + '...' : tool.result.data }}</span>
+                          </div>
+                        </div>
+                        <el-collapse class="tool-json-collapse">
+                          <el-collapse-item title="查看完整返回数据">
+                            <pre class="tool-json">{{ JSON.stringify(tool.result, null, 2) }}</pre>
+                          </el-collapse-item>
+                        </el-collapse>
+                      </div>
+                    </div>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+
+              <!-- 每一波工具调用后的思考过程（与该波工具同一分组，可折叠） -->
+              <div
+                v-if="(group as any).reasoningSegments && (group as any).reasoningSegments.length"
+              >
+                <Thinking
+                  v-for="(seg, sidx) in (group as any).reasoningSegments"
+                  :key="`g-${gidx}-r-${sidx}`"
+                  v-model="reasoningBucketsOpen[`g-${idx}-${gidx}-${sidx}`]"
+                  :status="isStreaming && idx === messages.length - 1 && m._lastAssistantEvent === 'reasoning' && m._lastReasoningBucketKey === `g-${idx}-${gidx}-${sidx}` ? 'thinking' : 'end'"
+                  auto-collapse
+                  max-width="100%"
+                  :background-color="isDarkMode ? 'rgba(255,255,255,0.10)' : 'var(--el-fill-color-light)'"
+                  :color="isDarkMode ? 'var(--el-text-color-primary)' : 'var(--el-text-color-primary)'"
+                  :content="filterMessageContent(seg)"
+                />
+              </div>
+
+              <!-- 每一波工具调用后的补充文本（忽略纯空白） -->
+              <div v-if="group.postText && group.postText.trim()" class="bubble">
+                <XMarkdown 
+                  :markdown="filterMessageContent(group.postText)" 
+                  :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                  class="bubble-markdown"
+                />
+              </div>
+            </div>
+          </template>
           
           <!-- ⏳ 临时显示"正在调用工具"（在工具执行期间） -->
           <div v-if="m.toolsInProgress" class="tools-in-progress">
@@ -44,8 +193,8 @@
             <pre class="tools-progress-text">{{ m.toolsInProgress }}</pre>
           </div>
           
-          <!-- 工具调用展示 -->
-          <div v-if="m.tools && m.tools.length" class="tools-summary">
+          <!-- 工具调用展示（无分波次信息时的回退显示） -->
+          <div v-if="m.tools && m.tools.length && (!m.toolGroups || !m.toolGroups.length)" class="tools-summary">
             <div class="tools-header">
               <el-icon class="tools-icon"><Tools /></el-icon>
               <span class="tools-count">执行了 {{ m.tools.length }} 个操作</span>
@@ -197,11 +346,11 @@
       <el-input v-model="draft" type="textarea" :rows="4" placeholder="输入你的想法、约束或追问" :disabled="isStreaming" @keydown="onComposerKeydown" class="composer-input" />
       
       <div class="composer-actions">
-        <el-tooltip content="React模式：通过文本格式调用工具，兼容更多模型" placement="top">
+        <el-tooltip content="Thinking：启用推理/思考模式（确保模型支持开启/关闭思考）" placement="top">
           <el-switch 
-            v-model="useReactMode" 
+            v-model="useThinkingMode" 
             size="small"
-            active-text="React"
+            active-text="Thinking"
             style="margin-right: auto"
           />
         </el-tooltip>
@@ -282,25 +431,64 @@ import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
 import { Plus, Promotion, Refresh, DocumentCopy, Tools, Loading, ChatDotRound, ArrowDown, Delete, Clock, Document, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {XMarkdown} from 'vue-element-plus-x'
+import { XMarkdown, Thinking } from 'vue-element-plus-x'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useAppStore } from '@renderer/stores/useAppStore'
+import { useAssistantPreferences } from '@renderer/composables/useAssistantPreferences'
 
 const props = defineProps<{ resolvedContext: string; llmConfigId?: number | null; promptName?: string | null; temperature?: number | null; max_tokens?: number | null; timeout?: number | null; effectiveSchema?: any; generationPromptName?: string | null; currentCardTitle?: string | null; currentCardContent?: any }>()
 const emit = defineEmits<{ 'finalize': [string]; 'refresh-context': []; 'reset-selection': []; 'jump-to-card': [{ projectId: number; cardId: number }] }>()
 
-const messages = ref<Array<{ 
+const messages = ref<Array<{
   role: 'user' | 'assistant'
   content: string
   tools?: Array<{tool_name: string, result: any}>
   toolsInProgress?: string
+  // 以下字段仅对助手消息有意义：用于将文本分为“工具调用前/后”两部分，便于在 UI 中插入工具卡片
+  preToolText?: string
+  postToolText?: string
+  toolCompleted?: boolean
+  // 按波次拆分的工具调用分组，每一组包含本波次的所有工具、其后的补充文本以及该波次后的思考片段
+  toolGroups?: Array<{ tools: Array<{tool_name: string, result: any}>, postText: string, reasoningSegments?: string[] }>
+  // 内部状态：记录最近一次助手事件类型（'token' 或 'tool_end'），用于判断是否开启新的一波工具调用
+  _lastAssistantEvent?: 'token' | 'tool_end' | 'reasoning'
+  // 推理模型的 thinking 内容（仅在模型返回 reasoning 块时存在）
+  reasoning?: string
+  // 多段思考内容分片（按流式阶段拆分）
+  reasoningSegments?: string[]
+  // 工具调用前阶段的思考分片
+  preToolReasoningSegments?: string[]
+  // 本地 UI 状态：是否展开思考过程
+  _showReasoning?: boolean
+  // 是否曾经接收过 reasoning 内容
+  _hasReasoning?: boolean
+  // 用户是否主动切换过思考过程的展开/折叠
+  _reasoningUserToggled?: boolean
+  // 最近一段自动管理的思考片段对应的折叠桶 key（用于在思考结束时自动折叠该片段）
+  _lastReasoningBucketKey?: string
 }>>([])
 const draft = ref('')
 const isStreaming = ref(false)
 let streamCtl: { cancel: () => void } | null = null
 const messagesEl = ref<HTMLDivElement | null>(null)
+
+// 思考过程折叠状态：key 为 bucket 标识（例如 plain-0-0 / pre-0-0 / g-0-1-0），值为是否展开
+// 默认收起（false），用户点击后再展开
+const reasoningBucketsOpen = ref<Record<string, boolean>>({})
+
+function isReasoningBucketOpen(key: string): boolean {
+  return reasoningBucketsOpen.value[key] === true
+}
+
+function toggleReasoningBucket(key: string) {
+  reasoningBucketsOpen.value[key] = !isReasoningBucketOpen(key)
+}
+
+function setReasoningBucket(key: string, val: boolean) {
+  reasoningBucketsOpen.value[key] = !!val
+}
 
 // ===== 会话管理 =====
 interface ChatSession {
@@ -339,10 +527,10 @@ const effectiveLlmId = computed(() => overrideLlmId.value || (props.llmConfigId 
 const MODEL_KEY_PREFIX = 'nf:assistant:model:'
 function modelKeyForProject(pid: number) { return `${MODEL_KEY_PREFIX}${pid}` }
 
-// ReAct 模式开关（按项目记忆）
-const useReactMode = ref(false)
-const REACT_MODE_KEY_PREFIX = 'nf:assistant:react:'
-function reactModeKeyForProject(pid: number) { return `${REACT_MODE_KEY_PREFIX}${pid}` }
+// Thinking 模式开关（按项目记忆）
+const useThinkingMode = ref(false)
+const THINKING_MODE_KEY_PREFIX = 'nf:assistant:thinking:'
+function thinkingModeKeyForProject(pid: number) { return `${THINKING_MODE_KEY_PREFIX}${pid}` }
 
 // 引用卡片显示控制
 const MAX_VISIBLE_REFS = 5  // 最多显示5个引用（约两行，每行2-3个）
@@ -360,8 +548,8 @@ watch(overrideLlmId, (val) => {
   try { const pid = projectStore.currentProject?.id; if (pid && val) localStorage.setItem(modelKeyForProject(pid), String(val)) } catch {}
 })
 
-watch(useReactMode, (val) => {
-  try { const pid = projectStore.currentProject?.id; if (pid) localStorage.setItem(reactModeKeyForProject(pid), String(val)) } catch {}
+watch(useThinkingMode, (val) => {
+  try { const pid = projectStore.currentProject?.id; if (pid) localStorage.setItem(thinkingModeKeyForProject(pid), String(val)) } catch {}
 })
 
 const injectedCardPrompt = ref<string>('')
@@ -387,6 +575,7 @@ const assistantStore = useAssistantStore()
 const projectStore = useProjectStore()
 const appStore = useAppStore()
 const { isDarkMode } = storeToRefs(appStore)
+const assistantPrefs = useAssistantPreferences()
 const selectorVisible = ref(false)
 const selectorSourcePid = ref<number | null>(null)
 const selectorCards = ref<CardRead[]>([])
@@ -567,9 +756,16 @@ function buildAssistantChatRequest() {
   const lastUserMessage = messages.value.filter(m => m.role === 'user').pop()
   const userPrompt = lastUserMessage?.content?.trim() || ''
   
+  const preferencePayload = {
+    context_summarization_enabled: assistantPrefs.contextSummaryEnabled.value || undefined,
+    context_summarization_threshold: assistantPrefs.contextSummaryThreshold.value || undefined,
+    react_mode_enabled: assistantPrefs.reactModeEnabled.value || undefined,
+  }
+
   return {
     user_prompt: userPrompt,
-    context_info: parts.join('\n')
+    context_info: parts.join('\n'),
+    ...preferencePayload
   }
 }
 
@@ -580,173 +776,286 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
   
   // 构建请求参数
   const chatRequest = buildAssistantChatRequest()
+  const promptName = (props.promptName && props.promptName.trim()) ? props.promptName : '灵感对话'
   
   // 临时工具调用状态（用于立即显示"正在调用工具"）
   let pendingToolCalls: any[] = []
   
   streamCtl = generateContinuationStreaming({
     ...chatRequest,
-    llm_config_id: effectiveLlmId.value as number,
-    prompt_name: (props.promptName && props.promptName.trim()) ? props.promptName : '灵感对话',
+    llm_config_id: overrideLlmId.value || undefined,
+    prompt_name: promptName,
     project_id: projectStore.currentProject?.id as number,
     stream: true,
     temperature: props.temperature ?? 0.7,
     max_tokens: props.max_tokens ?? 8192,
     timeout: props.timeout ?? undefined,
-    use_react_mode: useReactMode.value  // ReAct 模式开关
+    thinking_enabled: useThinkingMode.value
   } as any, (chunk) => {
-    // 🔑 优先检测所有特殊标记（这些标记不应该显示在消息内容中）
-    
-    // ReAct 模式：检测工具调用开始
-    if (chunk.includes('__TOOL_CALL_DETECTED__')) {
-      if (messages.value[targetIdx]) {
-        messages.value[targetIdx].toolsInProgress = '⏳ 正在调用工具...'
+    // 优先尝试解析为结构化事件（JSON-line）
+    let evt: any = null
+    try { evt = JSON.parse(chunk) } catch { evt = null }
+    if (evt && typeof evt === 'object' && evt.type) {
+      const type = evt.type as string
+      const data = (evt.data || {}) as any
+
+      if (!messages.value[targetIdx]) {
+        console.warn(`[AssistantPanel] 目标消息索引 ${targetIdx} 不存在，忽略事件`, evt)
+        return
       }
-      scrollToBottom()
-      return
-    }
-    
-    // ReAct 模式：检测工具执行完成
-    if (chunk.includes('__TOOL_EXECUTED__:')) {
-      const match = chunk.match(/__TOOL_EXECUTED__:(.+)/)
-      if (match && messages.value[targetIdx]) {
-        try {
-          const toolResult = JSON.parse(match[1])
-          
-          // 记录工具调用
-          if (!messages.value[targetIdx].tools) {
-            messages.value[targetIdx].tools = []
+
+      // 若上一段思考过程已结束（当前事件不再是 reasoning），自动折叠上一段自动管理的思考片段
+      if (type !== 'reasoning') {
+        const baseMsg = messages.value[targetIdx]
+        if (baseMsg && baseMsg.role === 'assistant') {
+          const mAny = baseMsg as any
+          const lastKey = mAny._lastReasoningBucketKey as string | undefined
+          if (lastKey && isReasoningBucketOpen(lastKey)) {
+            reasoningBucketsOpen.value[lastKey] = false
           }
-          messages.value[targetIdx].tools.push(toolResult)
-          
-          // 清除进度状态
-          messages.value[targetIdx].toolsInProgress = undefined
-          
-          // 🔑 关键：调用刷新逻辑（与标准模式相同）
-          handleToolsExecuted([toolResult])
-          
-          scrollToBottom()
-        } catch (e) {
-          console.warn('[ReAct] 解析工具执行结果失败', e)
+          mAny._lastReasoningBucketKey = undefined
         }
       }
-      return
-    }
-    
-    // 检测 __TOOL_CALL_START__（标准模式）
-    if (chunk.includes('__TOOL_CALL_START__:')) {
-      const match = chunk.match(/__TOOL_CALL_START__:(.+)/)
-      if (match && messages.value[targetIdx]) {
-        try {
-          const toolCall = JSON.parse(match[1])
-          pendingToolCalls.push(toolCall)
-          
-          if (!messages.value[targetIdx].toolsInProgress) {
-            const toolsPreview = pendingToolCalls.map(t => `⏳ 正在调用工具: ${t.tool_name}...`).join('\n')
-            messages.value[targetIdx].toolsInProgress = toolsPreview
+
+      if (type === 'token') {
+        let text = String(data.text || '')
+        if (!text) return
+
+        // 后端已统一处理所有协议标记，前端直接使用原始文本
+
+        const msg = messages.value[targetIdx]
+
+        // 1) 始终累加到 content，便于历史、导出和复制
+        msg.content += text
+        // 2) 对助手消息进行分段显示：
+        if (msg.role === 'assistant') {
+          // 如果前面已经有 reasoning，在第一段正式回复文本到来时自动折叠思考过程
+          if (msg._hasReasoning && msg._showReasoning && !msg._reasoningUserToggled) {
+            msg._showReasoning = false
           }
-          scrollToBottom()
-        } catch (e) {
-          console.warn('解析工具调用开始失败', e)
+          // 在首个工具完成(tool_end)之前的文本视为 preToolText
+          if (!msg.toolCompleted) {
+            msg.preToolText = (msg.preToolText || '') + text
+          } else {
+            // 已经至少有一轮工具调用：将文本归入当前波次的 postText
+            if (!msg.toolGroups || msg.toolGroups.length === 0) {
+              msg.toolGroups = [{ tools: [], postText: '' }]
+            }
+            const lastGroup = msg.toolGroups[msg.toolGroups.length - 1]
+            lastGroup.postText = (lastGroup.postText || '') + text
+          }
+          msg._lastAssistantEvent = 'token'
         }
-      }
-      return  // 不添加到消息内容
-    }
-    
-    // 检测 __RETRY__
-    if (chunk.includes('__RETRY__:')) {
-      const match = chunk.match(/__RETRY__:(.+)/)
-      if (match && messages.value[targetIdx]) {
-        try {
-          const retryInfo = JSON.parse(match[1])
-          messages.value[targetIdx].toolsInProgress = 
-            `🔄 工具调用失败，${retryInfo.reason}，正在重试 (${retryInfo.retry}/${retryInfo.max})...`
-          scrollToBottom()
-        } catch (e) {
-          console.warn('解析重试信息失败', e)
+        if (messages.value[targetIdx]?.toolsInProgress && !messages.value[targetIdx].toolsInProgress.includes('❌')) {
+          nextTick(() => {
+            if (messages.value[targetIdx]) {
+              messages.value[targetIdx].toolsInProgress = undefined
+              pendingToolCalls = []
+            }
+          })
         }
-      }
-      return  // 不添加到消息内容
-    }
-    
-    // 检测 __TOOL_SUMMARY__
-    if (chunk.includes('__TOOL_SUMMARY__:')) {
-      const match = chunk.match(/__TOOL_SUMMARY__:(.+)/)
-      if (match && messages.value[targetIdx]) {
-        try {
-          const summary = JSON.parse(match[1])
-          handleToolsExecuted(summary.tools)
-          messages.value[targetIdx].toolsInProgress = undefined
-          pendingToolCalls = []
-        } catch (e) {
-          console.warn('解析工具摘要失败', e)
-        }
-      }
-      return  // 不添加到消息内容
-    }
-    
-    // 检测 __ERROR__
-    if (chunk.includes('__ERROR__:')) {
-      const match = chunk.match(/__ERROR__:(.+)/)
-      if (match && messages.value[targetIdx]) {
-        try {
-          const errorInfo = JSON.parse(match[1])
-          messages.value[targetIdx].toolsInProgress = `❌ 工具调用失败: ${errorInfo.error || '执行失败'}`
-          pendingToolCalls = []
-          scrollToBottom()
-        } catch (e) {
-          console.warn('解析错误信息失败', e)
-        }
-      }
-      return  // 不添加到消息内容
-    }
-    
-    // 检测并处理 <notify>tool_name</notify> 标记
-    let hasToolTag = false
-    const toolMatch = chunk.match(/<notify>([\w\-]+)<\/notify>/)
-    if (toolMatch && messages.value[targetIdx]) {
-      hasToolTag = true
-      const toolName = toolMatch[1]
-      
-      // 立即显示工具调用状态
-      if (!messages.value[targetIdx].toolsInProgress) {
-        messages.value[targetIdx].toolsInProgress = `⏳ 正在调用工具: ${toolName}...`
         scrollToBottom()
+        return
       }
-      
-      // 从chunk中移除 <notify> 标记
-      chunk = chunk.replace(/<notify>[\w\-]+<\/notify>/g, '')
-    }
-    
-    // 过滤后如果没有实际内容，不添加
-    const trimmedChunk = chunk.trim()
-    if (!trimmedChunk) {
-      if (hasToolTag) scrollToBottom()
+
+      if (type === 'tool_start') {
+        const toolName = data.tool_name || ''
+        if (!messages.value[targetIdx].toolsInProgress) {
+          messages.value[targetIdx].toolsInProgress = `⏳ 正在调用工具: ${toolName || '工具'}...`
+        }
+        scrollToBottom()
+        return
+      }
+
+      if (type === 'tool_end') {
+        const toolResult = {
+          tool_name: data.tool_name,
+          args: data.args,
+          result: data.result
+        }
+        const msg = messages.value[targetIdx]
+        if (!msg.tools) {
+          msg.tools = []
+        }
+        msg.tools.push(toolResult)
+
+        // 按波次分组工具调用：
+        if (!msg.toolGroups) {
+          msg.toolGroups = []
+        }
+        const lastEvent = msg._lastAssistantEvent
+        if (!msg.toolGroups.length || lastEvent !== 'tool_end') {
+          // 新的一波工具调用
+          msg.toolGroups.push({ tools: [toolResult], postText: '' })
+        } else {
+          // 与上一条 tool_end 连续，归入同一波
+          msg.toolGroups[msg.toolGroups.length - 1].tools.push(toolResult)
+        }
+
+        msg.toolsInProgress = undefined
+        // 标记该助手消息已至少完成一次工具调用
+        msg.toolCompleted = true
+        msg._lastAssistantEvent = 'tool_end'
+
+        handleToolsExecuted(targetIdx, [toolResult])
+        scrollToBottom()
+        return
+      }
+
+      if (type === 'tool_summary') {
+        const tools = Array.isArray(data.tools) ? data.tools : []
+        if (tools.length) {
+          handleToolsExecuted(targetIdx, tools)
+        }
+        messages.value[targetIdx].toolsInProgress = undefined
+        pendingToolCalls = []
+        scrollToBottom()
+        return
+      }
+
+      if (type === 'reasoning') {
+        // console.log('DEBUG: Reasoning event received', data)
+        const text = (data.text ?? '').toString()
+        if (!text) return
+        const msg = messages.value[targetIdx]
+        if (msg && msg.role === 'assistant') {
+          const isDelta = data.delta === true
+          const mAny = msg as any
+          // 全局思考片段列表（用于无工具场景和历史存储）
+          if (!Array.isArray(mAny.reasoningSegments)) {
+            mAny.reasoningSegments = msg.reasoning ? [msg.reasoning] : []
+          }
+          const allSegs: string[] = mAny.reasoningSegments
+
+          const hasGroups = Array.isArray(msg.toolGroups) && msg.toolGroups.length > 0
+          let currentBucketKey: string | null = null
+          let newBucketKey: string | null = null
+
+          // 根据是否已经有工具分组，将思考片段归入：
+          // - 工具调用前：msg.preToolReasoningSegments
+          // - 某一波工具之后：对应 group.reasoningSegments
+          if (!hasGroups) {
+            // 仍在第一波工具调用之前
+            if (!Array.isArray(mAny.preToolReasoningSegments)) {
+              mAny.preToolReasoningSegments = []
+            }
+            const bucketSegs: string[] = mAny.preToolReasoningSegments
+            let segIndex: number
+            if (isDelta && msg._lastAssistantEvent === 'reasoning' && bucketSegs.length > 0 && allSegs.length > 0) {
+              // 同一段思考的增量 token：追加到当前片段
+              segIndex = bucketSegs.length - 1
+              bucketSegs[segIndex] = (bucketSegs[segIndex] || '') + text
+              allSegs[allSegs.length - 1] = (allSegs[allSegs.length - 1] || '') + text
+            } else {
+              // 新的一段思考过程
+              bucketSegs.push(text)
+              allSegs.push(text)
+              segIndex = bucketSegs.length - 1
+              // 无工具/无分波信息时，与模板中的 plain-${idx}-${sidx} 对齐
+              newBucketKey = `plain-${targetIdx}-${segIndex}`
+            }
+            currentBucketKey = `plain-${targetIdx}-${segIndex}`
+          } else {
+            // 已经至少有一波工具调用：将思考片段归入最后一波工具之后
+            const groups = msg.toolGroups as any[]
+            const gidx = groups.length - 1
+            const lastGroup: any = groups[gidx]
+            if (!Array.isArray(lastGroup.reasoningSegments)) {
+              lastGroup.reasoningSegments = []
+            }
+            const bucketSegs: string[] = lastGroup.reasoningSegments
+            let segIndex: number
+            if (isDelta && msg._lastAssistantEvent === 'reasoning' && bucketSegs.length > 0 && allSegs.length > 0) {
+              segIndex = bucketSegs.length - 1
+              bucketSegs[segIndex] = (bucketSegs[segIndex] || '') + text
+              allSegs[allSegs.length - 1] = (allSegs[allSegs.length - 1] || '') + text
+            } else {
+              bucketSegs.push(text)
+              allSegs.push(text)
+              segIndex = bucketSegs.length - 1
+              // 每一波工具后的思考片段，与模板中的 g-${idx}-${gidx}-${sidx} 对齐
+              newBucketKey = `g-${targetIdx}-${gidx}-${segIndex}`
+            }
+            currentBucketKey = `g-${targetIdx}-${gidx}-${segIndex}`
+          }
+
+          // 合并可能重复的思考片段（部分模型会重复返回完整 reasoning 内容）
+          if (allSegs.length > 1) {
+            const merged: string[] = []
+            for (const seg of allSegs) {
+              if (!merged.length || merged[merged.length - 1] !== seg) {
+                merged.push(seg)
+              }
+            }
+            if (merged.length !== allSegs.length) {
+              allSegs.splice(0, allSegs.length, ...merged)
+            }
+          }
+
+          // 对于新的一段思考过程，在 UI 中自动展开对应的折叠块
+          if (!isDelta && currentBucketKey) {
+            reasoningBucketsOpen.value[currentBucketKey] = true
+          }
+
+          // 记录当前正在更新的思考块 key，供 Thinking 组件区分哪一段处于 thinking 状态
+          ;(msg as any)._lastReasoningBucketKey = currentBucketKey
+
+          // 兼容旧字段：将所有片段拼接成一个整体字符串（主要用于历史存储等场景）
+          msg.reasoning = allSegs.join('\n\n')
+          msg._hasReasoning = true
+          msg._lastAssistantEvent = 'reasoning' as any
+          // 第一段 reasoning 到来时自动展开
+          if (msg._showReasoning === undefined) {
+            msg._showReasoning = true
+          }
+        }
+        scrollToBottom()
+        return
+      }
+
+      if (type === 'retry') {
+        const reason = data.reason || '工具调用失败'
+        const current = data.current ?? data.retry
+        const max = data.max
+        messages.value[targetIdx].toolsInProgress = `🔄 工具调用失败，${reason}，正在重试 (${current}/${max})...`
+        scrollToBottom()
+        return
+      }
+
+      if (type === 'error') {
+        const msg = data.error || '执行失败'
+        messages.value[targetIdx].toolsInProgress = `❌ 工具调用失败: ${msg}`
+        pendingToolCalls = []
+        scrollToBottom()
+        return
+      }
+
+      // 未识别类型，直接忽略或后续扩展
       return
     }
-    
+
+    // 非结构化事件：退化为简单的文本增量处理
+    const plain = (chunk ?? '').toString()
+    if (!plain) return
+
     // 安全检查：确保目标消息仍然存在
     if (!messages.value[targetIdx]) {
       console.warn(`⚠️ [AssistantPanel] 目标消息索引 ${targetIdx} 不存在，停止流式输出`)
       return
     }
-    
-    // 正常文本追加
-    messages.value[targetIdx].content += chunk
-    
-    // 🔑 当收到正常文本时，清除工具调用进度提示（说明AI已经开始输出结果）
-    if (trimmedChunk.length > 0 && messages.value[targetIdx]?.toolsInProgress) {
-      // 只有当工具调用状态不是失败状态时才清除（失败状态需要保留显示）
-      if (!messages.value[targetIdx].toolsInProgress.includes('❌')) {
-        nextTick(() => {
-          if (messages.value[targetIdx]) {  // 再次检查，防止在 nextTick 期间被删除
-            messages.value[targetIdx].toolsInProgress = undefined
-            pendingToolCalls = []
-          }
-        })
+
+    // 将纯文本追加到 content，并按工具完成前/后更新 preToolText/postToolText
+    messages.value[targetIdx].content += plain
+    const msg = messages.value[targetIdx]
+    if (msg.role === 'assistant') {
+      if (!msg.toolCompleted) {
+        msg.preToolText = (msg.preToolText || '') + plain
+      } else {
+        msg.postToolText = (msg.postToolText || '') + plain
       }
+      msg._lastAssistantEvent = 'token'
     }
-    
+
     scrollToBottom()
   }, () => {
     // 流结束时的清理
@@ -756,16 +1065,18 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     // 如果工具调用状态不是失败状态，则清除（失败状态保留以供用户查看）
     if (messages.value[targetIdx]?.toolsInProgress && 
         !messages.value[targetIdx].toolsInProgress.includes('❌')) {
-      messages.value[targetIdx].toolsInProgress = undefined
-      pendingToolCalls = []
+      nextTick(() => {
+        if (messages.value[targetIdx]) {
+          messages.value[targetIdx].toolsInProgress = undefined
+          pendingToolCalls = []
+        }
+      })
     }
-    
-    try { 
-      const pid = projectStore.currentProject?.id
-      if (pid && messages.value[targetIdx]) {
-        assistantStore.appendHistory(pid, { role: 'assistant', content: messages.value[targetIdx].content })
-      }
-    } catch {}
+
+    // 流结束后立即保存会话，确保最近一轮工具调用和思考过程也被持久化
+    if (messages.value.length > 0) {
+      saveCurrentSession()
+    }
   }, (err) => { 
     // ✅ 错误时也要清除"正在调用工具"状态
     if (messages.value[targetIdx]) {
@@ -812,7 +1123,21 @@ function regenerateFromCurrent() {
   const lastIsAssistant = lastIndex >= 0 && messages.value[lastIndex].role === 'assistant'
   let targetIdx: number
   if (lastIsAssistant) {
+    // 清空内容与工具相关字段，准备重新生成
     messages.value[lastIndex].content = ''
+    messages.value[lastIndex].preToolText = undefined
+    messages.value[lastIndex].postToolText = undefined
+    messages.value[lastIndex].toolCompleted = undefined
+    messages.value[lastIndex].tools = undefined
+    messages.value[lastIndex].toolGroups = undefined
+    messages.value[lastIndex].toolsInProgress = undefined
+    messages.value[lastIndex]._lastAssistantEvent = undefined
+    // 清空推理模型的思考过程状态
+    messages.value[lastIndex].reasoning = undefined
+    messages.value[lastIndex].reasoningSegments = undefined
+    messages.value[lastIndex].preToolReasoningSegments = undefined
+    messages.value[lastIndex]._showReasoning = undefined
+    messages.value[lastIndex]._hasReasoning = false
     targetIdx = lastIndex
   } else {
     targetIdx = messages.value.push({ role: 'assistant', content: '' }) - 1
@@ -860,13 +1185,33 @@ function handleRegenerateAt(idx: number) {
       assistantStore.setHistory(pid, prevMsgs.map(m => ({ role: m.role as any, content: m.content })))
     }
   } catch {}
-  // 覆盖该条助手消息（清空内容和工具调用记录）
-  messages.value[idx].content = ''
-  messages.value[idx].tools = undefined  //  清除工具调用记录
+  // 覆盖该条助手消息（清空内容、思考过程和工具调用记录）
+  const msg = messages.value[idx]
+  msg.content = ''
+  msg.preToolText = undefined
+  msg.postToolText = undefined
+  msg.toolCompleted = undefined
+  msg.tools = undefined               // 清除工具调用记录
+  msg.toolGroups = undefined          // 清除按波次的工具分组
+  msg.toolsInProgress = undefined
+  msg._lastAssistantEvent = undefined
+  // 清空推理模型的思考过程状态
+  msg.reasoning = undefined
+  msg.reasoningSegments = undefined
+  msg.preToolReasoningSegments = undefined
+  msg._showReasoning = undefined
+  msg._hasReasoning = false
   // 同时丢弃其后的消息（因上下文已失真）
   if (messages.value.length > idx + 1) messages.value.splice(idx + 1)
   lastRun.value = { prev: '', tail: '', targetIdx: idx }
   startStreaming('', '', idx)
+}
+
+function onToggleReasoning(idx: number) {
+  const msg = messages.value[idx]
+  if (!msg || msg.role !== 'assistant') return
+  msg._showReasoning = !msg._showReasoning
+  msg._reasoningUserToggled = true
 }
 
 function onComposerKeydown(e: KeyboardEvent) {
@@ -891,11 +1236,11 @@ onMounted(async () => {
       overrideLlmId.value = llmOptions.value[0].id
     }
     
-    // 恢复 React 模式设置
+    // 恢复 Thinking 模式设置
     if (pid) {
-      const reactModeSaved = localStorage.getItem(reactModeKeyForProject(pid))
-      if (reactModeSaved !== null) {
-        useReactMode.value = reactModeSaved === 'true'
+      const thinkingSaved = localStorage.getItem(thinkingModeKeyForProject(pid))
+      if (thinkingSaved !== null) {
+        useThinkingMode.value = thinkingSaved === 'true'
       }
     }
   } catch {}
@@ -910,15 +1255,12 @@ async function handleCopy(idx: number) {
   }
 }
 
-// ✅ 新增：处理工具执行结果
-function handleToolsExecuted(tools: Array<{tool_name: string, result: any}>) {
-  console.log('🔧 工具已执行:', tools)
-  
-  // 关联到最后一条助手消息
-  const lastIdx = messages.value.length - 1
-  if (lastIdx >= 0 && messages.value[lastIdx].role === 'assistant') {
-    messages.value[lastIdx].tools = tools
-  }
+// ✅ 处理工具执行结果：将工具结果追加到指定的助手消息上
+function handleToolsExecuted(targetIdx: number, tools: Array<{tool_name: string, result: any}>) {
+  console.log('🔧 工具已执行:', targetIdx, tools)
+
+  const msg = messages.value[targetIdx]
+  if (!msg || msg.role !== 'assistant') return
   
   // 刷新左侧卡片树（如果有卡片被创建或修改）
   const needsRefresh = tools.some(t => {
@@ -1151,34 +1493,40 @@ function formatSessionTime(timestamp: number): string {
   }
 }
 
-// 过滤消息内容中的特殊标记
+// 过滤消息内容中的特殊标记（后端已完全统一处理所有协议标记，前端直接使用原始内容）
 function filterMessageContent(content: string): string {
   if (!content) return ''
   
-  // 移除完整的 <notify>xxx</notify> 标记
-  let filtered = content.replace(/<notify>[\w\-]*<\/notify>/g, '')
+  // 后端已统一处理所有协议差异，前端只需返回原始内容
+  return content
+}
+
+// 检测并隐藏重复的 preToolText（解决模型在 Action 前后重复输出导致的 UI 冗余及 Markdown 渲染异常）
+function shouldHidePreToolText(msg: any): boolean {
+  if (!msg.toolGroups || msg.toolGroups.length === 0) return false
+  const pre = (msg.preToolText || '').trim()
+  if (!pre) return true 
+
+  // 获取第一波工具后的文本
+  const firstGroup = msg.toolGroups[0]
+  const post = (firstGroup.postText || '').trim()
   
-  // 移除末尾不完整的 <notify 标记（流式传输时可能出现）
-  filtered = filtered.replace(/<notify[^>]*$/g, '')
+  if (!post) return false
+
+  // 启发式规则：
+  // 1. 如果 pre 很短（< 10字符），可能是简单的确认语（"好的"），保留
+  if (pre.length < 10) return false
+
+  // 2. 如果 post 包含 pre 的前 20 个非空白字符，视为重复
+  const sampleLen = 20
+  const cleanPre = pre.replace(/\s/g, '').substring(0, sampleLen)
+  const cleanPost = post.replace(/\s/g, '')
   
-  // ReAct 模式：移除 <tool_call>...</tool_call> 标记及其内容
-  filtered = filtered.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+  if (cleanPost.includes(cleanPre)) {
+    return true
+  }
   
-  // 移除不完整的 <tool_call> 标记
-  filtered = filtered.replace(/<tool_call[^>]*$/g, '')
-  
-  // 移除所有协议标记
-  filtered = filtered.replace(/__TOOL_CALL_START__:.*/g, '')
-  filtered = filtered.replace(/__TOOL_CALL_DETECTED__.*/g, '')
-  filtered = filtered.replace(/__TOOL_EXECUTED__:.*/g, '')
-  filtered = filtered.replace(/__RETRY__:.*/g, '')
-  filtered = filtered.replace(/__TOOL_SUMMARY__:.*/g, '')
-  filtered = filtered.replace(/__ERROR__:.*/g, '')
-  
-  // ReAct 模式：移除工具执行结果文本块（**工具执行结果**：...）
-  filtered = filtered.replace(/\*\*工具执行结果\*\*：[\s\S]*?```json[\s\S]*?```/g, '')
-  
-  return filtered.trim()
+  return false
 }
 
 // 项目切换时加载该项目的历史会话
@@ -1272,7 +1620,7 @@ watch([
 .bubble-markdown { 
   font-size: 13px;
   line-height: 1.6;
-  font-family: 、"Segoe UI",  "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI",  "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--el-text-color-primary);
   user-select: text;  /* 允许选中文本 */
   cursor: text;  /* 显示文本光标 */
@@ -1302,6 +1650,32 @@ watch([
 .msg.assistant .bubble { background: var(--el-fill-color-light); border: 1px solid var(--el-border-color); }
 .msg.user .bubble { background: var(--el-color-primary); color: var(--el-color-white); }
 .msg.user .bubble-text { color: var(--el-color-white); }
+
+/* 思考过程：整体偏淡色，用次级文字色；标题行在明暗主题下都可见 */
+.reasoning-section {
+  margin: 4px 0;
+}
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.reasoning-label {
+  color: var(--el-text-color-secondary);
+}
+.reasoning-arrow {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.reasoning-container .reasoning-bubble .bubble-markdown {
+  color: var(--el-text-color-secondary);
+}
+.reasoning-container .reasoning-bubble .bubble-markdown :deep(*) {
+  color: var(--el-text-color-secondary) !important;
+}
 .msg-toolbar { display: flex; gap: 6px; padding: 4px 0 0 2px; }
 .streaming-tip { color: var(--el-text-color-secondary); padding-left: 4px; font-size: 12px; }
 .composer { 
@@ -1641,10 +2015,12 @@ watch([
   background: var(--el-fill-color-darker);
   padding: 8px;
   border-radius: 4px;
-  overflow-x: auto;
   max-height: 300px;
   color: var(--el-text-color-primary);
   font-family: 'Consolas', 'Monaco', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
 }
 
 /* 旧样式（兼容性保留） */
@@ -1734,4 +2110,11 @@ watch([
   font-size: 11px;
   color: var(--el-text-color-secondary);
 }
+
+
+:deep(.el-thinking .trigger) {
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-light);
+}
+
 </style> 

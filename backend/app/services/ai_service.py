@@ -17,6 +17,7 @@ class ContinuationRequest(BaseModel):
     context: Dict[str, Any]  # 用于填充提示词模板的上下文
     max_tokens: Optional[int] = 5000
     temperature: Optional[float] = 0.7
+    timeout: Optional[float] = None
     stream: bool = False
 
 def extract_text_content(tiptap_content: Dict[Any, Any]) -> str:
@@ -60,7 +61,8 @@ async def generate_continuation(session: Session, request: ContinuationRequest) 
             output_type=ContinuationResponse,
             system_prompt="你是一位专业的小说创作助手，擅长根据已有内容续写故事。",
             max_tokens=request.max_tokens,
-            temperature=request.temperature
+            temperature=request.temperature,
+            timeout=request.timeout,
         )
         return result
     except ValueError as e:
@@ -79,16 +81,30 @@ async def generate_continuation_streaming(
     # 2. 渲染提示词
     final_prompt = prompt_service.render_prompt(db_prompt.template, request.context)
 
+    # 这里直接复用 agent_service.generate_continuation_streaming，它已经是 LangChain-only 实现，
+    # 并且使用与同步 generate_continuation 相同的 system_prompt。
     try:
-        async for text_chunk in agent_service.run_llm_agent_streaming(
-            session=session,
+        # 组装与 agent_service.generate_continuation_streaming 兼容的请求对象
+        from app.schemas.ai import ContinuationRequest as AssistantContinuationRequest
+
+        req = AssistantContinuationRequest(
             llm_config_id=request.llm_config_id,
-            prompt=final_prompt,
-            system_prompt="你是一位专业的小说创作助手，擅长根据已有内容续写故事。",
+            prompt_name="",  # 这里不使用 prompt_name，由当前函数直接传入 system_prompt
+            project_id=0,
+            context_info=final_prompt,
+            previous_content=None,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
+            stream=True,
+        )
+
+        async for text_chunk in agent_service.generate_continuation_streaming(
+            session=session,
+            request=req,
+            system_prompt="你是一位专业的小说创作助手，擅长根据已有内容续写故事。",
+            track_stats=True,
         ):
             yield text_chunk
     except ValueError as e:
         logger.error(f"生成流式续写内容时出错: {e}")
-        raise e 
+        raise e

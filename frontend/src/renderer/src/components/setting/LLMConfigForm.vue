@@ -3,10 +3,10 @@
   <el-form :model="form" ref="formRef" :rules="rules" label-width="100px">
     <el-form-item label="提供商" prop="provider">
       <el-select v-model="form.provider" placeholder="请选择提供商">
+        <el-option label="OpenAI兼容" value="openai_compatible" />
         <el-option label="OpenAI" value="openai" />
-        <!-- <el-option label="Anthropic" value="anthropic" /> -->
         <el-option label="Google" value="google" />
-        <el-option label="自定义" value="custom" />
+        <el-option label="Anthropic" value="anthropic" />
       </el-select>
     </el-form-item>
     <el-form-item label="模型名称" prop="model_name">
@@ -16,7 +16,11 @@
       <el-input v-model="form.display_name" placeholder="可选, 留空时将自动使用模型名称" />
     </el-form-item>
     <el-form-item label="API Base" prop="api_base">
-      <el-input v-model="form.api_base" placeholder="例如: https://api.siliconflow.cn/v1" />
+      <el-input
+        v-model="form.api_base"
+        :disabled="form.provider !== 'openai_compatible'"
+        placeholder="例如: https://api.siliconflow.cn/v1（仅 OpenAI兼容 使用）"
+      />
     </el-form-item>
     <el-form-item label="API Key" prop="api_key">
       <el-input type="password" v-model="form.api_key" placeholder="API密钥将直接保存在后端" show-password />
@@ -55,7 +59,7 @@ const formRef = ref<FormInstance>()
 
 const form = reactive({
   id: null as number | null,
-  provider: 'openai',
+  provider: 'openai_compatible',
   display_name: '',
   model_name: '',
   api_base: '',
@@ -84,7 +88,7 @@ watch(() => props.initialData, (newData) => {
   } else {
     // 新增配置，重置表单
     form.id = null;
-    form.provider = 'openai';
+    form.provider = 'openai_compatible';
     form.display_name = '';
     form.model_name = '';
     form.api_base = '';

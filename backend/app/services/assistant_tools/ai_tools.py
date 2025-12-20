@@ -1,26 +1,54 @@
 """
-灵感助手工具函数集合
+灵感助手工具函数集合（LangChain 原生工具实现）。
 """
 import json
 from typing import Dict, Any, List, Optional
-from pydantic_ai import RunContext
+from contextvars import ContextVar
+
 from loguru import logger
+from langchain_core.tools import tool
+
 from app.services import nodes
 from app.db.models import Card, CardType
 import copy
 
+
 class AssistantDeps:
-    """灵感助手的依赖（用于传递 session 和 project_id）"""
+    """灵感助手的依赖（用于传递 session 和 project_id）。"""
+
     def __init__(self, session, project_id: int):
         self.session = session
         self.project_id = project_id
 
 
+# 使用 ContextVar 在每个请求上下文中注入依赖，避免为每个工具再包一层。
+_assistant_deps_var: ContextVar[AssistantDeps | None] = ContextVar(
+    "assistant_deps", default=None
+)
+
+
+def set_assistant_deps(deps: AssistantDeps) -> None:
+    """为当前请求上下文设置助手依赖，在调用工具前必须先设置。"""
+
+    _assistant_deps_var.set(deps)
+
+
+def _get_deps() -> AssistantDeps:
+    """获取当前请求上下文中的助手依赖。"""
+
+    deps = _assistant_deps_var.get()
+    if deps is None:
+        raise RuntimeError(
+            "AssistantDeps 未设置，请在调用助手工具前先调用 set_assistant_deps(...)。"
+        )
+    return deps
+
+
+@tool
 def search_cards(
-    ctx: RunContext[AssistantDeps],
     card_type: Optional[str] = None,
     title_keyword: Optional[str] = None,
-    limit: int = 10
+    limit: int = 10,
 ) -> Dict[str, Any]:
     """
     搜索项目中的卡片
@@ -36,9 +64,12 @@ def search_cards(
         cards: 卡片列表
         count: 卡片数量
     """
-    logger.info(f" [PydanticAI.search_cards] card_type={card_type}, keyword={title_keyword}")
-    
-    query = ctx.deps.session.query(Card).filter(Card.project_id == ctx.deps.project_id)
+
+    deps = _get_deps()
+
+    logger.info(f" [Assistant.search_cards] card_type={card_type}, keyword={title_keyword}")
+
+    query = deps.session.query(Card).filter(Card.project_id == deps.project_id)
     
     if card_type:
         query = query.join(CardType).filter(CardType.name == card_type)
@@ -61,16 +92,16 @@ def search_cards(
         "count": len(cards)
     }
     
-    logger.info(f"✅ [PydanticAI.search_cards] 找到 {len(cards)} 个卡片")
+    logger.info(f"✅ [Assistant.search_cards] 找到 {len(cards)} 个卡片")
     return result
 
 
+@tool
 def create_card(
-    ctx: RunContext[AssistantDeps],
     card_type: str,
     title: str,
     content: Dict[str, Any],
-    parent_card_id: Optional[int] = None
+    parent_card_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     创建新卡片
@@ -101,16 +132,18 @@ def create_card(
         parent_type: 父卡片类型（如果有父卡片）
         message: 用户友好的消息
     """
-    
-    logger.info(f" [PydanticAI.create_card] type={card_type}, title={title}, parent_id={parent_card_id}")
-    
+
+    deps = _get_deps()
+
+    logger.info(
+        f" [Assistant.create_card] type={card_type}, title={title}, parent_id={parent_card_id}"
+    )
+
     state = {
-        "scope": {
-            "project_id": ctx.deps.project_id
-        },
-        "touched_card_ids": set()
+        "scope": {"project_id": deps.project_id},
+        "touched_card_ids": set(),
     }
-    
+
     # 构建 params，如果指定了父卡片ID，则添加到 parent 参数
     params = {
         "cardType": card_type,
@@ -126,15 +159,15 @@ def create_card(
         logger.info(f"  在项目根目录创建")
     
     result = nodes.node_card_upsert_child_by_title(
-        session=ctx.deps.session,
+        session=deps.session,
         state=state,
-        params=params
+        params=params,
     )
-    
+
     # 提交事务（重要！）
-    ctx.deps.session.commit()
-    
-    logger.info(f"✅ [PydanticAI.create_card] 创建成功: {result}")
+    deps.session.commit()
+
+    logger.info(f"✅ [Assistant.create_card] 创建成功: {result}")
     
     # 获取创建的卡片以返回完整信息
     created_card = result.get("card")
@@ -150,16 +183,19 @@ def create_card(
     # 如果有父卡片，添加父卡片信息
     if created_card and created_card.parent_id and created_card.parent:
         response["parent_title"] = created_card.parent.title
-        response["parent_type"] = created_card.parent.card_type.name if created_card.parent.card_type else "Unknown"
+        response["parent_type"] = (
+            created_card.parent.card_type.name
+            if created_card.parent.card_type
+            else "Unknown"
+        )
     
     return response
 
-
+@tool
 def modify_card_field(
-    ctx: RunContext[AssistantDeps],
     card_id: int,
     field_path: str,
-    new_value: Any
+    new_value: Any,
 ) -> Dict[str, Any]:
     """
     修改指定卡片的字段内容
@@ -189,46 +225,43 @@ def modify_card_field(
         new_value: 新的值
         message: 用户友好的消息
     """
-    logger.info(f" [PydanticAI.modify_card_field] card_id={card_id}, path={field_path}")
+
+    deps = _get_deps()
+
+    logger.info(f" [Assistant.modify_card_field] card_id={card_id}, path={field_path}")
     logger.info(f"  新值类型: {type(new_value)}")
-    
+
     try:
         # 验证卡片存在性
-        card = ctx.deps.session.get(Card, card_id)
-        if not card or card.project_id != ctx.deps.project_id:
+        card = deps.session.get(Card, card_id)
+        if not card or card.project_id != deps.project_id:
             logger.warning(f"⚠️ 卡片 {card_id} 不存在或不属于当前项目")
             return {
                 "success": False,
-                "error": f"卡片 {card_id} 不存在或不属于当前项目"
+                "error": f"卡片 {card_id} 不存在或不属于当前项目",
             }
-        
+
         logger.info(f"  卡片标题: {card.title}")
         logger.info(f"  修改前: {card.content}")
         
         # 构造工作流节点所需的 state
-        state = {
-            "card": card,
-            "touched_card_ids": set()
-        }
-        
+        state = {"card": card, "touched_card_ids": set()}
+
         # 调用工作流节点函数
         nodes.node_card_modify_content(
-            session=ctx.deps.session,
+            session=deps.session,
             state=state,
-            params={
-                "setPath": field_path,
-                "setValue": new_value
-            }
+            params={"setPath": field_path, "setValue": new_value},
         )
-        
+
         # 提交事务（重要！）
-        ctx.deps.session.commit()
-        
+        deps.session.commit()
+
         # 刷新卡片数据
-        ctx.deps.session.refresh(card)
+        deps.session.refresh(card)
         
         logger.info(f"  修改后: {card.content}")
-        logger.info(f"✅ [PydanticAI.modify_card_field] 修改成功")
+        logger.info(f"✅ [Assistant.modify_card_field] 修改成功")
         
         return {
             "success": True,
@@ -240,18 +273,14 @@ def modify_card_field(
         }
     
     except Exception as e:
-        logger.error(f"❌ [PydanticAI.modify_card_field] 修改失败: {e}")
-        return {
-            "success": False,
-            "error": f"修改失败: {str(e)}"
-        }
+        logger.error(f"❌ [Assistant.modify_card_field] 修改失败: {e}")
+        return {"success": False, "error": f"修改失败: {str(e)}"}
 
-
+@tool
 def batch_create_cards(
-    ctx: RunContext[AssistantDeps],
     card_type: str,
     cards: List[Dict[str, Any]],
-    parent_card_id: Optional[int] = None
+    parent_card_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     批量创建同类型卡片
@@ -269,16 +298,27 @@ def batch_create_cards(
         failed_count: 失败创建的卡片数量
         results: 创建结果列表
     """
-    logger.info(f" [PydanticAI.batch_create_cards] type={card_type}, count={len(cards)}")
-    
+
+    deps = _get_deps()
+
+    logger.info(
+        f" [Assistant.batch_create_cards] type={card_type}, count={len(cards)}"
+    )
+
     results = []
     
     for card_data in cards:
         try:
             title = card_data.get("title", "")
             content = card_data.get("content", {})
-            
-            result = create_card(ctx, card_type, title, content, parent_card_id)
+
+            # 复用单卡片创建逻辑
+            result = create_card(  # type: ignore[call-arg]
+                card_type=card_type,
+                title=title,
+                content=content,
+                parent_card_id=parent_card_id,
+            )
             results.append({
                 "title": title,
                 "status": "success",
@@ -293,9 +333,11 @@ def batch_create_cards(
             })
     
     success_count = sum(1 for r in results if r["status"] == "success")
-    
-    logger.info(f"✅ [PydanticAI.batch_create_cards] 成功 {success_count}/{len(cards)}")
-    
+
+    logger.info(
+        f"✅ [Assistant.batch_create_cards] 成功 {success_count}/{len(cards)}"
+    )
+
     return {
         "success": True,
         "total": len(cards),
@@ -304,10 +346,9 @@ def batch_create_cards(
         "results": results
     }
 
-
+@tool
 def get_card_type_schema(
-    ctx: RunContext[AssistantDeps],
-    card_type_name: str
+    card_type_name: str,
 ) -> Dict[str, Any]:
     """
     获取指定卡片类型的 JSON Schema 定义
@@ -324,14 +365,21 @@ def get_card_type_schema(
         schema: 卡片类型的 JSON Schema 定义
         description: 卡片类型的描述
     """
-    logger.info(f" [PydanticAI.get_card_type_schema] card_type={card_type_name}")
-    
-    card_type = ctx.deps.session.query(CardType).filter(
-        CardType.name == card_type_name
-    ).first()
+
+    deps = _get_deps()
+
+    logger.info(f" [Assistant.get_card_type_schema] card_type={card_type_name}")
+
+    card_type = (
+        deps.session.query(CardType)
+        .filter(CardType.name == card_type_name)
+        .first()
+    )
     
     if not card_type:
-        logger.warning(f"⚠️ [PydanticAI.get_card_type_schema] 卡片类型 '{card_type_name}' 不存在")
+        logger.warning(
+            f"⚠️ [Assistant.get_card_type_schema] 卡片类型 '{card_type_name}' 不存在"
+        )
         return {
             "success": False,
             "error": f"卡片类型 '{card_type_name}' 不存在"
@@ -344,13 +392,13 @@ def get_card_type_schema(
         "description": f"卡片类型 '{card_type_name}' 的完整结构定义"
     }
     
-    logger.info(f"✅ [PydanticAI.get_card_type_schema] 已返回 Schema：{result}")
+    logger.info(f"✅ [Assistant.get_card_type_schema] 已返回 Schema：{result}")
     return result
 
 
+@tool
 def get_card_content(
-    ctx: RunContext[AssistantDeps],
-    card_id: int
+    card_id: int,
 ) -> Dict[str, Any]:
     """
     获取指定卡片的详细内容
@@ -372,12 +420,15 @@ def get_card_content(
         content: 卡片内容
         created_at: 卡片创建时间
     """
-    logger.info(f" [PydanticAI.get_card_content] card_id={card_id}")
-    
-    card = ctx.deps.session.query(Card).filter(Card.id == card_id).first()
+
+    deps = _get_deps()
+
+    logger.info(f" [Assistant.get_card_content] card_id={card_id}")
+
+    card = deps.session.query(Card).filter(Card.id == card_id).first()
     
     if not card:
-        logger.warning(f"⚠️ [PydanticAI.get_card_content] 卡片 #{card_id} 不存在")
+        logger.warning(f"⚠️ [Assistant.get_card_content] 卡片 #{card_id} 不存在")
         return {
             "success": False,
             "error": f"卡片 #{card_id} 不存在"
@@ -398,16 +449,18 @@ def get_card_content(
         result["parent_title"] = card.parent.title
         result["parent_type"] = card.parent.card_type.name if card.parent.card_type else "Unknown"
     
-    logger.info(f"✅ [PydanticAI.get_card_content] 已返回卡片内容 (parent_id={card.parent_id})")
+    logger.info(
+        f"✅ [Assistant.get_card_content] 已返回卡片内容 (parent_id={card.parent_id})"
+    )
     return result
 
 
+@tool
 def replace_field_text(
-    ctx: RunContext[AssistantDeps],
     card_id: int,
     field_path: str,
     old_text: str,
-    new_text: str
+    new_text: str,
 ) -> Dict[str, Any]:
     """
     替换卡片字段中的指定文本片段
@@ -443,65 +496,66 @@ def replace_field_text(
         replaced_count: 替换的次数
         message: 用户友好的消息
     """
-    logger.info(f" [PydanticAI.replace_field_text] card_id={card_id}, path={field_path}")
+
+    deps = _get_deps()
+
+    logger.info(f" [Assistant.replace_field_text] card_id={card_id}, path={field_path}")
     logger.info(f"  要替换的文本长度: {len(old_text)} 字符")
     logger.info(f"  新文本长度: {len(new_text)} 字符")
-    
+
     try:
         # 验证卡片存在性和归属
-        card = ctx.deps.session.get(Card, card_id)
-        if not card or card.project_id != ctx.deps.project_id:
+        card = deps.session.get(Card, card_id)
+        if not card or card.project_id != deps.project_id:
             logger.warning(f"⚠️ 卡片 {card_id} 不存在或不属于当前项目")
             return {
                 "success": False,
-                "error": f"卡片 {card_id} 不存在或不属于当前项目"
+                "error": f"卡片 {card_id} 不存在或不属于当前项目",
             }
-        
+
         logger.info(f"  卡片标题: {card.title}")
         
         # 构造工作流节点所需的 state
-        state = {
-            "touched_card_ids": set()
-        }
-        
+        state = {"touched_card_ids": set()}
+
         # 调用工作流节点函数
         result = nodes.node_card_replace_field_text(
-            session=ctx.deps.session,
+            session=deps.session,
             state=state,
             params={
                 "card_id": card_id,
                 "field_path": field_path,
                 "old_text": old_text,
-                "new_text": new_text
-            }
+                "new_text": new_text,
+            },
         )
-        
+
         # 如果节点执行失败，直接返回错误
         if not result.get("success"):
-            logger.warning(f"⚠️ [PydanticAI.replace_field_text] 节点执行失败: {result.get('error')}")
+            logger.warning(
+                f"⚠️ [Assistant.replace_field_text] 节点执行失败: {result.get('error')}"
+            )
             return result
         
         # 提交事务（重要！）
-        ctx.deps.session.commit()
-        
-        logger.info(f"✅ [PydanticAI.replace_field_text] 替换成功")
-        
+        deps.session.commit()
+
+        logger.info(f"✅ [Assistant.replace_field_text] 替换成功")
+
         # 添加用户友好的消息
-        result["message"] = f"✅ 已在「{result.get('card_title')}」的 {field_path.replace('content.', '')} 中替换 {result.get('replaced_count')} 处内容"
-        
+        result["message"] = (
+            f"✅ 已在「{result.get('card_title')}」的 {field_path.replace('content.', '')} 中替换 "
+            f"{result.get('replaced_count')} 处内容"
+        )
+
         return result
-    
+
     except Exception as e:
-        logger.error(f"❌ [PydanticAI.replace_field_text] 替换失败: {e}")
-        return {
-            "success": False,
-            "error": f"替换失败: {str(e)}"
-        }
+        logger.error(f"❌ [Assistant.replace_field_text] 替换失败: {e}")
+        return {"success": False, "error": f"替换失败: {str(e)}"}
 
 
-
-
-# 导出所有工具函数列表（Pydantic AI 标准方式）
+# 导出所有 LangChain 工具（已通过 @tool 装饰）
 ASSISTANT_TOOLS = [
     search_cards,
     create_card,
@@ -510,37 +564,14 @@ ASSISTANT_TOOLS = [
     batch_create_cards,
     get_card_type_schema,
     get_card_content,
-  
 ]
 
+ASSISTANT_TOOL_REGISTRY = {tool.name: tool for tool in ASSISTANT_TOOLS}
 
-from pydantic_ai import Agent, ModelMessage, ModelResponse, TextPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
-
-tools_schema=None
-
-def _get_tools_json_schema(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-    tools=[]
-    for tool in info.function_tools:
-        tools.append({
-            "name":tool.name,
-            "description":tool.description,
-            "parameters_json_schema":tool.parameters_json_schema
-        })
-    return ModelResponse(parts=[TextPart(json.dumps(tools,ensure_ascii=False))])
-
-async def get_tools_schema():
-    """异步获取工具 schema"""
-    global tools_schema
-    if tools_schema is None:
-        agent = Agent(tools=ASSISTANT_TOOLS)
-        result = await agent.run('hello', model=FunctionModel(_get_tools_json_schema))
-        # AgentRunResult 使用 .output 属性获取输出
-        tools_schema = json.loads(result.output)
-    
-    return tools_schema
-
-
-
-
-    
+ASSISTANT_TOOL_DESCRIPTIONS = {
+    tool.name: {
+        "description": tool.description,
+        "args": tool.args,
+    }
+    for tool in ASSISTANT_TOOLS
+}

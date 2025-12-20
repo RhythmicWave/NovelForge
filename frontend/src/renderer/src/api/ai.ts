@@ -44,30 +44,24 @@ export function generateContinuation(params: ContinuationRequestExtended): Promi
   return aiHttpClient.post<ContinuationResponse>('/ai/generate/continuation', params, '/api', { showLoading: false })
 }
 
-export function generateContinuationStreaming(
-    params: ContinuationRequestExtended, 
-    onData: (data: string) => void, 
-    onClose: () => void,
-    onError?: (err: any) => void
+function createStreamingRequest(
+  endpoint: string,
+  body: any,
+  onData: (data: string) => void,
+  onClose: () => void,
+  onError?: (err: any) => void
 ) {
-  const API_BASE_URL = 'http://127.0.0.1:8000/api'
   const controller = new AbortController()
   const signal = controller.signal
-  
-  //  根据 prompt_name 自动选择接口
-  // 灵感对话使用专用接口（带工具集缓存优化）
-  const endpoint = params.prompt_name === '灵感对话' 
-    ? `${API_BASE_URL}/ai/assistant/chat`
-    : `${API_BASE_URL}/ai/generate/continuation`
-  
+
   fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream'
     },
-    body: JSON.stringify(params),
-    signal,
+    body: JSON.stringify(body),
+    signal
   }).then(async response => {
     if (!response.ok) {
       try {
@@ -81,15 +75,15 @@ export function generateContinuationStreaming(
           const msg = text || `请求失败（${response.status}）`
           throw new Error(msg)
         }
-      } catch (e:any) {
+      } catch (e: any) {
         throw new Error(e?.message || `请求失败（${response.status}）`)
       }
     }
     if (!response.body) {
-        throw new Error('Response body is null');
+      throw new Error('Response body is null')
     }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
     let buffer = ''
     function pump() {
       reader.read().then(({ done, value }) => {
@@ -107,18 +101,33 @@ export function generateContinuationStreaming(
           } catch {}
         }
         pump()
-      }).catch(err => { 
-        if ((err as any)?.name === 'AbortError') { onClose(); return }
-        if (onError) onError(err) 
+      }).catch(err => {
+        if (err?.name === 'AbortError') { onClose(); return }
+        onError?.(err)
       })
     }
-    pump();
+    pump()
   }).catch(err => {
-    if (onError) onError(err);
-  });
+    if (err?.name === 'AbortError') { onClose(); return }
+    onError?.(err)
+  })
+
   return {
     cancel: () => { try { controller.abort() } catch {} }
   }
+}
+
+export function generateContinuationStreaming(
+  params: ContinuationRequestExtended,
+  onData: (data: string) => void,
+  onClose: () => void,
+  onError?: (err: any) => void
+) {
+  const API_BASE_URL = 'http://127.0.0.1:8000/api'
+  const endpoint = params.prompt_name === '灵感对话'
+    ? `${API_BASE_URL}/ai/assistant/chat`
+    : `${API_BASE_URL}/ai/generate/continuation`
+  return createStreamingRequest(endpoint, params, onData, onClose, onError)
 }
 
 // 伏笔建议（占位）
@@ -164,68 +173,5 @@ export function generateAssistantChatStreaming(
   onError?: (err: any) => void
 ) {
   const API_BASE_URL = 'http://127.0.0.1:8000/api'
-  const controller = new AbortController()
-  const signal = controller.signal
-
-  fetch(`${API_BASE_URL}/ai/assistant/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream'
-    },
-    body: JSON.stringify(params),
-    signal,
-  }).then(async response => {
-    if (!response.ok) {
-      try {
-        const ct = response.headers.get('content-type') || ''
-        if (ct.includes('application/json')) {
-          const data = await response.json()
-          const msg = data?.message || data?.detail || `请求失败（${response.status}）`
-          throw new Error(msg)
-        } else {
-          const text = await response.text()
-          const msg = text || `请求失败（${response.status}）`
-          throw new Error(msg)
-        }
-      } catch (e: any) {
-        throw new Error(e?.message || `请求失败（${response.status}）`)
-      }
-    }
-    if (!response.body) {
-      throw new Error('Response body is null')
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    function pump() {
-      reader.read().then(({ done, value }) => {
-        if (done) { onClose(); return }
-        buffer += decoder.decode(value, { stream: true })
-        const events = buffer.split('\n\n')
-        buffer = events.pop() || ''
-        for (const evt of events) {
-          const lines = evt.split('\n').map(l => l.trim())
-          const dataLines = lines.filter(l => l.startsWith('data: ')).map(l => l.substring(6))
-          if (!dataLines.length) continue
-          try {
-            const payload = JSON.parse(dataLines.join(''))
-            if (typeof payload.content === 'string' && payload.content.length) onData(payload.content)
-          } catch {}
-        }
-        pump()
-      }).catch(err => {
-        if (err.name === 'AbortError') { onClose(); return }
-        onError?.(err)
-      })
-    }
-    pump()
-  }).catch(err => {
-    if (err.name === 'AbortError') { onClose(); return }
-    onError?.(err)
-  })
-
-  return {
-    cancel: () => controller.abort()
-  }
+  return createStreamingRequest(`${API_BASE_URL}/ai/assistant/chat`, params, onData, onClose, onError)
 }

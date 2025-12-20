@@ -11,7 +11,7 @@ from loguru import logger
 import json
 
 from app.db.session import get_session
-from app.services.agent_service import generate_assistant_chat_streaming, generate_assistant_chat_streaming_react
+from app.services.agent_service import generate_assistant_chat_streaming
 from app.schemas.ai import AssistantChatRequest
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -41,44 +41,36 @@ async def assistant_chat(
     from app.services import prompt_service
     
     prompt_name = request.prompt_name
-    if request.use_react_mode and request.prompt_name == "灵感对话":
-        # ReAct 模式使用专用提示词
-        prompt_name = "灵感对话-React"
-    
-    p = prompt_service.get_prompt_by_name(session, prompt_name)
-    if not p or not p.template:
-        raise HTTPException(status_code=400, detail=f"未找到提示词: {prompt_name}")
-    
-    system_prompt = str(p.template)
-    
-    # 根据模式选择生成函数
-    async def stream_with_tools() -> AsyncGenerator[str, None]:
-        if request.use_react_mode:
-            # ReAct 模式：文本格式工具调用
-            logger.info(f"[Assistant API] 使用 ReAct 模式")
-            async for chunk in generate_assistant_chat_streaming_react(
-                session=session,
-                request=request,
-                system_prompt=system_prompt,
-                track_stats=True
-            ):
-                yield chunk
+    react_enabled = bool(getattr(request, "react_mode_enabled", False))
+
+    if react_enabled:
+        react_prompt_name = f"{prompt_name}-React"
+        p = prompt_service.get_prompt_by_name(session, react_prompt_name)
+        if p and p.template:
+            system_prompt = str(p.template)
+            logger.info(f"[Assistant API] React 模式启用，使用提示词 {react_prompt_name}")
         else:
-            # 标准模式：原生 Function Calling
-            logger.info(f"[Assistant API] 使用标准模式（Function Calling）")
-            from app.services.assistant_tools.pydantic_ai_tools import ASSISTANT_TOOLS, AssistantDeps
-            
-            deps = AssistantDeps(session=session, project_id=request.project_id)
-            
-            async for chunk in generate_assistant_chat_streaming(
-                session=session,
-                request=request,
-                system_prompt=system_prompt,
-                tools=ASSISTANT_TOOLS,
-                deps=deps,
-                track_stats=True
-            ):
-                yield chunk
+            logger.warning(f"[Assistant API] React 模式启用但未找到 {react_prompt_name}，退回标准提示词 {prompt_name}")
+            p = prompt_service.get_prompt_by_name(session, prompt_name)
+            if not p or not p.template:
+                raise HTTPException(status_code=400, detail=f"未找到提示词: {prompt_name}")
+            system_prompt = str(p.template)
+    else:
+        p = prompt_service.get_prompt_by_name(session, prompt_name)
+        if not p or not p.template:
+            raise HTTPException(status_code=400, detail=f"未找到提示词: {prompt_name}")
+        system_prompt = str(p.template)
+    
+    # 所有模式统一走 LangChain ChatModel + Tools 管线
+    async def stream_with_tools() -> AsyncGenerator[str, None]:
+        logger.info("[Assistant API] 使用{}模式".format("React" if react_enabled else "标准"))
+        async for chunk in generate_assistant_chat_streaming(
+            session=session,
+            request=request,
+            system_prompt=system_prompt,
+            track_stats=True,
+        ):
+            yield chunk
     
     return StreamingResponse(
         stream_wrapper(stream_with_tools()),

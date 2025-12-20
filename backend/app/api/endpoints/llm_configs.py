@@ -6,8 +6,6 @@ from app.schemas.llm_config import LLMConfigCreate, LLMConfigRead, LLMConfigUpda
 from app.schemas.response import ApiResponse
 from app.services import llm_config_service
 from typing import List
-from app.services.agent_service import _get_agent
-from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -39,32 +37,54 @@ def delete_llm_config_endpoint(config_id: int, session: Session = Depends(get_se
 
 @router.post("/test", response_model=ApiResponse, summary="测试 LLM 连接")
 async def test_llm_connection_endpoint(connection_data: LLMConnectionTest, session: Session = Depends(get_session)):
-    """使用传入参数临时构造一个 Agent 并发起一次最小调用以验证连通性。"""
+    """使用传入参数临时构造一个 LangChain ChatModel 并发起一次最小调用以验证连通性。"""
     try:
-        # 复用 pydantic-ai Provider/Model，按 provider 分支进行最小连通性测试
-        from pydantic_ai import Agent
-        from pydantic_ai.settings import ModelSettings
+        provider = (connection_data.provider or "").lower()
 
-        provider = None
-        model = None
-        if connection_data.provider == 'google':
-            # Google Generative Language API（API Key）
-            from pydantic_ai.models.google import GoogleModel
-            from pydantic_ai.providers.google import GoogleProvider
-            provider = GoogleProvider(api_key=connection_data.api_key)
-            model = GoogleModel(connection_data.model_name, provider=provider)
-        else:
-            # 默认走 OpenAI 兼容路径（包含 custom/base_url）
-            from pydantic_ai.models.openai import OpenAIModel
-            from pydantic_ai.providers.openai import OpenAIProvider
-            provider_cfg = {"api_key": connection_data.api_key}
+        # 延迟导入以避免在未使用时增加启动开销
+        if provider == "openai_compatible":
+            from langchain_qwq import ChatQwen
+            #原生的ChatOpenAI虽然能够支持OpenAI兼容的各种模型，但是似乎对推理模式支持不够好模式
+            kwargs: dict = {
+                "model": connection_data.model_name,
+                "api_key": connection_data.api_key,
+            }
             if connection_data.api_base:
-                provider_cfg["base_url"] = connection_data.api_base
-            provider = OpenAIProvider(**provider_cfg)
-            model = OpenAIModel(connection_data.model_name, provider=provider)
+                kwargs["base_url"] = connection_data.api_base
+            model = ChatQwen(**kwargs)
 
-        agent = Agent(model, system_prompt="你是一个助手。", model_settings=ModelSettings(timeout=15))
-        await agent.run("ping")
+        elif provider == "openai":
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": connection_data.model_name,
+                "api_key": connection_data.api_key,
+            }
+            model = ChatOpenAI(**kwargs)
+
+        elif provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+
+            kwargs = {
+                "model": connection_data.model_name,
+                "api_key": connection_data.api_key,
+            }
+            model = ChatAnthropic(**kwargs)
+
+        elif provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            kwargs = {
+                "model": connection_data.model_name,
+                "api_key": connection_data.api_key,
+            }
+            model = ChatGoogleGenerativeAI(**kwargs)
+
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的提供商类型: {connection_data.provider}")
+
+        # 发送一次最小请求以验证连通性
+        await model.ainvoke("ping")
         return ApiResponse(message="Connection successful")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"连接测试失败: {e}")
