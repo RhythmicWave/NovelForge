@@ -60,8 +60,8 @@
 - 兼容了推理模型，增加了thinking模式
 - 建议将DeepSeek、Qwen之类的模型选择/修改提供商为OpenAI兼容，而OpenAI则仅设置为GPT 5等官方模型。
 - 其它若干优化
-
 - 代码优化与修复bug
+
 </details>
 
 <details>
