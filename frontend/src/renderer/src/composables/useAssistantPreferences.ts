@@ -3,12 +3,19 @@ import { ref, watch } from 'vue'
 const STORAGE_KEYS = {
   contextSummaryEnabled: 'nf:assistant:ctx_summary_enabled',
   contextSummaryThreshold: 'nf:assistant:ctx_summary_threshold',
-  reactModeEnabled: 'nf:assistant:react_mode_enabled'
+  reactModeEnabled: 'nf:assistant:react_mode_enabled',
+  assistantTemperature: 'nf:assistant:temperature',
+  assistantMaxTokens: 'nf:assistant:max_tokens',
+  assistantTimeout: 'nf:assistant:timeout',
 } as const
 
 const contextSummaryEnabled = ref(false)
 const contextSummaryThreshold = ref<number | null>(4000)
 const reactModeEnabled = ref(false)
+// 灵感助手参数默认值
+const assistantTemperature = ref<number | null>(0.6)
+const assistantMaxTokens = ref<number | null>(8192)
+const assistantTimeout = ref<number | null>(90)
 
 let initialized = false
 
@@ -62,12 +69,24 @@ function ensureInitialized() {
   contextSummaryEnabled.value = readBoolean(STORAGE_KEYS.contextSummaryEnabled, false)
   contextSummaryThreshold.value = readNumber(STORAGE_KEYS.contextSummaryThreshold, 4000)
   reactModeEnabled.value = readBoolean(STORAGE_KEYS.reactModeEnabled, false)
+  assistantTemperature.value = readNumber(STORAGE_KEYS.assistantTemperature, 0.6)
+  assistantMaxTokens.value = readNumber(STORAGE_KEYS.assistantMaxTokens, 8192)
+  assistantTimeout.value = readNumber(STORAGE_KEYS.assistantTimeout, 90)
 
   watch(contextSummaryEnabled, (val) => persistBoolean(STORAGE_KEYS.contextSummaryEnabled, !!val), { immediate: true })
   watch(contextSummaryThreshold, (val) => {
     if (val && val > 0) persistNumber(STORAGE_KEYS.contextSummaryThreshold, val)
   }, { immediate: true })
   watch(reactModeEnabled, (val) => persistBoolean(STORAGE_KEYS.reactModeEnabled, !!val), { immediate: true })
+  watch(assistantTemperature, (val) => {
+    if (val != null && !Number.isNaN(val) && val > 0) persistNumber(STORAGE_KEYS.assistantTemperature, val)
+  }, { immediate: true })
+  watch(assistantMaxTokens, (val) => {
+    if (val != null && !Number.isNaN(val) && val > 0) persistNumber(STORAGE_KEYS.assistantMaxTokens, val)
+  }, { immediate: true })
+  watch(assistantTimeout, (val) => {
+    if (val != null && !Number.isNaN(val) && val > 0) persistNumber(STORAGE_KEYS.assistantTimeout, val)
+  }, { immediate: true })
 }
 
 export function useAssistantPreferences() {
@@ -85,19 +104,40 @@ export function useAssistantPreferences() {
     reactModeEnabled.value = !!val
   }
 
+  function setAssistantTemperature(val: number | null) {
+    assistantTemperature.value = val != null && !Number.isNaN(val) && val > 0 ? val : null
+  }
+
+  function setAssistantMaxTokens(val: number | null) {
+    assistantMaxTokens.value = val != null && !Number.isNaN(val) && val > 0 ? val : null
+  }
+
+  function setAssistantTimeout(val: number | null) {
+    assistantTimeout.value = val != null && !Number.isNaN(val) && val > 0 ? val : null
+  }
+
   function resetAssistantPreferences() {
     setContextSummaryEnabled(false)
     setContextSummaryThreshold(4000)
     setReactModeEnabled(false)
+    setAssistantTemperature(0.6)
+    setAssistantMaxTokens(8192)
+    setAssistantTimeout(90)
   }
 
   return {
     contextSummaryEnabled,
     contextSummaryThreshold,
     reactModeEnabled,
+    assistantTemperature,
+    assistantMaxTokens,
+    assistantTimeout,
     setContextSummaryEnabled,
     setContextSummaryThreshold,
     setReactModeEnabled,
+    setAssistantTemperature,
+    setAssistantMaxTokens,
+    setAssistantTimeout,
     resetAssistantPreferences
   }
 }

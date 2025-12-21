@@ -1,13 +1,3 @@
-"""LangChain-based assistant backend.
-
-This module provides:
-- Factory to build LangChain ChatModel from LLMConfig.
-- A simple streaming generator that yields JSON-line events compatible with
-  the existing assistant event protocol (currently only `token` events).
-
-It is intentionally minimal for the first migration step and does not yet
-implement tools / ReAct. Those will be added incrementally on top.
-"""
 
 from __future__ import annotations
 
@@ -57,7 +47,8 @@ from app.services.assistant_tools.ai_tools import (
 _ACTION_TAG_RE = re.compile(r"<Action>(.*?)</Action>", re.IGNORECASE | re.DOTALL)
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _JSON_BLOCK_RE = re.compile(r"Action\s*:?\s*(\{.*\})", re.IGNORECASE | re.DOTALL)
-_PROTOCOL_TAGS = ("action", "thought", "finalanswer")
+# React 文本协议仅保留 Action，一律使用 <Action>{...}</Action> 格式声明工具调用
+_PROTOCOL_TAGS = ("action",)
 
 MAX_REACT_STEPS = 8
 
@@ -135,22 +126,6 @@ def _parse_action_payload(text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     return tool_name.strip(), args
 
 
-def _clean_react_output(text: str) -> str:
-    """清理 React 输出中的残留协议标记，但保留必要的空白字符。"""
-    
-    if not text:
-        return text
-    
-    # 移除 Action 标签（已被系统处理）
-    cleaned = _ACTION_TAG_RE.sub("", text)
-    
-    # 移除其他可能的协议标签，但保留换行符
-    cleaned = re.sub(r"</?(?:Thought|FinalAnswer|Action).*?>", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
-    
-    # 只移除首尾空白，保留中间的换行符和缩进
-    return cleaned.strip()
-
-
 def _process_react_stream_text(state: dict[str, str], new_text: str) -> str:
     """在流式阶段移除协议标签，但保留换行符和空白字符以维护 Markdown 格式。"""
 
@@ -215,12 +190,9 @@ def _process_react_stream_text(state: dict[str, str], new_text: str) -> str:
             state["buffer"] = buffer
             return "".join(output_parts)
              
-        content = block[inner_start + 1 : close_idx]
-        
-        if potential_tag == "finalanswer":
-            # 保留 FinalAnswer 的内容，包括换行符
-            output_parts.append(content)
-        # Action 和 Thought 直接丢弃，但不影响前后的空白字符
+        # 提取标签内部内容（目前仅用于完整跳过 <Action> ... </Action>）
+        # 注意：这里不直接拼接任何协议标签内部的文本，保证前端只看到清洗后的可见正文。
+        _ = block[inner_start + 1 : close_idx]
         
         # 推进 buffer
         buffer = buffer[block_end:]
@@ -525,7 +497,7 @@ async def stream_chat_with_react(
         llm_config_id=request.llm_config_id,
         temperature=request.temperature or 0.6,
         max_tokens=request.max_tokens or 8192,
-        timeout=request.timeout or 60,
+        timeout=request.timeout or 90,
         thinking_enabled=getattr(request, "thinking_enabled", None),
     )
 
@@ -607,9 +579,12 @@ async def stream_chat_with_react(
                 usage_in_total += in_tokens
                 usage_out_total += out_tokens
 
-            # 仅在本轮已经产生过面向用户的正文文本时，才解析 Action 协议。
-            # 这样可以避免模型在纯思考/Reasoning 阶段输出的 <Action> 触发前端提前进入工具调用状态。
-            action_payload = _parse_action_payload(step_text) if has_visible_text else None
+            # 直接从本轮累计的文本中解析 Action 协议。
+            # 早期实现曾经要求 has_visible_text 才允许解析，为的是避免模型在纯思考阶段输出 <Action>。
+            # 但在当前提示词下，我们只约定了 <Action>{...}</Action>，没有显式的 Thought/FinalAnswer 标签，
+            # 严格依赖 has_visible_text 会导致"只输出 Action、不输出正文"的情况完全被忽略，前端看到的是空回复。
+            # 因此这里放宽限制：总是尝试从 step_text 中解析 Action，由上游提示词约束模型行为。
+            action_payload = _parse_action_payload(step_text)
 
             if action_payload:
                 tool_name, args = action_payload
@@ -657,6 +632,7 @@ async def stream_chat_with_react(
             raise RuntimeError("React 模式未能产生最终回复")
 
     except asyncio.CancelledError:
+        logger.warning(f"[React-Agent] 请求被客户端取消 (CancelledError)")
         if usage_in_total and usage_out_total:
             in_tokens = usage_in_total
             out_tokens = usage_out_total
@@ -671,7 +647,8 @@ async def stream_chat_with_react(
             calls=1,
             aborted=True,
         )
-        return
+        # 必须重新抛出 CancelledError 以便上层协程正确感知取消
+        raise
     except Exception as e:
         logger.error(f"[React-Agent] 执行失败: {e}")
         raise
@@ -728,7 +705,7 @@ async def stream_chat_with_tools(
         llm_config_id=request.llm_config_id,
         temperature=request.temperature or 0.6,
         max_tokens=request.max_tokens or 8192,
-        timeout=request.timeout or 60,
+        timeout=request.timeout or 90,
         thinking_enabled=getattr(request, "thinking_enabled", None),
     )
 

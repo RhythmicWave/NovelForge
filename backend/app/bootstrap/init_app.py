@@ -44,7 +44,8 @@ def init_prompts(db: Session):
     """初始化默认提示词。
     行为受环境变量 BOOTSTRAP_OVERWRITE 控制：
     """
-    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
+    # 默认开启覆盖更新；仅当显式设置为 false/0 等时才关闭
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', 'true')).lower() in ('1', 'true', 'yes', 'on')
     existing_prompts = db.exec(select(Prompt)).all()
     existing_names = {p.name for p in existing_prompts}
 
@@ -268,7 +269,8 @@ def init_knowledge(db: Session):
     created = 0
     updated = 0
     skipped = 0
-    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
+    # 默认开启覆盖更新；仅当显式设置为 false/0 等时才关闭
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', 'true')).lower() in ('1', 'true', 'yes', 'on')
 
     for filename in os.listdir(knowledge_dir):
         if not filename.lower().endswith(('.txt', '.md')):
@@ -381,7 +383,8 @@ def init_workflows(db: Session):
             2.1) Card.UpsertChildByTitle（cardType=组织卡，title={item.name}，useItemAsContent=true）
             2.2) Card.ModifyContent（setPath=world_view.social_system.major_power_camps，setValue=[]）
     """
-    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', '')).lower() in ('1', 'true', 'yes', 'on')
+    # 默认开启覆盖更新；仅当显式设置为 false/0 等时才关闭
+    overwrite = str(os.getenv('BOOTSTRAP_OVERWRITE', 'true')).lower() in ('1', 'true', 'yes', 'on')
     total_created = total_updated = total_skipped = 0
     name = "世界观"
     dsl = {

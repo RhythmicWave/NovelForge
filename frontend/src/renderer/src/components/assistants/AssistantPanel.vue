@@ -760,6 +760,9 @@ function buildAssistantChatRequest() {
     context_summarization_enabled: assistantPrefs.contextSummaryEnabled.value || undefined,
     context_summarization_threshold: assistantPrefs.contextSummaryThreshold.value || undefined,
     react_mode_enabled: assistantPrefs.reactModeEnabled.value || undefined,
+    temperature: assistantPrefs.assistantTemperature.value || undefined,
+    max_tokens: assistantPrefs.assistantMaxTokens.value || undefined,
+    timeout: assistantPrefs.assistantTimeout.value || undefined,
   }
 
   return {
@@ -787,9 +790,6 @@ function startStreaming(_prev: string, _tail: string, targetIdx: number) {
     prompt_name: promptName,
     project_id: projectStore.currentProject?.id as number,
     stream: true,
-    temperature: props.temperature ?? 0.7,
-    max_tokens: props.max_tokens ?? 8192,
-    timeout: props.timeout ?? undefined,
     thinking_enabled: useThinkingMode.value
   } as any, (chunk) => {
     // 优先尝试解析为结构化事件（JSON-line）
