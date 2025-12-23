@@ -94,7 +94,7 @@ async def run_llm_agent(
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
     track_stats: bool = True,) -> BaseModel:
-    """运行结构化输出的 LLM 调用（LangChain-only 实现）。
+    """运行结构化输出的 LLM 调用
 
     使用 LangChain ChatModel 的 structured output 能力：
       - 由 app.services.langchain_assistant.build_chat_model 构造底层模型
@@ -139,6 +139,9 @@ async def run_llm_agent(
             messages.append(HumanMessage(content=user_prompt))
 
             response = await structured_llm.ainvoke(messages)
+
+            if response is None:
+                raise ValueError("LLM 返回了空响应")
 
             logger.info(f"[LangChain-Structured] response: {response}")
 
