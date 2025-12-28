@@ -22,6 +22,7 @@ import type { JSONSchema } from '@renderer/api/schema'
 // 避免循环依赖
 const StringField = defineAsyncComponent(() => import('./StringField.vue'))
 const NumberField = defineAsyncComponent(() => import('./NumberField.vue'))
+const BooleanField = defineAsyncComponent(() => import('./BooleanField.vue'))
 const FallbackField = defineAsyncComponent(() => import('./FallbackField.vue'))
 
 const props = defineProps<{
@@ -50,6 +51,8 @@ function getFieldComponent(itemSchema: JSONSchema) {
     case 'number':
     case 'integer':
       return NumberField
+    case 'boolean':
+      return BooleanField
     default:
       return FallbackField
   }

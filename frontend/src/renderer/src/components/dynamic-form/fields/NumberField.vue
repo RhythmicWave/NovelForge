@@ -5,12 +5,14 @@
       @change="handleChange" 
       :disabled="readonly"
       class="full-width"
+      :step="step"
+      :precision="precision"
     />
   </el-form-item>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import type { JSONSchema } from '@renderer/api/schema'
 
 const props = defineProps<{
@@ -18,18 +20,29 @@ const props = defineProps<{
   label: string
   prop: string
   readonly?: boolean
+  schema?: JSONSchema
 }>()
 
 const emit = defineEmits(['update:modelValue'])
 
 const internalValue = ref(props.modelValue)
 
+const isInteger = computed(() => props.schema?.type === 'integer')
+const step = computed(() => (isInteger.value ? 1 : undefined))
+const precision = computed(() => (isInteger.value ? 0 : undefined))
+
 watch(() => props.modelValue, (newValue) => {
   internalValue.value = newValue
 })
 
 function handleChange(value: number | undefined) {
-  emit('update:modelValue', value)
+  if (value != null && props.schema?.type === 'integer') {
+    // 强制转为整数，避免出现小数
+    const intVal = Math.round(value)
+    emit('update:modelValue', intVal)
+  } else {
+    emit('update:modelValue', value)
+  }
 }
 </script>
 

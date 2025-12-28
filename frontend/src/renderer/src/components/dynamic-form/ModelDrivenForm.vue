@@ -30,6 +30,7 @@ import { resolveActualSchema as resolveSchemaUnified } from '@renderer/services/
 // --- 组件导入 ---
 const StringField = defineAsyncComponent(() => import('./fields/StringField.vue'))
 const NumberField = defineAsyncComponent(() => import('./fields/NumberField.vue'))
+const BooleanField = defineAsyncComponent(() => import('./fields/BooleanField.vue'))
 const ObjectField = defineAsyncComponent(() => import('./fields/ObjectField.vue'))
 const ArrayField = defineAsyncComponent(() => import('./fields/ArrayField.vue'))
 const EnumField = defineAsyncComponent(() => import('./fields/EnumField.vue'))
@@ -91,6 +92,8 @@ function getFieldComponent(propSchema: JSONSchema) {
     case 'number':
     case 'integer':
       return NumberField
+    case 'boolean':
+      return BooleanField
     case 'object':
       return ObjectField
     case 'array':

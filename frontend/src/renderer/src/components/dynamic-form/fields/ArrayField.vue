@@ -22,7 +22,16 @@
           :model-value="item"
           @update:modelValue="updateItem(index, $event)"
         />
-        <!-- 对于复杂类型，使用ModelDrivenForm -->
+        <!-- 对于元组类型（array + prefixItems/anyOf），使用 TupleField 渲染每个元素 -->
+        <TupleField
+          v-else-if="isTupleTypeForIndex(index)"
+          :label="`项目 ${index + 1}`"
+          :prop="String(index)"
+          :schema="getItemSchemaForIndex(index)"
+          :model-value="item"
+          @update:modelValue="updateItem(index, $event)"
+        />
+        <!-- 对于复杂对象类型，使用 ModelDrivenForm -->
         <ModelDrivenForm
           v-else
           :schema="getItemSchemaForIndex(index)"
@@ -57,6 +66,8 @@ import { resolveActualSchema } from '@renderer/services/schemaFieldParser'
 const ModelDrivenForm = defineAsyncComponent(() => import('../ModelDrivenForm.vue'))
 const StringField = defineAsyncComponent(() => import('./StringField.vue'))
 const NumberField = defineAsyncComponent(() => import('./NumberField.vue'))
+const BooleanField = defineAsyncComponent(() => import('./BooleanField.vue'))
+const TupleField = defineAsyncComponent(() => import('./TupleField.vue'))
 
 const props = defineProps<{
   modelValue: any[] | undefined
@@ -96,7 +107,14 @@ function getItemSchemaForIndex(index: number): JSONSchema {
 // 判断是否为简单类型（按索引）
 function isSimpleTypeForIndex(index: number) {
   const actualSchema = getItemSchemaForIndex(index)
-  return actualSchema.type === 'string' || actualSchema.type === 'number' || actualSchema.type === 'integer'
+  return actualSchema.type === 'string' || actualSchema.type === 'number' || actualSchema.type === 'integer' || actualSchema.type === 'boolean'
+}
+
+// 判断数组项是否为元组类型（自身是 array 且带有 prefixItems/anyOf）
+function isTupleTypeForIndex(index: number) {
+  const actualSchema = getItemSchemaForIndex(index) as any
+  if (!actualSchema || actualSchema.type !== 'array') return false
+  return Array.isArray(actualSchema.prefixItems) || Array.isArray(actualSchema.anyOf)
 }
 
 // 获取简单类型对应的字段组件（按索引）
@@ -108,6 +126,8 @@ function getSimpleFieldComponentForIndex(index: number) {
     case 'number':
     case 'integer':
       return NumberField
+    case 'boolean':
+      return BooleanField
     default:
       return StringField
   }
