@@ -138,6 +138,7 @@
               :volume-number="chapterVolumeNumber"
               :chapter-number="chapterChapterNumber"
               :participants="chapterParticipants"
+              @update:participants="handleContextParticipantsUpdate"
             />
           </el-tab-pane>
           
@@ -1114,6 +1115,24 @@ async function assembleChapterContext() {
     prefetchedContext.value = res
   } catch (e) {
     console.error('Failed to assemble chapter context:', e)
+  }
+}
+
+// 当右侧“参与实体”面板中手动增删参与者时，将变更写回当前章节卡片的内容
+async function handleContextParticipantsUpdate(names: string[]) {
+  try {
+    if (!isChapterContent.value || !activeCard.value) return
+    const card = activeCard.value as any
+    const content: any = { ...(card.content || {}) }
+    // 仅以名称列表作为实体列表的来源（对象形态后续仍可由分析流程补全）
+    const normalized = (names || [])
+      .map(n => (typeof n === 'string' ? n.trim() : String(n || '')).trim())
+      .filter(Boolean)
+    content.entity_list = normalized
+    await cardStore.modifyCard(card.id, { content } as any)
+    // modifyCard 成功后，cards watcher 会触发 assembleChapterContext 使用新的参与者
+  } catch (e) {
+    console.error('Failed to update participants on card:', e)
   }
 }
 
