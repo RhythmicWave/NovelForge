@@ -1085,12 +1085,19 @@ const chapterParticipants = computed(() => {
   return []
 })
 
-// 自动装配章节上下文
+// 自动装配章节上下文（首次进入章节正文时）
 watch(isChapterContent, async (val) => {
   if (val && activeCard.value) {
     await assembleChapterContext()
   }
 }, { immediate: true })
+
+// 当卡片仓库内容发生变化时，若当前仍在章节正文卡片上，则重新装配上下文
+watch(cards, async () => {
+  if (isChapterContent.value && activeCard.value) {
+    await assembleChapterContext()
+  }
+})
 
 async function assembleChapterContext() {
   if (!isChapterContent.value || !projectStore.currentProject?.id) return

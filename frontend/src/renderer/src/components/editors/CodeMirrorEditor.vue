@@ -731,7 +731,8 @@ async function loadPrompts() {
 	}
 }
 
-// 处理标题编辑
+
+// 处理标题编辑（正文页大标题）
 async function handleTitleBlur() {
 	if (!titleElement.value) return
 	const newTitle = titleElement.value.textContent?.trim() || ''
@@ -745,13 +746,26 @@ async function handleTitleBlur() {
 
 async function handleTitleEnter() {
 	if (!titleElement.value) return
-	titleElement.value.blur() // 触发blur事件保存
+	titleElement.value.blur() // 触发 blur 事件统一保存
 }
 
+// 保存标题：同时更新 card.title 与 content.title，保证上下文使用的 @self.content.title 为最新
 async function saveTitle(newTitle: string) {
 	try {
-		await cardStore.modifyCard(localCard.id, { title: newTitle })
-		localCard.title = newTitle
+		const trimmed = newTitle.trim()
+		if (!trimmed) return
+		localCard.title = trimmed
+		localCard.content = {
+			...(localCard.content || {}),
+			// 仅更新 title 字段，正文内容等保持不变
+			...(localCard.content as any),
+			title: trimmed,
+		}
+		const updatePayload: CardUpdate = {
+			title: trimmed,
+			content: localCard.content as any,
+		}
+		await cardStore.modifyCard(localCard.id, updatePayload)
 		ElMessage.success('标题已更新')
 	} catch (e) {
 		ElMessage.error('标题更新失败')
@@ -760,18 +774,27 @@ async function saveTitle(newTitle: string) {
 	}
 }
 
-async function handleSave() {
+// 保存正文：可选接收来自父级的最新标题，一次性写入 card.title 与 content.title
+async function handleSave(newTitle?: string) {
 	if (props.chapter) { emit('save'); return }
-	const updatePayload: CardUpdate = {
-		title: localCard.title,
-		content: {
-			...localCard.content,
-			content: getText(),
-			word_count: wordCount.value,
-			volume_number: (props.contextParams as any)?.volume_number ?? (localCard.content as any)?.volume_number,
-			chapter_number: (props.contextParams as any)?.chapter_number ?? (localCard.content as any)?.chapter_number,
-		}
+	const effectiveTitle = (typeof newTitle === 'string' && newTitle.trim()) ? newTitle.trim() : localCard.title
+	if (effectiveTitle && effectiveTitle !== localCard.title) {
+		localCard.title = effectiveTitle
 	}
+	const nextContent = {
+		...localCard.content,
+		content: getText(),
+		word_count: wordCount.value,
+		volume_number: (props.contextParams as any)?.volume_number ?? (localCard.content as any)?.volume_number,
+		chapter_number: (props.contextParams as any)?.chapter_number ?? (localCard.content as any)?.chapter_number,
+		// 始终把最新标题写入 content.title，供上下文模板和筛选使用
+		title: effectiveTitle || (localCard.content as any)?.title || localCard.title,
+	}
+	const updatePayload: CardUpdate = {
+		title: effectiveTitle,
+		content: nextContent as any,
+	}
+	localCard.content = nextContent as any
 	await cardStore.modifyCard(localCard.id, updatePayload)
 		
 	// 保存成功后重置dirty状态

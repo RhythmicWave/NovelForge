@@ -38,7 +38,7 @@ watch(() => props.modelValue, (newValue) => {
 function handleChange(value: number | undefined) {
   if (value != null && props.schema?.type === 'integer') {
     // 强制转为整数，避免出现小数
-    const intVal = Math.round(value)
+    const intVal = Math.floor(value)
     emit('update:modelValue', intVal)
   } else {
     emit('update:modelValue', value)
