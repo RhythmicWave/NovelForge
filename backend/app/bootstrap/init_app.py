@@ -481,8 +481,8 @@ def init_workflows(db: Session):
         "nodes": [
             {"id": "read_stage", "type": "Card.Read", "params": {"target": "$self", "type_name": "阶段大纲"}, "position": {"x": 40, "y": 80}},
             {"id": "foreach_chapter_outline", "type": "List.ForEach", "params": {"listPath": "$.content.chapter_outline_list"}, "position": {"x": 460, "y": 80}},
-            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "第{item.chapter_number}章 {item.title}", "useItemAsContent": True}, "position": {"x": 460, "y": 260}},
-            {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "第{item.chapter_number}章 {item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "{item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}, "position": {"x": 880, "y": 260}},
+            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "{item.title}", "useItemAsContent": True}, "position": {"x": 460, "y": 260}},
+            {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "{item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "{item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}, "position": {"x": 880, "y": 260}},
             {"id": "clear_outline", "type": "Card.ModifyContent", "params": {"setPath": "$.content.chapter_outline_list", "setValue": []}, "position": {"x": 1300, "y": 170}}
         ],
         "edges": [

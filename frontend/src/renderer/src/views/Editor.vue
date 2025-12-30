@@ -1045,7 +1045,18 @@ async function renameCard(cardId: number, oldTitle: string) {
     })
     const newTitle = String(value).trim()
     if (newTitle === oldTitle) return
-    await cardStore.modifyCard(cardId, { title: newTitle })
+    // 默认仅更新外壳 card.title
+    const card = (cards.value || []).find((c: any) => c.id === cardId) as any
+    const payload: any = { title: newTitle }
+
+    // 仅对章节大纲 / 章节正文做「标题字段与卡片名」的绑定优化
+    const typeName = card?.card_type?.name || ''
+    if ((typeName === '章节大纲' || typeName === '章节正文') && card?.content) {
+      const content: any = { ...(card.content as any) }
+      content.title = newTitle
+      payload.content = content
+    }
+    await cardStore.modifyCard(cardId, payload)
     ElMessage.success('已重命名')
   } catch {
     // 用户取消或失败

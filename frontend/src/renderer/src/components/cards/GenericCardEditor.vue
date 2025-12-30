@@ -517,14 +517,18 @@ async function handleSave() {
   if (activeContentEditor.value && contentEditorRef.value) {
     try {
       isSaving.value = true
+      // 在保存正文前先截取当前模板与旧值，避免保存正文时触发的 card 更新把本地模板重置为旧值
+      const templateBeforeSave = localAiContextTemplate.value
+      const prevTemplateOnCard = props.card.ai_context_template || ''
+
       // 将当前标题传递给内容编辑器，由内容编辑器统一负责保存 title 与正文内容
       const savedContent = await contentEditorRef.value.handleSave(titleProxy.value)
 
       // 如有上下文模板变更，单独保存 ai_context_template（不覆盖正文内容）
-      if (localAiContextTemplate.value !== props.card.ai_context_template) {
+      if (templateBeforeSave !== prevTemplateOnCard) {
         try {
           await cardStore.modifyCard(props.card.id, {
-            ai_context_template: localAiContextTemplate.value,
+            ai_context_template: templateBeforeSave,
           } as any)
         } catch {}
       }
@@ -537,7 +541,7 @@ async function handleSave() {
             projectId: projectStore.currentProject.id,
             title: titleProxy.value,
             content: savedContent,
-            ai_context_template: localAiContextTemplate.value,
+            ai_context_template: templateBeforeSave,
           })
         }
       } catch (e) {
@@ -545,7 +549,7 @@ async function handleSave() {
       }
       
       contentEditorDirty.value = false
-      originalAiContextTemplate.value = localAiContextTemplate.value
+      originalAiContextTemplate.value = templateBeforeSave
       lastSavedAt.value = new Date().toLocaleTimeString()
       ElMessage.success('保存成功')
     } catch (e) {
