@@ -129,9 +129,12 @@ const modifyContentMode = computed(() => {
 
 // contentMerge 的文本表示
 const contentMergeText = computed(() => {
-  const contentMerge = params.value?.contentMerge
-  if (!contentMerge) return ''
+  const contentMerge = params.value?.contentMerge as any
+  if (contentMerge == null) return ''
+  // 若是字符串（编辑中或解析失败时的原始文本），直接原样显示
+  if (typeof contentMerge === 'string') return contentMerge
   try {
+    // 对象/数组时使用 JSON 美化
     return JSON.stringify(contentMerge, null, 2)
   } catch {
     return String(contentMerge)
@@ -157,12 +160,19 @@ function switchModifyContentMode(mode: 'path' | 'merge') {
 
 // 更新 contentMerge
 function updateContentMerge(text: string) {
+  const raw = text ?? ''
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    update('contentMerge', undefined)
+    return
+  }
   try {
-    const parsed = text.trim() ? JSON.parse(text) : {}
+    const parsed = JSON.parse(trimmed)
     update('contentMerge', parsed)
   } catch (e) {
     // JSON 解析失败时，保持文本状态，不更新参数
     console.warn('Invalid JSON in contentMerge:', e)
+    update('contentMerge', raw)
   }
 }
 
@@ -409,7 +419,8 @@ function addField() {
   update('fields', [...fields, ''])
 }
 
-function removeField(index: number) {
+function removeField(index:string | number) {
+  index=Number(index)
   const fields = [...(params.value.fields || [])]
   fields.splice(index, 1)
   update('fields', fields)
@@ -591,6 +602,16 @@ function handleFieldToggle(fieldPath: string) {
             </template>
             <el-icon style="margin-left:6px; color: var(--el-text-color-secondary)"><QuestionFilled/></el-icon>
           </el-tooltip>
+        </el-form-item>
+        <!-- 当使用 item 作为内容时，允许额外通过 contentMerge 覆盖/补充字段 -->
+        <el-form-item v-if="params.useItemAsContent" label="内容合并 (可选)">
+          <el-input 
+            type="textarea" 
+            :rows="4" 
+            :model-value="contentMergeText" 
+            @update:model-value="updateContentMerge" 
+            placeholder='JSON，如：{"title": "第{item.chapter_number}章 {item.title}"}'
+          />
         </el-form-item>
         <el-form-item v-if="!params.useItemAsContent" label="表达式/模板">
           <div class="horiz">

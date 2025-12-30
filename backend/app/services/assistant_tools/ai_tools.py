@@ -158,11 +158,15 @@ def create_card(
         params["parent"] = "$projectRoot"
         logger.info(f"  在项目根目录创建")
     
-    result = nodes.node_card_upsert_child_by_title(
-        session=deps.session,
-        state=state,
-        params=params,
-    )
+    try:
+        result = nodes.node_card_upsert_child_by_title(
+            session=deps.session,
+            state=state,
+            params=params,
+        )
+    except Exception as e:
+        logger.error(f"❌ [Assistant.create_card] 创建失败: {e}")
+        return {"success": False, "error": f"创建失败: {str(e)}"}
 
     # 提交事务（重要！）
     deps.session.commit()

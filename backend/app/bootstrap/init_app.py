@@ -151,7 +151,7 @@ def create_default_card_types(db: Session):
             # "之前的章节大纲概述:@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number < $self.content.chapter_number].{content.chapter_number,content.overview}\n"
             "最近的章节原文，确保能够衔接剧情:@type:章节正文[previous:1].{content.title,content.chapter_number,content.content}\n"
             "参与者实体列表，确保生成内容只会出场这些实体:@self.content.entity_list\n"
-            "请根据第@self.content.chapter_number 章 @self.content.title 的大纲@type:章节大纲[index=filter:content.title = $self.content.title].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充，使得最终生成的内容字数3000字达到左右\n"
+            "请根据 @self.content.chapter_number： @self.content.title 的大纲@type:章节大纲[index=filter:content.title = $self.content.title].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充，使得最终生成的内容字数3000字达到左右\n"
             "注意，写作时必须保证结尾剧情与下一章的剧情大纲不会冲突，且不会提前涉及下一章剧情(如果存在的话):@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number = $self.content.chapter_number+1].{content.title,content.overview}\n"
             "写作时请结合写作指南要求:@type:写作指南[index=filter:content.volume_number = $self.content.volume_number].{content.content}\n"
             )},
@@ -481,8 +481,8 @@ def init_workflows(db: Session):
         "nodes": [
             {"id": "read_stage", "type": "Card.Read", "params": {"target": "$self", "type_name": "阶段大纲"}, "position": {"x": 40, "y": 80}},
             {"id": "foreach_chapter_outline", "type": "List.ForEach", "params": {"listPath": "$.content.chapter_outline_list"}, "position": {"x": 460, "y": 80}},
-            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "{item.title}", "useItemAsContent": True}, "position": {"x": 460, "y": 260}},
-            {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "{item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "{item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}, "position": {"x": 880, "y": 260}},
+            {"id": "upsert_outline", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节大纲", "title": "第{item.chapter_number}章 {item.title}", "useItemAsContent": True, "contentMerge": {"title": "第{item.chapter_number}章 {item.title}"}}, "position": {"x": 460, "y": 260}},
+            {"id": "upsert_chapter", "type": "Card.UpsertChildByTitle", "params": {"cardType": "章节正文", "title": "第{item.chapter_number}章 {item.title}", "contentTemplate": {"volume_number": "{$.content.volume_number}", "stage_number": "{$.content.stage_number}", "chapter_number": "{item.chapter_number}", "title": "第{item.chapter_number}章 {item.title}", "entity_list": {"$toNameList": "item.entity_list"}, "content": ""}}, "position": {"x": 880, "y": 260}},
             {"id": "clear_outline", "type": "Card.ModifyContent", "params": {"setPath": "$.content.chapter_outline_list", "setValue": []}, "position": {"x": 1300, "y": 170}}
         ],
         "edges": [
