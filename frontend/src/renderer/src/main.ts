@@ -1,5 +1,8 @@
 import './assets/main.css'
 
+import { setupWebMock } from './web-mock'
+setupWebMock()
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
