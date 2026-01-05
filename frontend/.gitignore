@@ -2,7 +2,9 @@
 node_modules
 build/
 dist/
+dist-web/
 out/
+scripts/*.cjs
 
 # IDE配置
 .vscode/

@@ -65,10 +65,25 @@ const builderFields = ref<BuilderField[]>([])
 const relationTargets = ref<Array<{ name: string; json_schema?: any }>>([])
 const previewModel = ref<any>({})
 const modelName = ref<string>('')
+// 保留原始 schema，用于保护复杂字段（如 dynamic_info）的结构不被简化覆盖
+const originalSchema = ref<any | null>(null)
 
 const schemaObject = computed(() => {
   try {
     const base: any = builderToSchema(builderFields.value) as any
+
+    // 若原始 schema 中存在复杂对象字段（目前主要是 dynamic_info），
+    // 为避免被简化的 builder 覆盖其结构，这里用原始定义进行回填。
+    const orig = originalSchema.value as any
+    if (orig && typeof orig === 'object' && orig.properties && base && base.properties) {
+      const origProps = orig.properties as Record<string, any>
+      const nextProps = { ...(base.properties as Record<string, any>) }
+      if (origProps.dynamic_info && Object.prototype.hasOwnProperty.call(nextProps, 'dynamic_info')) {
+        nextProps.dynamic_info = origProps.dynamic_info
+        base.properties = nextProps
+      }
+    }
+
     const defs: Record<string, any> = {}
     // 收集被引用的目标模型结构
     for (const f of builderFields.value) {
@@ -94,12 +109,15 @@ async function loadSchema() {
     if (props.mode === 'type') {
       const resp = await getCardTypeSchema(props.targetId)
       const sch = (resp?.json_schema || {})
+      originalSchema.value = sch
       builderFields.value = schemaToBuilder(sch)
     } else {
       const resp = await getCardSchema(props.targetId)
       const sch = (resp?.effective_schema || resp?.json_schema || {})
+      originalSchema.value = sch
       builderFields.value = schemaToBuilder(sch)
     }
+
     // 载入可被引用的目标模型（所有卡片类型）
     try {
       const types = await listCardTypes()

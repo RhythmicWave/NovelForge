@@ -39,12 +39,17 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
-  // Modify Content Security Policy
+  // Modify Content Security Policy（允许访问后端和 GitHub API）
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:8000"]
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "script-src 'self' 'wasm-unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline'; " +
+          "connect-src 'self' http://127.0.0.1:8000 https://api.github.com"
+        ]
       }
     })
   })
