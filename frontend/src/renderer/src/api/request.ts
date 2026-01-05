@@ -2,7 +2,10 @@ import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse 
 import { ElMessage, ElLoading } from 'element-plus'
 
 // 后端API的基础URL
-export const BASE_URL = 'http://127.0.0.1:8000'
+export const BASE_URL =
+  import.meta.env.VITE_APP_PLATFORM === 'web'
+    ? (import.meta.env.DEV ? '' : 'http://127.0.0.1:8000')
+    : 'http://127.0.0.1:8000'
 
 // API响应格式，与后端约定一致
 interface ApiResponse<T> {
