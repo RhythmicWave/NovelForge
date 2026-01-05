@@ -4,6 +4,7 @@ from typing import Any, Optional, List, Dict, Callable
 import re
 import copy
 from sqlmodel import Session, select
+from pydantic import TypeAdapter, ValidationError
 
 from app.db.models import Card, CardType
 from loguru import logger
@@ -484,6 +485,13 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
     if not ct:
         raise ValueError(f"未找到卡片类型: {card_type_name}")
 
+    try:
+        adapter = TypeAdapter(Any, config={'json_schema': ct.json_schema})
+        validated_data = adapter.validate_python(params.get("content"))
+
+    except ValidationError as e:
+        raise ValueError(f"卡片类型 {card_type_name} 的结构校验失败: {e.errors()}，请确保按照json schema格式生成内容")
+
     raw_title: Optional[str] = params.get("title")
     if not raw_title:
         title_path = params.get("titlePath")
@@ -529,13 +537,19 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
     target = next((c for c in existing if str(c.title) == str(title)), None)
 
     use_item = bool(params.get("useItemAsContent"))
+    # 若同时提供 useItemAsContent 与 contentMerge，则以 item 为基础再浅合并覆盖字段
     content_merge = params.get("contentMerge") if isinstance(params.get("contentMerge"), dict) else None
     content_template = params.get("contentTemplate") if isinstance(params.get("contentTemplate"), (dict, list, str)) else None
     content_path = params.get("contentPath") if isinstance(params.get("contentPath"), str) else None
     item = state.get("item") or {}
 
     if use_item:
+        # 以当前 item 为基础，必要时再合并 contentMerge 进行字段覆盖
         content: Any = dict(item)
+        if content_merge is not None:
+            cm = _render_value(content_merge or {}, state)
+            if isinstance(cm, dict):
+                content.update(cm)
     else:
         if content_template is not None:
             content = _render_value(content_template, state)
