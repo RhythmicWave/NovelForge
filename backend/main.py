@@ -92,7 +92,7 @@ if __name__ == "__main__":
     # 配置更短的优雅关闭时间，便于 Ctrl+C 快速退出
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=8000,
         reload=True,
         timeout_graceful_shutdown=1,

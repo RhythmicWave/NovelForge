@@ -2,10 +2,36 @@ import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse 
 import { ElMessage, ElLoading } from 'element-plus'
 
 // 后端API的基础URL
-export const BASE_URL =
-  import.meta.env.VITE_APP_PLATFORM === 'web'
-    ? (import.meta.env.DEV ? '' : 'http://127.0.0.1:8000')
-    : 'http://127.0.0.1:8000'
+// 约定：
+//  - web 开发环境：使用同源 + Vite 代理（BASE_URL = ''，请求走 /api 前缀）
+//  - web 生产环境：优先使用 VITE_BACKEND_URL，其次用当前 hostname:8000
+//  - Electron / 其他：默认 http://127.0.0.1:8000，可通过 VITE_BACKEND_URL 覆盖
+export const BASE_URL: string = (() => {
+  const platform = import.meta.env.VITE_APP_PLATFORM
+  const backendEnv = (import.meta.env as any).VITE_BACKEND_URL as string | undefined
+
+  if (platform === 'web') {
+    if (import.meta.env.DEV) {
+      // 开发模式走 Vite 代理：/api -> http://127.0.0.1:8000
+      return ''
+    }
+    if (backendEnv) return backendEnv
+    if (typeof window !== 'undefined') {
+      const protocol = window.location.protocol || 'http:'
+      const hostname = window.location.hostname || '127.0.0.1'
+      return `${protocol}//${hostname}:8000`
+    }
+    return ''
+  }
+
+  // Electron 等非 web 场景
+  return backendEnv || 'http://127.0.0.1:8000'
+})()
+
+// 带 /api 前缀的基础 URL，供流式接口使用
+export const API_BASE_URL: string = BASE_URL
+  ? `${BASE_URL.replace(/\/$/, '')}/api`
+  : '/api'
 
 // API响应格式，与后端约定一致
 interface ApiResponse<T> {

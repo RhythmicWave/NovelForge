@@ -1,4 +1,4 @@
-import { aiHttpClient } from './request'
+import { aiHttpClient, API_BASE_URL } from './request'
 import type { components } from '@renderer/types/generated'
 
 export type GeneralAIRequest = components['schemas']['GeneralAIRequest']
@@ -123,7 +123,6 @@ export function generateContinuationStreaming(
   onClose: () => void,
   onError?: (err: any) => void
 ) {
-  const API_BASE_URL = 'http://127.0.0.1:8000/api'
   const endpoint = params.prompt_name === '灵感对话'
     ? `${API_BASE_URL}/ai/assistant/chat`
     : `${API_BASE_URL}/ai/generate/continuation`
@@ -172,6 +171,5 @@ export function generateAssistantChatStreaming(
   onClose: () => void,
   onError?: (err: any) => void
 ) {
-  const API_BASE_URL = 'http://127.0.0.1:8000/api'
   return createStreamingRequest(`${API_BASE_URL}/ai/assistant/chat`, params, onData, onClose, onError)
 }
