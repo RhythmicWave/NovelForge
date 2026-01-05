@@ -4,7 +4,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   root: 'src/renderer',
-  base: '/',
+  base: './',
   resolve: {
     alias: {
       '@renderer': resolve(__dirname, 'src/renderer/src')

@@ -1,50 +1,82 @@
-export function setupWebMock() {
+export function setupWebMock(): void {
   if (typeof window === 'undefined') return
-
-  // @ts-ignore
   if (!window.electron) {
     console.log('Initializing Web Mock for Electron...')
-    // @ts-ignore
     window.electron = {
       process: {
+        platform: 'web',
+        env: {},
         versions: {
           electron: 'web',
           chrome: navigator.userAgent,
           node: 'web'
         }
       },
+      webUtils: {
+        getPathForFile: (file: File) => {
+          console.log(`[WebMock] getPathForFile`, file)
+          return URL.createObjectURL(file)
+        }
+      },
+      webFrame: {
+        setZoomLevel: (level: number) => {
+          console.log(`[WebMock] setZoomLevel ${level}`)
+        },
+        insertCSS: (css: string): string => {
+          console.log(`[WebMock] insertCSS ${css}`)
+          return css
+        },
+        setZoomFactor: (factor: number) => {
+          console.log(`[WebMock] setZoomFactor ${factor}`)
+        }
+      },
       ipcRenderer: {
-        invoke: async (channel: string, ...args: any[]) => {
+        invoke: async (channel: string, ...args: unknown[]) => {
           console.log(`[WebMock] invoke ${channel}`, args)
           return undefined
         },
-        on: (channel: string, _listener: any) => {
-           console.log(`[WebMock] on ${channel}`)
-           return undefined
+        on: (channel: string, _listener: unknown) => {
+          console.log(`[WebMock] on ${channel}, and ${_listener}`)
+          return () => {}
         },
-        send: (channel: string, ...args: any[]) => {
-           console.log(`[WebMock] send ${channel}`, args)
+        once: (channel: string, _listener: unknown) => {
+          console.log(`[WebMock] once ${channel}, and ${_listener}`)
+          return () => {}
         },
-        removeListener: () => {},
+        postMessage: (channel: string, message: unknown, transfer?: unknown[]) => {
+          console.log(`[WebMock] postMessage ${channel}`, message, transfer)
+        },
+        send: (channel: string, ...args: unknown[]) => {
+          console.log(`[WebMock] send ${channel}`, args)
+        },
+        sendSync: (channel: string, ...args: unknown[]) => {
+          console.log(`[WebMock] sendSync ${channel}`, args)
+          return undefined
+        },
+        sendTo: (webContentsId: number, channel: string, ...args: unknown[]) => {
+          console.log(`[WebMock] sendTo ${webContentsId} ${channel}`, args)
+        },
+        sendToHost: (channel: string, ...args: unknown[]) => {
+          console.log(`[WebMock] sendToHost ${channel}`, args)
+        },
+        removeListener: (channel: string, listener: (...args: unknown[]) => void) => {
+          console.log(`[WebMock] removeListener ${channel} and ${listener}`)
+          return window.electron.ipcRenderer
+        },
         removeAllListeners: () => {}
       }
     }
   }
-
-  // @ts-ignore
   if (!window.api) {
     console.log('Initializing Web Mock for API...')
-    // @ts-ignore
     window.api = {
-      setApiKey: async (id: number, apiKey: string) => {
+      setApiKey: async (id: number) => {
         console.log(`[WebMock] setApiKey ${id}`)
-        localStorage.setItem(`api_key_${id}`, apiKey)
         return { success: true }
       },
       getApiKey: async (id: number) => {
         console.log(`[WebMock] getApiKey ${id}`)
-        const key = localStorage.getItem(`api_key_${id}`)
-        return { success: true, apiKey: key || undefined }
+        return { success: true, apiKey: undefined }
       },
       openIdeasHome: async () => {
         console.log(`[WebMock] openIdeasHome`)
