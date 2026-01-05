@@ -1,5 +1,5 @@
 <template>
-  <el-form :model="form" ref="formRef" :rules="rules" label-width="100px" autocomplete="off">
+  <el-form :model="form" ref="formRef" :rules="rules" label-width="140px" autocomplete="off">
     <!-- 隐藏的输入框，用于禁用浏览器自动填充 -->
     <div style="height: 0; overflow: hidden; position: absolute; opacity: 0;">
       <input type="text" autocomplete="username" tabindex="-1">
@@ -15,7 +15,7 @@
       </el-select>
     </el-form-item>
     <el-form-item label="显示名称" prop="display_name">
-      <el-input v-model="form.display_name" placeholder="例如: GPT-4o (My)" />
+      <el-input v-model="form.display_name" placeholder="可选，留空时自动设置为模型名称" />
     </el-form-item>
     <el-form-item label="API Base" prop="api_base">
       <el-input
