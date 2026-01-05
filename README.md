@@ -52,6 +52,16 @@
 ## 📅 更新日志
 
 <details>
+<summary>v0.8.6</summary>
+
+- 增加了版本更新检测功能，默认自动检测（当有新版本时会在设置-关于处出现小红点）
+- 优化了LLM配置界面，增加了获取可用模型列表功能
+- 增加了Web版本适配
+- 代码优化与修复bug
+
+</details>
+
+<details>
 <summary>v0.8.5</summary>
 
 - 使用新的agent框架进行了全面替换；优化灵感助手功能、UI
@@ -264,6 +274,8 @@ npm install
 
 # 启动开发服务器
 npm run dev
+# 也可以用下面命令启动web页面
+// npm run dev:web
 ```
 
 #### 重要：.env 的 BOOTSTRAP_OVERWRITE
