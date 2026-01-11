@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from loguru import logger
 from langchain_core.tools import tool
 
-from app.services import nodes
+from app.services.workflow import get_registered_nodes
 from app.db.models import Card, CardType
 import copy
 
@@ -159,7 +159,13 @@ def create_card(
         logger.info(f"  在项目根目录创建")
     
     try:
-        result = nodes.node_card_upsert_child_by_title(
+        # 从注册表获取节点函数
+        node_registry = get_registered_nodes()
+        node_fn = node_registry.get("Card.UpsertChildByTitle")
+        if not node_fn:
+            raise ValueError("节点 'Card.UpsertChildByTitle' 未注册")
+        
+        result = node_fn(
             session=deps.session,
             state=state,
             params=params,
@@ -252,7 +258,12 @@ def modify_card_field(
         state = {"card": card, "touched_card_ids": set()}
 
         # 调用工作流节点函数
-        nodes.node_card_modify_content(
+        node_registry = get_registered_nodes()
+        node_fn = node_registry.get("Card.ModifyContent")
+        if not node_fn:
+            raise ValueError("节点 'Card.ModifyContent' 未注册")
+        
+        node_fn(
             session=deps.session,
             state=state,
             params={"setPath": field_path, "setValue": new_value},
@@ -523,7 +534,12 @@ def replace_field_text(
         state = {"touched_card_ids": set()}
 
         # 调用工作流节点函数
-        result = nodes.node_card_replace_field_text(
+        node_registry = get_registered_nodes()
+        node_fn = node_registry.get("Card.ReplaceFieldText")
+        if not node_fn:
+            raise ValueError("节点 'Card.ReplaceFieldText' 未注册")
+        
+        result = node_fn(
             session=deps.session,
             state=state,
             params={

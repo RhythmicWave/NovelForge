@@ -3,7 +3,6 @@ from typing import List, Optional
 from sqlmodel import Session, select
 
 from app.db.models import Project, Workflow
-from app.services import workflow_triggers
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
 from app.services.kg_provider import get_provider
@@ -56,7 +55,8 @@ def create_project(session: Session, project_in: ProjectCreate) -> Project:
     else:
         # 触发所有 onprojectcreate 工作流
         try:
-            workflow_triggers.trigger_on_project_create(session, db_project.id)
+            from app.core import emit_event
+            emit_event("project.created", {"session": session, "project_id": db_project.id})
         except Exception:
             # 不阻断项目创建
             pass

@@ -1,10 +1,10 @@
 from typing import List, Optional
 from sqlmodel import Session, select
 from sqlalchemy.orm import joinedload
-from fastapi import HTTPException
 
 from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
+from app.exceptions import BusinessException
 import logging
 # 引入动态信息模型
 from app.schemas.entity import UpdateDynamicInfo, CharacterCard, DynamicInfoItem
@@ -115,7 +115,7 @@ class CardService:
 
         card_type = self.db.get(CardType, card_create.card_type_id)
         if not card_type:
-             raise HTTPException(status_code=404, detail=f"CardType with id {card_create.card_type_id} not found")
+             raise BusinessException(f"CardType with id {card_create.card_type_id} not found", status_code=404)
 
         # 单例限制：在保留项目(__free__)中放行
         proj = self.db.get(Project, project_id)
@@ -124,9 +124,9 @@ class CardService:
             statement = select(Card).where(Card.project_id == project_id, Card.card_type_id == card_create.card_type_id)
             existing_card = self.db.exec(statement).first()
             if existing_card:
-                raise HTTPException(
-                    status_code=409, # Conflict
-                    detail=f"A card of type '{card_type.name}' already exists in this project, and it is a singleton."
+                raise BusinessException(
+                    f"A card of type '{card_type.name}' already exists in this project, and it is a singleton.",
+                    status_code=409
                 )
 
         # 决定显示顺序
@@ -256,14 +256,14 @@ class CardService:
         id_set = {c.id for c in subtree}
         # 校验：若指定 parent_id，不能把父节点设为子树内部其它节点（避免环）
         if parent_id and parent_id in id_set and parent_id != root.id:
-            raise HTTPException(status_code=400, detail="Cannot set parent to a descendant of itself")
+            raise BusinessException("Cannot set parent to a descendant of itself", status_code=400)
         # 目标父节点项目校验
         if parent_id is not None:
             parent_card = self.get_by_id(parent_id)
             if not parent_card:
-                raise HTTPException(status_code=404, detail="Target parent card not found")
+                raise BusinessException("Target parent card not found", status_code=404)
             if parent_card.project_id != target_project_id:
-                raise HTTPException(status_code=400, detail="Target parent card not in target project")
+                raise BusinessException("Target parent card not in target project", status_code=400)
         # 非保留项目的单例限制（跨项目移动时校验）
         if target_project_id != root.project_id:
             target_proj = self.db.get(Project, target_project_id)
@@ -272,7 +272,7 @@ class CardService:
                 exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == root.card_type_id)
                 exists = self.db.exec(exists_stmt).first()
                 if exists:
-                    raise HTTPException(status_code=409, detail=f"A card of type '{root.card_type.name}' already exists in target project (singleton)")
+                    raise BusinessException(f"A card of type '{root.card_type.name}' already exists in target project (singleton)", status_code=409)
         # 更新项目ID（整棵子树）
         for node in subtree:
             node.project_id = target_project_id
@@ -298,7 +298,7 @@ class CardService:
             exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == src_root.card_type_id)
             exists = self.db.exec(exists_stmt).first()
             if exists:
-                raise HTTPException(status_code=409, detail=f"A card of type '{src_root.card_type.name}' already exists in target project (singleton)")
+                raise BusinessException(f"A card of type '{src_root.card_type.name}' already exists in target project (singleton)", status_code=409)
         # 收集子树，按父在前的顺序复制
         subtree = _collect_subtree(self.db, src_root)
         old_to_new_id: dict[int, int] = {}

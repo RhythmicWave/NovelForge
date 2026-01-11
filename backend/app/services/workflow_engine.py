@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.db.models import Workflow, WorkflowRun
-from app.services import nodes as builtin_nodes
+from app.services.workflow import get_registered_nodes
 from loguru import logger
 
 
@@ -83,62 +83,26 @@ class LocalAsyncEngine:
         session.refresh(run)
         # 提前创建事件队列，确保即便前端稍后订阅也不会丢第一批事件
         self._ensure_queue(run.id)
-        logger.info(f"[工作流] Run 已创建并初始化事件队列 run_id={run.id} workflow_id={workflow.id}")
         return run
 
     # ---------------- nodes ----------------
     def _resolve_node_fn(self, type_name: str):
         """从节点注册表中获取节点函数"""
-        registry = builtin_nodes.get_registered_nodes()
+        registry = get_registered_nodes()
         fn = registry.get(type_name)
         if not fn:
             raise ValueError(f"未知节点类型: {type_name}，已注册的节点: {list(registry.keys())}")
         return fn
 
-    # ---------------- canonicalize ----------------
-    @staticmethod
-    def _canonicalize(nodes: List[dict]) -> List[dict]:
-        """将 DSL 规范化：
-        - ForEach/ForEachRange 若无 body，则将后一个节点折叠为其 body，并跳过单独执行。
-        """
-        out: List[dict] = []
-        i = 0
-        while i < len(nodes):
-            n = nodes[i]
-            ntype = n.get("type")
-            if ntype in ("List.ForEach", "List.ForEachRange") and not n.get("body") and i + 1 < len(nodes):
-                compat = dict(n)
-                compat["body"] = [nodes[i + 1]]
-                out.append(compat)
-                logger.warning("[工作流] 兼容重写：ForEach/Range 缺少 body，已将后一节点折叠为 body")
-                i += 2
-                continue
-            out.append(n)
-            i += 1
-        return out
-
     # ---------------- execute ----------------
     async def _execute_dsl(self, session: Session, workflow: Workflow, run: WorkflowRun) -> None:
+        """执行工作流 DSL（基于 nodes + edges 的标准格式）"""
         dsl: Dict[str, Any] = workflow.definition_json or {}
-        raw_nodes: List[dict] = list(dsl.get("nodes") or [])
-        
-        # 检查是否是标准格式（包含edges）
-        is_standard_format = "edges" in dsl and isinstance(dsl["edges"], list)
-        
-        if is_standard_format:
-            # 标准格式：基于edges执行
-            await self._execute_standard_format(session, workflow, run, dsl)
-        else:
-            # 旧格式：保持原有逻辑
-            await self._execute_legacy_format(session, workflow, run, raw_nodes)
-
-    async def _execute_standard_format(self, session: Session, workflow: Workflow, run: WorkflowRun, dsl: dict) -> None:
-        """执行标准格式的工作流（基于nodes+edges）"""
         nodes: List[dict] = list(dsl.get("nodes") or [])
         edges: List[dict] = list(dsl.get("edges") or [])
         state: Dict[str, Any] = {"scope": run.scope_json or {}, "touched_card_ids": set()}
         
-        logger.info(f"[工作流] 开始执行 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)} edges={len(edges)}")
+        logger.info(f"[工作流] 开始执行 run_id={run.id} workflow_id={workflow.id}")
         
         # 构建执行图
         graph = self._build_execution_graph(nodes, edges)
@@ -195,7 +159,6 @@ class LocalAsyncEngine:
             ntype = node.get("type")
             params = node.get("params") or {}
             
-            logger.info(f"[工作流] 执行节点 id={node_id} type={ntype}")
             await self._publish(run_id, f"event: step_started\ndata: {ntype}\n\n")
             
             try:
@@ -209,7 +172,6 @@ class LocalAsyncEngine:
                 if ntype in ("List.ForEach", "List.ForEachRange"):
                     executed.update(successors.get(node_id, {}).get("body", []))
                 
-                logger.info(f"[工作流] 节点成功 id={node_id} type={ntype}")
                 await self._publish(run_id, f"event: step_succeeded\ndata: {ntype}\n\n")
                 
                 # 执行后续节点
@@ -236,10 +198,9 @@ class LocalAsyncEngine:
             body_nodes = [node_map[bid] for bid in body_node_ids if bid in node_map]
             body_executor = lambda: self._execute_body_nodes(body_nodes, session, state, run_id)
             
-            if ntype == "List.ForEach":
-                builtin_nodes.node_list_foreach(session, state, params, body_executor)
-            else:
-                builtin_nodes.node_list_foreach_range(session, state, params, body_executor)
+            # 使用注册表获取节点函数
+            fn = self._resolve_node_fn(ntype)
+            fn(session, state, params, body_executor)
         else:
             # 普通节点
             fn = self._resolve_node_fn(ntype)
@@ -263,7 +224,7 @@ class LocalAsyncEngine:
         for bn in body_nodes:
             ntype = bn.get("type")
             params = bn.get("params") or {}
-            logger.info(f"[工作流] ForEach body节点 type={ntype}")
+            # logger.info(f"[工作流] ForEach body节点 type={ntype}")
             try:
                 fn = self._resolve_node_fn(ntype)
                 fn(session, state, params)
@@ -271,46 +232,11 @@ class LocalAsyncEngine:
                 logger.exception(f"[工作流] ForEach body节点失败 type={ntype} err={e}")
                 raise
 
-    async def _execute_legacy_format(self, session: Session, workflow: Workflow, run: WorkflowRun, raw_nodes: List[dict]) -> None:
-        """执行旧格式的工作流（保持向后兼容）"""
-        nodes: List[dict] = self._canonicalize(raw_nodes)
-        state: Dict[str, Any] = {"scope": run.scope_json or {}, "touched_card_ids": set()}
-        logger.info(f"[工作流] 开始执行旧格式 run_id={run.id} workflow_id={workflow.id} nodes={len(nodes)}")
-
-        def run_body(body_nodes: List[dict]):
-            for bn in body_nodes:
-                ntype = bn.get("type")
-                params = bn.get("params") or {}
-                logger.info(f"[工作流] 旧格式节点开始 type={ntype}")
-                if ntype == "List.ForEach":
-                    body = list((bn.get("body") or []))
-                    builtin_nodes.node_list_foreach(session, state, params, lambda: run_body(body))
-                    logger.info("[工作流] 旧格式节点结束 List.ForEach")
-                    continue
-                if ntype == "List.ForEachRange":
-                    body = list((bn.get("body") or []))
-                    builtin_nodes.node_list_foreach_range(session, state, params, lambda: run_body(body))
-                    logger.info("[工作流] 旧格式节点结束 List.ForEachRange")
-                    continue
-                fn = self._resolve_node_fn(ntype)
-                asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_started\ndata: {ntype}\n\n"))
-                try:
-                    fn(session, state, params)
-                    logger.info(f"[工作流] 旧格式节点成功 type={ntype}")
-                    asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_succeeded\ndata: {ntype}\n\n"))
-                except Exception as e:  # noqa: BLE001
-                    logger.exception(f"[工作流] 旧格式节点失败 type={ntype} err={e}")
-                    asyncio.get_event_loop().create_task(self._publish(run.id, f"event: step_failed\ndata: {ntype}: {e}\n\n"))
-                    raise
-
-        run_body(nodes)
-        await self._save_execution_result(session, run, state)
-
     async def _save_execution_result(self, session: Session, run: WorkflowRun, state: dict) -> None:
         """保存执行结果"""
-        logger.info(f"[工作流] 执行完毕 run_id={run.id}")
         try:
             touched = list(sorted({int(x) for x in (state.get("touched_card_ids") or set())}))
+            logger.info(f"[工作流] 执行完毕 run_id={run.id} affected_cards={len(touched)}")
             run.summary_json = {**(run.summary_json or {}), "affected_card_ids": touched}
             session.add(run)
             session.commit()
@@ -336,7 +262,7 @@ class LocalAsyncEngine:
 
                 workflow = session.exec(select(Workflow).where(Workflow.id == run.workflow_id)).one()
                 await self._publish(run_id, "event: log\ndata: 开始执行DSL...\n\n")
-                logger.info(f"[工作流] run启动 run_id={run_id} workflow_id={workflow.id}")
+                # logger.info(f"[工作流] run启动 run_id={run_id} workflow_id={workflow.id}")
                 await self._execute_dsl(session, workflow, run)
 
                 run_db = session.exec(select(WorkflowRun).where(WorkflowRun.id == run_id)).one()

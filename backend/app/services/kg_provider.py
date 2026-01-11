@@ -30,9 +30,10 @@ class KnowledgeGraphProvider(Protocol):
 class Neo4jKGProvider:
 	def __init__(self) -> None:
 		from neo4j import GraphDatabase  # type: ignore
-		uri = os.getenv("NEO4J_URI") or os.getenv("GRAPH_DB_URI") or "bolt://127.0.0.1:7687"
-		user = os.getenv("NEO4J_USER") or os.getenv("GRAPH_DB_USER") or "neo4j"
-		password = os.getenv("NEO4J_PASSWORD") or os.getenv("GRAPH_DB_PASSWORD") or "neo4j"
+		from app.core.config import settings
+		uri = settings.neo4j.get_uri()
+		user = settings.neo4j.get_user()
+		password = settings.neo4j.get_password()
 		self._driver = GraphDatabase.driver(uri, auth=(user, password))
 
 	def close(self) -> None:

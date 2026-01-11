@@ -32,6 +32,12 @@ export type LLMConfigCreate = components['schemas']['LLMConfigCreate']
 export type LLMConfigUpdate = components['schemas']['LLMConfigUpdate']
 export type LLMConnectionTest = components['schemas']['LLMConnectionTest']
 
+export interface LLMGetModelsRequest {
+  provider: string
+  api_base?: string
+  api_key: string
+}
+
 export async function listLLMConfigs(): Promise<LLMConfigRead[]> {
   return await request.get<LLMConfigRead[]>('/llm-configs/')
 }
@@ -48,6 +54,10 @@ export async function deleteLLMConfig(id: number): Promise<void> {
 export async function testLLMConnection(body: LLMConnectionTest): Promise<{ message?: string }> {
   const resp = await request.post<{ message?: string }>(`/llm-configs/test`, body)
   return resp
+}
+
+export async function getLLMModels(body: LLMGetModelsRequest): Promise<string[]> {
+  return await request.post<string[]>('/llm-configs/get-models', body)
 }
 
 export async function resetLLMUsage(id: number): Promise<void> {
@@ -83,4 +93,3 @@ export async function updateCardTypeAIParams(id: number, ai_params: any | null):
 export async function getCardAIParams(id: number): Promise<any> { return await request.get(`/cards/${id}/ai-params`) }
 export async function updateCardAIParams(id: number, ai_params: any | null): Promise<any> { return await request.put(`/cards/${id}/ai-params`, { ai_params }) }
 export async function applyCardAIParamsToType(id: number): Promise<any> { return await request.post(`/cards/${id}/ai-params/apply-to-type`, {}) }
-

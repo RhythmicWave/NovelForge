@@ -1,325 +1,26 @@
+"""工作流节点实现
+
+所有工作流节点的具体实现。
+"""
+
 from __future__ import annotations
 
-from typing import Any, Optional, List, Dict, Callable
-import re
+from typing import Any, Optional, List, Dict
 import copy
 from sqlmodel import Session, select
 from pydantic import TypeAdapter, ValidationError
-
-from app.db.models import Card, CardType
 from loguru import logger
 
-
-# ==================== 节点注册机制 ====================
-# 使用装饰器自动注册工作流节点，避免手动维护映射表
-
-_NODE_REGISTRY: Dict[str, Callable] = {}
-
-
-def register_node(node_type: str):
-    """
-    装饰器：自动注册工作流节点
-    
-    用法:
-        @register_node("Card.Read")
-        def node_card_read(session, state, params):
-            ...
-    """
-    def decorator(func: Callable):
-        _NODE_REGISTRY[node_type] = func
-        logger.debug(f"[节点注册] {node_type} -> {func.__name__}")
-        return func
-    return decorator
-
-
-def get_registered_nodes() -> Dict[str, Callable]:
-    """获取所有已注册的节点"""
-    return _NODE_REGISTRY.copy()
-
-
-def get_node_types() -> List[str]:
-    """获取所有已注册的节点类型名称"""
-    return list(_NODE_REGISTRY.keys())
-
-
-# ======================================================
-
-
-def _parse_schema_fields(schema: dict, path: str = "$.content", max_depth: int = 5) -> List[dict]:
-    """
-    解析JSON Schema字段结构，支持嵌套对象和引用
-    返回字段列表，每个字段包含: name, type, path, children(可选)
-    """
-    if max_depth <= 0:
-        return []
-    
-    fields = []
-    try:
-        # 获取$defs用于解析引用
-        defs = schema.get("$defs", {})
-        
-        properties = schema.get("properties", {})
-        if not isinstance(properties, dict):
-            return fields
-            
-        for field_name, field_schema in properties.items():
-            if not isinstance(field_schema, dict):
-                continue
-            
-            # 解析引用
-            resolved_schema = _resolve_schema_ref(field_schema, defs)
-            
-            field_type = resolved_schema.get("type", "unknown")
-            field_title = resolved_schema.get("title", field_name)
-            field_description = resolved_schema.get("description", "")
-            field_path = f"{path}.{field_name}"
-            
-            field_info = {
-                "name": field_name,
-                "title": field_title,
-                "type": field_type,
-                "path": field_path,
-                "description": field_description,
-                "required": field_name in schema.get("required", []),
-                "expanded": False
-            }
-            
-            # 处理anyOf类型（可选类型）
-            if "anyOf" in resolved_schema:
-                non_null_schema = None
-                for any_schema in resolved_schema["anyOf"]:
-                    if isinstance(any_schema, dict) and any_schema.get("type") != "null":
-                        non_null_schema = _resolve_schema_ref(any_schema, defs)
-                        break
-                if non_null_schema:
-                    resolved_schema = non_null_schema
-                    field_type = resolved_schema.get("type", "unknown")
-                    field_info["type"] = field_type
-            
-            # 处理嵌套对象
-            if field_type == "object" and "properties" in resolved_schema:
-                children = _parse_schema_fields(resolved_schema, field_path, max_depth - 1)
-                if children:
-                    field_info["children"] = children
-                    field_info["expandable"] = True
-            
-            # 处理数组类型
-            elif field_type == "array" and "items" in resolved_schema:
-                items_schema = resolved_schema["items"]
-                items_resolved = _resolve_schema_ref(items_schema, defs)
-                
-                if items_resolved.get("type") == "object" and "properties" in items_resolved:
-                    children = _parse_schema_fields(items_resolved, f"{field_path}[0]", max_depth - 1)
-                    if children:
-                        field_info["children"] = children
-                        field_info["expandable"] = True
-                        field_info["array_item_type"] = "object"
-                else:
-                    # 简单数组类型
-                    field_info["array_item_type"] = items_resolved.get("type", "unknown")
-            
-            fields.append(field_info)
-            
-    except Exception as e:
-        logger.warning(f"解析Schema字段失败: {e}")
-    
-    return fields
-
-
-def _resolve_schema_ref(schema: dict, defs: dict) -> dict:
-    """解析Schema引用"""
-    if not isinstance(schema, dict):
-        return schema
-    
-    # 处理$ref引用
-    if "$ref" in schema:
-        ref_path = schema["$ref"]
-        if ref_path.startswith("#/$defs/"):
-            ref_name = ref_path.replace("#/$defs/", "")
-            if ref_name in defs:
-                resolved = defs[ref_name]
-                # 保留原schema的title和description
-                if "title" in schema:
-                    resolved = {**resolved, "title": schema["title"]}
-                if "description" in schema:
-                    resolved = {**resolved, "description": schema["description"]}
-                return resolved
-    
-    return schema
-
-
-def _get_card_by_id(session: Session, card_id: int) -> Optional[Card]:
-    try:
-        return session.get(Card, int(card_id))
-    except Exception:
-        return None
-
-
-def _get_by_path(obj: Any, path: str) -> Any:
-    # 极简路径解析：支持 $.content.a.b.c 与 $.a.b
-    if not path or not isinstance(path, str):
-        return None
-    if not path.startswith("$."):
-        return None
-    parts = path[2:].split(".")
-    # 处理根 '$'：若 obj 为 {"$": base} 则先取出 base
-    if isinstance(obj, dict) and "$" in obj:
-        cur: Any = obj.get("$")
-    else:
-        cur = obj
-    for p in parts:
-        if isinstance(cur, dict):
-            cur = cur.get(p)
-        else:
-            try:
-                cur = getattr(cur, p)
-            except Exception:
-                return None
-    return cur
-
-
-def _set_by_path(obj: Dict[str, Any], path: str, value: Any) -> bool:
-    """按JSONPath设置值
-    
-    Args:
-        obj: 目标对象
-        path: JSONPath路径（必须以$.开头）
-        value: 要设置的值
-    
-    Returns:
-        bool: 是否设置成功
-    """
-    if not isinstance(obj, dict) or not isinstance(path, str) or not path.startswith("$."):
-        return False
-    
-    parts = path[2:].split(".")
-    cur: Dict[str, Any] = obj
-    
-    # 遍历到倒数第二层，确保路径存在
-    for p in parts[:-1]:
-        if p not in cur or not isinstance(cur[p], dict):
-            cur[p] = {}
-        cur = cur[p]  # type: ignore[assignment]
-    
-    # 设置最后一层的值
-    cur[parts[-1]] = value
-    return True
-
-
-_TPL_PATTERN = re.compile(r"\{([^{}]+)\}")
-
-
-def _resolve_expr(expr: str, state: dict) -> Any:
-    expr = expr.strip()
-    # index（循环序号，从 1 开始）
-    if expr == "index":
-        return (state.get("item") or {}).get("index")
-    # item.xxx
-    if expr.startswith("item."):
-        item = state.get("item") or {}
-        return _get_by_path({"item": item}, "$." + expr)
-    # current.xxx / current.card.xxx
-    if expr.startswith("current."):
-        cur = state.get("current") or {}
-        return _get_by_path({"current": cur}, "$." + expr)
-    # scope.xxx
-    if expr.startswith("scope."):
-        scope = state.get("scope") or {}
-        return _get_by_path({"scope": scope}, "$." + expr)
-    # $.content.xxx 针对当前 card
-    if expr.startswith("$."):
-        card = (state.get("current") or {}).get("card") or state.get("card")
-        base = {"content": getattr(card, "content", {})} if card else {}
-        return _get_by_path({"$": base}, expr)
-    return None
-
-
-def _to_name(x: Any) -> str:
-    if x is None:
-        return ""
-    if isinstance(x, str):
-        return x.strip()
-    if isinstance(x, dict):
-        for key in ("name", "title", "label", "content"):
-            v = x.get(key)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            if isinstance(v, dict):
-                nn = v.get("name") or v.get("title")
-                if isinstance(nn, str) and nn.strip():
-                    return nn.strip()
-    return str(x).strip()
-
-
-def _to_name_list(seq: Any) -> List[str]:
-    if not isinstance(seq, list):
-        return []
-    out: List[str] = []
-    for it in seq:
-        name = _to_name(it)
-        if name:
-            out.append(name)
-    # 去重保持顺序
-    seen = set()
-    unique: List[str] = []
-    for n in out:
-        if n not in seen:
-            unique.append(n)
-            seen.add(n)
-    return unique
-
-
-def _render_value(val: Any, state: dict) -> Any:
-    """
-    模板渲染：
-    - 字符串：{item.xxx} / {current.card.content.xxx} / {scope.xxx} / {index} / {$.content.xxx}
-    - 对象：支持 {"$toNameList": "item.entity_list"} 快捷转换
-    - 列表/对象：递归渲染
-    """
-    if isinstance(val, dict):
-        if "$toNameList" in val and isinstance(val.get("$toNameList"), str):
-            seq = _resolve_expr(val["$toNameList"], state)
-            return _to_name_list(seq)
-        return {k: _render_value(v, state) for k, v in val.items()}
-    if isinstance(val, list):
-        return [_render_value(v, state) for v in val]
-    if isinstance(val, str):
-        # 单一表达式直接返回原类型
-        m = _TPL_PATTERN.fullmatch(val.strip())
-        if m:
-            resolved = _resolve_expr(m.group(1), state)
-            return resolved
-        # 内嵌模板，最终还是字符串
-        def repl(match: re.Match) -> str:
-            expr = match.group(1)
-            res = _resolve_expr(expr, state)
-            if isinstance(res, (dict, list)):
-                return str(res)
-            return "" if res is None else str(res)
-        return _TPL_PATTERN.sub(repl, val)
-    return val
-
-
-def _get_from_state(path_expr: Any, state: dict) -> Any:
-    # 兼容 path 字符串（$. / $item(. ) / $current(. ) / $scope(. ) / item. / scope. / current.）或直接值
-    if isinstance(path_expr, str):
-        p = path_expr.strip()
-        if p in ("item", "$item"):
-            return state.get("item")
-        if p in ("current", "$current"):
-            return state.get("current")
-        if p in ("scope", "$scope"):
-            return state.get("scope")
-        # 统一映射到 _resolve_expr 可识别形式
-        if p.startswith("$item."):
-            return _resolve_expr("item." + p[len("$item."):], state)
-        if p.startswith("$current."):
-            return _resolve_expr("current." + p[len("$current."):], state)
-        if p.startswith("$scope."):
-            return _resolve_expr("scope." + p[len("$scope."):], state)
-        if p.startswith(("item.", "current.", "scope.", "$.")):
-            return _resolve_expr(p, state)
-    return path_expr
+from app.db.models import Card, CardType
+from .registry import register_node
+from .utils import (
+    parse_schema_fields,
+    get_card_by_id,
+    get_by_path,
+    set_by_path,
+    render_value,
+    get_from_state,
+)
 
 
 @register_node("Card.Read")
@@ -338,10 +39,10 @@ def node_card_read(session: Session, state: dict, params: dict) -> dict:
         scope = state.get("scope") or {}
         card_id = scope.get("card_id")
         if card_id:
-            card = _get_card_by_id(session, card_id)
+            card = get_card_by_id(session, card_id)
     else:
         try:
-            card = _get_card_by_id(session, int(target))
+            card = get_card_by_id(session, int(target))
         except Exception:
             card = None
     
@@ -361,7 +62,7 @@ def node_card_read(session: Session, state: dict, params: dict) -> dict:
                 "schema": card_type.json_schema
             }
             # 解析字段结构
-            field_structure = _parse_schema_fields(card_type.json_schema)
+            field_structure = parse_schema_fields(card_type.json_schema)
     
     state["card"] = card
     state["current"] = {
@@ -370,7 +71,7 @@ def node_card_read(session: Session, state: dict, params: dict) -> dict:
         "field_structure": field_structure
     }
     
-    logger.info(f"[节点] 读取卡片 card_id={card.id} title={card.title} type={type_name}")
+    # logger.info(f"[节点] 读取卡片 card_id={card.id} title={card.title} type={type_name}")
     return {
         "card": card,
         "card_type_info": card_type_info,
@@ -405,7 +106,7 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
             norm_path = "$.content." + norm_path
         
         value_expr = params.get("setValue")
-        value = _get_from_state(value_expr, state)
+        value = get_from_state(value_expr, state)
         
         # 使用深拷贝避免修改原始对象
         base = copy.deepcopy(dict(card.content or {}))
@@ -417,14 +118,14 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
             content_path = norm_path
         
         # 设置值
-        _set_by_path(base, content_path, value)
+        set_by_path(base, content_path, value)
         
         # 保存
         card.content = base
         session.add(card)
         session.commit()
         session.refresh(card)
-        logger.info(f"[节点] 按路径设置内容 card_id={card.id} path={set_path} value={value}")
+        # logger.info(f"[节点] 按路径设置内容 card_id={card.id} path={set_path} value={value}")
         # 标记受影响卡片
         try:
             touched: set = state.setdefault("touched_card_ids", set())  # type: ignore[assignment]
@@ -437,7 +138,7 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
 
     # 默认走合并
     content_merge = params.get("contentMerge") or {}
-    content_merge = _render_value(content_merge, state)
+    content_merge = render_value(content_merge, state)
     if not isinstance(content_merge, dict):
         raise ValueError("contentMerge 需为对象")
     
@@ -456,7 +157,7 @@ def node_card_modify_content(session: Session, state: dict, params: dict) -> dic
         pass
     state["card"] = card
     state["current"] = {"card": card}
-    logger.info(f"[节点] 修改卡片内容完成 card_id={card.id} 合并键={list(content_merge.keys())}")
+    # logger.info(f"[节点] 修改卡片内容完成 card_id={card.id} 合并键={list(content_merge.keys())}")
     return {"card": card}
 
 
@@ -496,10 +197,10 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
     if not raw_title:
         title_path = params.get("titlePath")
         if isinstance(title_path, str) and title_path:
-            resolved_title = _get_from_state(title_path, state)
+            resolved_title = get_from_state(title_path, state)
             if isinstance(resolved_title, (str, int, float)):
                 raw_title = str(resolved_title)
-    title = _render_value(raw_title, state) if isinstance(raw_title, str) else raw_title
+    title = render_value(raw_title, state) if isinstance(raw_title, str) else raw_title
     if not isinstance(title, str) or not title.strip():
         title = ct.name or "未命名"
 
@@ -520,7 +221,7 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
             project_id = int(scope.get("project_id"))
         target_parent_id = None
     else:
-        p = _get_card_by_id(session, int(parent_spec))
+        p = get_card_by_id(session, int(parent_spec))
         if not p:
             raise ValueError(f"未找到 parent 卡片: {parent_spec}")
         target_parent_id = p.id
@@ -547,20 +248,20 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
         # 以当前 item 为基础，必要时再合并 contentMerge 进行字段覆盖
         content: Any = dict(item)
         if content_merge is not None:
-            cm = _render_value(content_merge or {}, state)
+            cm = render_value(content_merge or {}, state)
             if isinstance(cm, dict):
                 content.update(cm)
     else:
         if content_template is not None:
-            content = _render_value(content_template, state)
+            content = render_value(content_template, state)
             if not isinstance(content, dict):
                 content = {"value": content}
         elif content_path:
-            resolved = _get_from_state(content_path, state)
+            resolved = get_from_state(content_path, state)
             content = resolved if isinstance(resolved, dict) else {"value": resolved}
         else:
             base = dict(target.content) if target else {}
-            cm = _render_value(content_merge or {}, state)
+            cm = render_value(content_merge or {}, state)
             content = {**base, **(cm or {})}
 
     if target:
@@ -569,7 +270,7 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
         session.commit()
         session.refresh(target)
         result = target
-        logger.info(f"[节点] 更新子卡完成 parent_id={target_parent_id} title={title} card_id={target.id}")
+        logger.info(f"[节点] 更新子卡 parent_id={target_parent_id} title={title} card_id={target.id}")
     else:
         new_card = Card(
             title=title,
@@ -587,7 +288,7 @@ def node_card_upsert_child_by_title(session: Session, state: dict, params: dict)
         session.commit()
         session.refresh(new_card)
         result = new_card
-        logger.info(f"[节点] 创建子卡完成 parent_id={target_parent_id} title={title} card_id={new_card.id}")
+        logger.info(f"[节点] 创建子卡 parent_id={target_parent_id} title={title} card_id={new_card.id}")
 
     state["last_child"] = result
     state["current"] = {"card": result}
@@ -614,30 +315,30 @@ def node_list_foreach(session: Session, state: dict, params: dict, run_body):
     seq: Any = None
     if not isinstance(list_path, str) or not list_path:
         raw = params.get("list")
-        logger.info(f"[节点] List.ForEach 原始 list 参数 type={type(raw).__name__} value={raw!r}")
+        # logger.info(f"[节点] List.ForEach 原始 list 参数 type={type(raw).__name__} value={raw!r}")
         if isinstance(raw, list):
             seq = raw
         elif isinstance(raw, dict):
             # 支持 { path: '$.content.xxx' }
             cand = raw.get("path") or raw.get("listPath")
             if isinstance(cand, str) and cand:
-                seq = _get_from_state(cand, state)
+                seq = get_from_state(cand, state)
         elif isinstance(raw, str) and raw:
-            seq = _get_from_state(raw.strip(), state)
+            seq = get_from_state(raw.strip(), state)
     if seq is None:
         if not isinstance(list_path, str) or not list_path:
             logger.warning("[节点] List.ForEach 缺少 listPath")
             return
         card = state.get("card") or (state.get("current") or {}).get("card")
         base = {"content": getattr(card, "content", {})} if card else {}
-        seq = _get_by_path({"$": base}, list_path) or []
+        seq = get_by_path({"$": base}, list_path) or []
     if not isinstance(seq, list):
         logger.warning(f"[节点] List.ForEach 取值非列表 path={list_path}")
         return
-    logger.info(f"[节点] List.ForEach 解析完成，长度={len(seq)}")
+    # logger.info(f"[节点] List.ForEach 解析完成，长度={len(seq)}")
     for idx, it in enumerate(seq, start=1):
         state["item"] = {"index": idx, **(it if isinstance(it, dict) else {"value": it})}
-        logger.info(f"[节点] List.ForEach index={idx}")
+        # logger.info(f"[节点] List.ForEach index={idx}")
         run_body()
 
 
@@ -655,20 +356,20 @@ def node_list_foreach_range(session: Session, state: dict, params: dict, run_bod
         return
     card = state.get("card") or (state.get("current") or {}).get("card")
     base = {"content": getattr(card, "content", {})} if card else {}
-    count_val = _get_by_path({"$": base}, count_path) or 0
+    count_val = get_by_path({"$": base}, count_path) or 0
     try:
         n = int(count_val)
     except Exception:
         n = 0
     
     if n <= 0:
-        logger.info(f"[节点] List.ForEachRange 计数为 {n}，跳过循环")
+        # logger.info(f"[节点] List.ForEachRange 计数为 {n}，跳过循环")
         return
     
     start = int(params.get("start", 1) or 1)
     for i in range(start, start + n):
         state["item"] = {"index": i}
-        logger.info(f"[节点] List.ForEachRange index={i} (共{n}次)")
+        # logger.info(f"[节点] List.ForEachRange index={i} (共{n}次)")
         run_body()
 
 
@@ -692,7 +393,7 @@ def node_card_clear_fields(session: Session, state: Dict[str, Any], params: Dict
         logger.warning(f"[Card.ClearFields] 无效的目标卡片: {target}")
         return
         
-    card = _get_card_by_id(session, target_id)
+    card = get_card_by_id(session, target_id)
     if not card:
         logger.warning(f"[Card.ClearFields] 卡片不存在: {target_id}")
         return
@@ -707,7 +408,7 @@ def node_card_clear_fields(session: Session, state: Dict[str, Any], params: Dict
     # 清空指定字段
     for field_path in fields:
         if isinstance(field_path, str) and field_path.startswith("$."):
-            _set_by_path({"$": content}, field_path, None)
+            set_by_path({"$": content}, field_path, None)
     
     card.content = content
     session.add(card)
@@ -751,7 +452,7 @@ def node_card_replace_field_text(session: Session, state: Dict[str, Any], params
         return {"success": False, "error": "缺少 old_text 参数"}
     
     # 获取卡片
-    card = _get_card_by_id(session, int(card_id))
+    card = get_card_by_id(session, int(card_id))
     if not card:
         return {"success": False, "error": f"卡片 {card_id} 不存在"}
     

@@ -17,7 +17,7 @@ from app.schemas.workflow import (
     WorkflowTriggerRead,
 )
 from app.services.workflow_engine import engine as wf_engine
-from app.services.nodes import get_node_types
+from app.services.workflow import get_node_types
 
 
 router = APIRouter()
