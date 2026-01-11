@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <title>Novel Forge</title>
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <!--
+      注意：实际生效的 CSP 在 vite.config.web.ts 中由 html-transform 插件统一覆盖。
+      这里保持与其一致，放宽 connect-src 以便局域网 / 服务器部署时访问任意后端主机。
+    -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src * https://api.github.com; img-src 'self' data:"
