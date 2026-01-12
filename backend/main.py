@@ -23,7 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.api.router import api_router
-from app.core import startup, shutdown, settings
+from app.core import settings
+from app.core.startup import startup, shutdown
 
 
 # 使用 lifespan 事件处理器

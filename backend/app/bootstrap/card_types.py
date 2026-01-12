@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from loguru import logger
 
 from app.db.models import CardType, LLMConfig
-from app.api.endpoints.ai import RESPONSE_MODEL_MAP
+from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from .registry import initializer
 
 

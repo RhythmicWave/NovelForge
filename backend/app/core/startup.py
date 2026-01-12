@@ -6,15 +6,17 @@
 from sqlmodel import Session
 from loguru import logger
 
+from app.db.models import SQLModel
+from app.db.session import engine
+from app.bootstrap.registry import discover_and_run_initializers
+from app.core.events import discover_event_handlers
+from app.services.workflow.registry import discover_workflow_nodes
 
 def init_database():
     """初始化数据库表结构
     
     开发阶段可用；生产环境建议通过 Alembic 迁移。
     """
-    from app.db.models import SQLModel
-    from app.db.session import engine
-    
     logger.info("[启动] 初始化数据库表结构...")
     SQLModel.metadata.create_all(engine)
     logger.info("[启动] 数据库表结构初始化完成")
@@ -26,9 +28,6 @@ def init_application_data():
     自动发现并执行所有已注册的初始化器。
     初始化器通过 @initializer 装饰器注册，按 order 顺序执行。
     """
-    from app.db.session import engine
-    from app.bootstrap.registry import discover_and_run_initializers
-    
     logger.info("[启动] 初始化应用数据...")
     
     with Session(engine) as session:
@@ -43,8 +42,6 @@ def register_event_handlers():
     
     自动发现并导入所有事件处理器模块以触发@on_event装饰器。
     """
-    from app.core.events import discover_event_handlers
-    
     logger.info("[启动] 注册事件处理器...")
     discover_event_handlers()
     logger.info("[启动] 事件处理器注册完成")
@@ -55,8 +52,6 @@ def register_workflow_nodes():
     
     自动发现并导入所有工作流节点模块以触发@register_node装饰器。
     """
-    from app.services.workflow.registry import discover_workflow_nodes
-    
     logger.info("[启动] 注册工作流节点...")
     discover_workflow_nodes()
     logger.info("[启动] 工作流节点注册完成")
