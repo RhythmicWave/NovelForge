@@ -9,8 +9,9 @@
       :can-save="isDirty && !isSaving"
       :last-saved-at="lastSavedAt"
       :is-chapter-content="!!activeContentEditor"
+      :needs-confirmation="props.card.needs_confirmation"
       @save="handleSave"
-      @generate="handleGenerate"
+      @generate="handleGenerateClick"
       @open-context="openDrawer = true"
       @delete="handleDelete"
       @open-versions="showVersions = true"
@@ -82,6 +83,25 @@
     />
 
     <SchemaStudio v-model:visible="schemaStudioVisible" :mode="'card'" :target-id="props.card.id" :context-title="props.card.title" @saved="onSchemaSaved" />
+
+    <!-- 初始提示对话框 -->
+    <InitialPromptDialog
+      v-model:visible="showInitialPromptDialog"
+      :card-type-name="props.card.card_type?.name"
+      @confirm="handleStartGeneration"
+      @cancel="showInitialPromptDialog = false"
+    />
+
+    <!-- 生成面板（悬浮窗）-->
+    <GenerationPanel
+      ref="generationPanelRef"
+      :visible="showGenerationPanel"
+      @close="handleCloseGenerationPanel"
+      @pause="handlePauseGeneration"
+      @continue="handleContinueGeneration"
+      @stop="handleStopGeneration"
+      @restart="handleRestartGeneration"
+    />
   </div>
 </template>
 
@@ -113,6 +133,12 @@ import SchemaStudio from '../shared/SchemaStudio.vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 // 移除 AssistantSidebar 相关导入与逻辑
 import { resolveTemplate } from '@renderer/services/contextResolver'
+// 指令流生成相关导入
+import GenerationPanel from '../generation/GenerationPanel.vue'
+import InitialPromptDialog from '../generation/InitialPromptDialog.vue'
+import { InstructionExecutor } from '@renderer/services/instructionExecutor'
+import { generateWithInstructionStream } from '@renderer/api/generation'
+import type { Instruction, ConversationMessage } from '@renderer/types/instruction'
 
 const props = defineProps<{ 
   card: CardRead
@@ -135,6 +161,14 @@ const assistantVisible = ref(false)
 const assistantResolvedContext = ref<string>('')
 const assistantEffectiveSchema = ref<any>(null)
 const prefetchedContext = ref<any>(null)
+
+// 指令流生成相关状态
+const showInitialPromptDialog = ref(false)
+const showGenerationPanel = ref(false)
+const generationPanelRef = ref<InstanceType<typeof GenerationPanel>>()
+const instructionExecutor = ref<InstructionExecutor | null>(null)
+const currentAbortController = ref<AbortController | null>(null)
+const conversationHistory = ref<ConversationMessage[]>([])
 
 // --- 内容编辑器动态映射 ---
 // 类似 CardEditorHost 的 editorMap，但这里是内容编辑器（共享外壳）
@@ -567,6 +601,7 @@ async function handleSave() {
       title: titleProxy.value,
       content: cloneDeep(localData.value),
       ai_context_template: localAiContextTemplate.value,
+      needs_confirmation: false,  // 清除 AI 修改标记，触发工作流
     }
     await cardStore.modifyCard(props.card.id, updatePayload)
     try {
@@ -595,6 +630,264 @@ async function handleDelete() {
   } catch (e) {
   }
 }
+
+// ==================== 指令流生成相关方法 ====================
+
+/**
+ * 点击生成按钮时触发
+ */
+function handleGenerateClick() {
+  // 显示初始提示对话框
+  showInitialPromptDialog.value = true
+}
+
+/**
+ * 开始生成（用户确认初始提示后）
+ */
+async function handleStartGeneration(userPrompt: string, useExistingContent: boolean) {
+  const p = perCardStore.getByCardId(props.card.id) || editingParams.value
+  if (!p?.llm_config_id) {
+    ElMessage.error('请先设置有效的模型ID')
+    return
+  }
+
+  try {
+    // 1. 获取有效 Schema
+    const { getCardSchema } = await import('@renderer/api/setting')
+    const resp = await getCardSchema(props.card.id)
+    const effective = resp?.effective_schema || resp?.json_schema
+    if (!effective) {
+      ElMessage.error('未找到此卡片的结构（Schema）。')
+      return
+    }
+
+    // 2. 解析上下文
+    const editingContent = wrapperName.value ? innerData.value : localData.value
+    const currentCardForResolve = { ...props.card, content: editingContent }
+    const resolvedContext = resolveTemplate({
+      template: localAiContextTemplate.value,
+      cards: cards.value,
+      currentCard: currentCardForResolve as any
+    })
+
+    // 3. 初始化指令执行器（根据选项决定是否使用现有内容）
+    const initialData = useExistingContent ? (editingContent || {}) : {}
+    instructionExecutor.value = new InstructionExecutor(initialData)
+
+    // 4. 重置对话历史
+    conversationHistory.value = []
+
+    // 5. 显示生成面板并重置状态
+    showGenerationPanel.value = true
+    await nextTick()
+    
+    // 重置面板状态（清空消息）
+    if (generationPanelRef.value) {
+      generationPanelRef.value.reset()
+    }
+
+    // 6. 显示用户要求（如果有）
+    if (userPrompt && generationPanelRef.value) {
+      generationPanelRef.value.addMessage('user', userPrompt)
+    }
+
+    // 7. 开始生成
+    if (generationPanelRef.value) {
+      generationPanelRef.value.startGeneration()
+    }
+
+    // 8. 调用生成 API
+    await performGeneration(userPrompt, effective, resolvedContext, p, useExistingContent)
+  } catch (e) {
+    console.error('启动生成失败:', e)
+    ElMessage.error('启动生成失败')
+  }
+}
+
+/**
+ * 执行生成
+ */
+async function performGeneration(
+  userPrompt: string,
+  schema: any,
+  contextInfo: string,
+  params: PerCardAIParams,
+  useExistingContent: boolean
+) {
+  // 创建 AbortController
+  currentAbortController.value = new AbortController()
+
+  try {
+    await generateWithInstructionStream(
+      {
+        llm_config_id: params.llm_config_id!,
+        user_prompt: userPrompt,
+        response_model_schema: schema,
+        // 根据选项决定是否传递现有内容
+        current_data: useExistingContent ? (instructionExecutor.value?.getData() || {}) : {},
+        conversation_context: conversationHistory.value,
+        context_info: contextInfo,
+        prompt_template: params.prompt_name,
+        temperature: params.temperature,
+        max_tokens: params.max_tokens,
+        timeout: params.timeout
+      },
+      {
+        onThinking: (text) => {
+          generationPanelRef.value?.addMessage('thinking', text)
+        },
+        onInstruction: (instruction: Instruction) => {
+          // 执行指令
+          instructionExecutor.value?.execute(instruction)
+
+          // 更新 UI
+          const data = instructionExecutor.value?.getData()
+          if (data) {
+            if (wrapperName.value) {
+              innerData.value = data
+            } else {
+              localData.value = data
+            }
+          }
+
+          // 显示指令执行消息
+          const actionText = formatInstructionAction(instruction)
+          generationPanelRef.value?.addMessage('action', actionText)
+          generationPanelRef.value?.incrementCompletedFields()
+        },
+        onWarning: (text) => {
+          generationPanelRef.value?.addMessage('warning', text)
+        },
+        onError: (text) => {
+          generationPanelRef.value?.addMessage('error', text)
+          generationPanelRef.value?.finishGeneration(false, text)
+        },
+        onDone: (success, message) => {
+          generationPanelRef.value?.finishGeneration(success, message)
+          if (success) {
+            ElMessage.success('生成完成！')
+          }
+        }
+      },
+      currentAbortController.value.signal
+    )
+  } catch (error: any) {
+    if (error.name !== 'AbortError') {
+      console.error('生成失败:', error)
+      generationPanelRef.value?.addMessage('error', error.message || '生成失败')
+      generationPanelRef.value?.finishGeneration(false)
+    }
+  }
+}
+
+/**
+ * 格式化指令为可读文本
+ */
+function formatInstructionAction(instruction: Instruction): string {
+  if (instruction.op === 'set') {
+    const path = instruction.path.replace(/^\//, '').replace(/\//g, ' > ')
+    return `设置字段: ${path}`
+  } else if (instruction.op === 'append') {
+    const path = instruction.path.replace(/^\//, '').replace(/\//g, ' > ')
+    return `添加元素到: ${path}`
+  } else if (instruction.op === 'done') {
+    return '生成完成'
+  }
+  return '执行指令'
+}
+
+/**
+ * 关闭生成面板
+ */
+function handleCloseGenerationPanel() {
+  // 中断当前生成
+  if (currentAbortController.value) {
+    currentAbortController.value.abort()
+    currentAbortController.value = null
+  }
+
+  showGenerationPanel.value = false
+  instructionExecutor.value = null
+  conversationHistory.value = []
+}
+
+/**
+ * 暂停生成
+ */
+function handlePauseGeneration() {
+  if (currentAbortController.value) {
+    currentAbortController.value.abort()
+    currentAbortController.value = null
+  }
+}
+
+/**
+ * 继续生成
+ */
+async function handleContinueGeneration(userMessage: string) {
+  // 将用户消息添加到对话历史
+  conversationHistory.value.push({
+    role: 'user',
+    content: userMessage
+  })
+
+  // 获取参数
+  const p = perCardStore.getByCardId(props.card.id) || editingParams.value
+  if (!p?.llm_config_id) {
+    ElMessage.error('请先设置有效的模型ID')
+    return
+  }
+
+  try {
+    // 获取 Schema 和上下文
+    const { getCardSchema } = await import('@renderer/api/setting')
+    const resp = await getCardSchema(props.card.id)
+    const effective = resp?.effective_schema || resp?.json_schema
+    if (!effective) {
+      ElMessage.error('未找到此卡片的结构（Schema）。')
+      return
+    }
+
+    const editingContent = wrapperName.value ? innerData.value : localData.value
+    const currentCardForResolve = { ...props.card, content: editingContent }
+    const resolvedContext = resolveTemplate({
+      template: localAiContextTemplate.value,
+      cards: cards.value,
+      currentCard: currentCardForResolve as any
+    })
+
+    // 继续生成（总是基于现有内容）
+    await performGeneration(userMessage, effective, resolvedContext, p, true)
+  } catch (e) {
+    console.error('继续生成失败:', e)
+    ElMessage.error('继续生成失败')
+  }
+}
+
+/**
+ * 停止生成
+ */
+function handleStopGeneration() {
+  handleCloseGenerationPanel()
+}
+
+/**
+ * 重新开始生成
+ */
+function handleRestartGeneration() {
+  // 重置执行器
+  const editingContent = wrapperName.value ? innerData.value : localData.value
+  instructionExecutor.value = new InstructionExecutor(editingContent || {})
+
+  // 重置对话历史
+  conversationHistory.value = []
+
+  // 显示初始提示对话框
+  showGenerationPanel.value = false
+  showInitialPromptDialog.value = true
+}
+
+// ==================== 原有的生成方法（保留作为备用）====================
 
 async function handleGenerate() {
   const p = perCardStore.getByCardId(props.card.id) || editingParams.value

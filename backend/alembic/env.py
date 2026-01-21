@@ -23,7 +23,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 # Explicitly import all models to ensure they are registered with SQLModel's metadata
 from app.db import models # This helps Alembic detect the models file
-from app.db.models import Project, Chapter, LLMConfig, Prompt, Card, CardType # Volume removed; card-based volumes
+from app.db.models import (
+    Project, LLMConfig, Prompt, Card, CardType,
+    ForeshadowItem, Knowledge, Workflow, WorkflowTrigger, WorkflowRun
+)
 
 # In SQLModel, all models that use `table=True` share the same metadata object
 # which is accessible via SQLModel.metadata.

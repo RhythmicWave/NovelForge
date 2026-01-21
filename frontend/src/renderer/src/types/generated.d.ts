@@ -94,6 +94,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm-configs/get-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 获取模型列表 */
+        post: operations["get_models_endpoint_api_llm_configs_get_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm-configs/test": {
         parameters: {
             query?: never;
@@ -105,7 +122,7 @@ export interface paths {
         put?: never;
         /**
          * 测试 LLM 连接
-         * @description 使用传入参数临时构造一个 Agent 并发起一次最小调用以验证连通性。
+         * @description 使用传入参数临时构造一个 LangChain ChatModel 并发起一次最小调用以验证连通性。
          */
         post: operations["test_llm_connection_endpoint_api_llm_configs_test_post"];
         delete?: never;
@@ -253,6 +270,29 @@ export interface paths {
         get: operations["export_tags_model_api_ai_models_tags_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/generate/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 指令流式生成端点
+         * @description 指令流式生成端点
+         *
+         *     实时返回 LLM 生成的指令流，前端逐条执行并更新 UI。
+         *     支持自动校验和修复，用户可以在生成过程中与 AI 交互。
+         */
+        post: operations["generate_with_instruction_stream_api_ai_generate_stream_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -442,6 +482,32 @@ export interface paths {
         post?: never;
         /** Delete Card */
         delete: operations["delete_card_api_cards__card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/batch-reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Reorder Cards
+         * @description 批量更新卡片排序
+         *
+         *     Args:
+         *         request: 包含要更新的卡片列表，每个卡片包含 card_id, display_order, parent_id
+         *
+         *     Returns:
+         *         更新的卡片数量和成功状态
+         */
+        post: operations["batch_reorder_cards_api_cards_batch_reorder_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -796,6 +862,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflow-node-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow Node Types
+         * @description 获取所有已注册的工作流节点类型
+         */
+        get: operations["get_workflow_node_types_api_workflow_node_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows": {
         parameters: {
             query?: never;
@@ -1071,6 +1157,18 @@ export interface components {
             /** Message */
             message?: string | null;
         };
+        /** ApiResponse[List[str]] */
+        ApiResponse_List_str__: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /** Data */
+            data?: string[] | null;
+            /** Message */
+            message?: string | null;
+        };
         /** ApiResponse[ProjectRead] */
         ApiResponse_ProjectRead_: {
             /**
@@ -1202,6 +1300,26 @@ export interface components {
              * @default true
              */
             stream: boolean;
+            /**
+             * Thinking Enabled
+             * @description 是否启用推理/Thinking 输出（仅部分模型支持）
+             */
+            thinking_enabled?: boolean | null;
+            /**
+             * Context Summarization Enabled
+             * @description 是否启用上下文摘要中间件（对过长对话做摘要压缩）
+             */
+            context_summarization_enabled?: boolean | null;
+            /**
+             * Context Summarization Threshold
+             * @description 触发上下文摘要的 token 阈值
+             */
+            context_summarization_threshold?: number | null;
+            /**
+             * React Mode Enabled
+             * @description 是否启用 React 文本协议工具调用模式
+             */
+            react_mode_enabled?: boolean | null;
         };
         /** CancelResponse */
         CancelResponse: {
@@ -1209,6 +1327,17 @@ export interface components {
             ok: boolean;
             /** Message */
             message?: string | null;
+        };
+        /**
+         * CardBatchReorderRequest
+         * @description 批量更新卡片排序请求
+         */
+        CardBatchReorderRequest: {
+            /**
+             * Updates
+             * @description 要更新的卡片排序列表
+             */
+            updates: components["schemas"]["CardOrderItem"][];
         };
         /** CardCopyOrMoveRequest */
         CardCopyOrMoveRequest: {
@@ -1239,6 +1368,18 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * CardOrderItem
+         * @description 单个卡片的排序信息
+         */
+        CardOrderItem: {
+            /** Card Id */
+            card_id: number;
+            /** Display Order */
+            display_order: number;
+            /** Parent Id */
+            parent_id?: number | null;
         };
         /** CardRead */
         CardRead: {
@@ -1276,6 +1417,18 @@ export interface components {
             card_type: components["schemas"]["CardTypeRead"];
             /** Ai Context Template */
             ai_context_template?: string | null;
+            /**
+             * Ai Modified
+             * @default false
+             */
+            ai_modified: boolean;
+            /**
+             * Needs Confirmation
+             * @default false
+             */
+            needs_confirmation: boolean;
+            /** Last Modified By */
+            last_modified_by?: string | null;
         };
         /** CardTypeCreate */
         CardTypeCreate: {
@@ -1407,6 +1560,8 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+            /** Needs Confirmation */
+            needs_confirmation?: boolean | null;
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -1471,6 +1626,23 @@ export interface components {
         /** ContinuationResponse */
         ContinuationResponse: {
             /** Content */
+            content: string;
+        };
+        /**
+         * ConversationMessage
+         * @description 对话消息
+         */
+        ConversationMessage: {
+            /**
+             * Role
+             * @description 消息角色
+             * @enum {string}
+             */
+            role: "system" | "user" | "assistant";
+            /**
+             * Content
+             * @description 消息内容
+             */
             content: string;
         };
         /** DeletionInfo */
@@ -1675,6 +1847,51 @@ export interface components {
              * @description 依赖注入数据(JSON字符串)，例如实体名称列表等
              */
             deps?: string | null;
+            /**
+             * Exclude Ai Fields
+             * @description 是否过滤标记为 x-ai-exclude 的字段
+             * @default true
+             */
+            exclude_ai_fields: boolean | null;
+        };
+        /**
+         * GenerationConfig
+         * @description 卡片生成配置
+         *
+         *     定义了如何生成卡片内容的策略和提示。
+         */
+        GenerationConfig: {
+            /**
+             * Mode
+             * @description 生成模式，当前仅支持指令流模式
+             * @default instruction_stream
+             * @constant
+             */
+            mode: "instruction_stream";
+            /**
+             * Prompt Template
+             * @description 全局提示词模板（可选）
+             */
+            prompt_template?: string | null;
+            /**
+             * Field Hints
+             * @description 字段级生成提示，键为字段路径，值为提示文本
+             */
+            field_hints?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Field Order
+             * @description 建议的字段生成顺序
+             */
+            field_order?: string[] | null;
+            /**
+             * Custom
+             * @description 自定义配置（扩展用）
+             */
+            custom?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1720,6 +1937,76 @@ export interface components {
         IngestRelationsLLMResponse: {
             /** Written */
             written: number;
+        };
+        /**
+         * InstructionGenerateRequest
+         * @description 指令流生成请求
+         */
+        InstructionGenerateRequest: {
+            /**
+             * Llm Config Id
+             * @description LLM 配置 ID
+             */
+            llm_config_id: number;
+            /**
+             * User Prompt
+             * @description 用户输入的提示词或回复
+             * @default
+             */
+            user_prompt: string;
+            /**
+             * Response Model Schema
+             * @description 目标数据结构的 JSON Schema
+             */
+            response_model_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Current Data
+             * @description 当前已生成的数据
+             */
+            current_data?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Conversation Context
+             * @description 对话历史（前端维护）
+             */
+            conversation_context?: components["schemas"]["ConversationMessage"][];
+            /** @description 生成配置，如果为空则使用默认配置 */
+            generation_config?: components["schemas"]["GenerationConfig"] | null;
+            /**
+             * Prompt Template
+             * @description 自定义提示词模板
+             */
+            prompt_template?: string | null;
+            /**
+             * Context Info
+             * @description 上下文注入信息（如相关实体、已有卡片等）
+             */
+            context_info?: string | null;
+            /**
+             * Temperature
+             * @description 采样温度
+             * @default 0.7
+             */
+            temperature: number | null;
+            /**
+             * Max Tokens
+             * @description 最大生成 token 数
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 超时时间（秒）
+             * @default 150
+             */
+            timeout: number | null;
+            /**
+             * Deps
+             * @description 依赖数据，用于校验
+             */
+            deps?: string | null;
         };
         /** KnowledgeCreate */
         KnowledgeCreate: {
@@ -1886,6 +2173,15 @@ export interface components {
             provider: string;
             /** Model Name */
             model_name: string;
+            /** Api Base */
+            api_base?: string | null;
+            /** Api Key */
+            api_key: string;
+        };
+        /** LLMGetModelsRequest */
+        LLMGetModelsRequest: {
+            /** Provider */
+            provider: string;
             /** Api Base */
             api_base?: string | null;
             /** Api Key */
@@ -2646,6 +2942,39 @@ export interface operations {
             };
         };
     };
+    get_models_endpoint_api_llm_configs_get_models_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMGetModelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_List_str__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_llm_connection_endpoint_api_llm_configs_test_post: {
         parameters: {
             query?: never;
@@ -2886,6 +3215,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tags"];
+                };
+            };
+        };
+    };
+    generate_with_instruction_stream_api_ai_generate_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstructionGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3526,6 +3888,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_reorder_cards_api_cards_batch_reorder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardBatchReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {
@@ -4363,6 +4758,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_node_types_api_workflow_node_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

@@ -25,6 +25,14 @@ from app.core import emit_event
 from app.services.context_service import assemble_context, ContextAssembleParams
 from app.services import llm_config_service as _llm_svc
 
+# 指令流生成相关导入
+from app.services.ai.instruction_validator import validate_instruction, apply_instruction
+from app.services.ai.instruction_generator import generate_instruction_stream
+from app.services.ai.prompt_builder import build_instruction_system_prompt
+from app.schemas.instruction import InstructionGenerateRequest
+from app.schemas.wizard import Tags as _Tags
+from loguru import logger
+
 router = APIRouter()
 
 # 响应模型映射表（内置）
@@ -270,7 +278,80 @@ async def generate_continuation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-from app.schemas.wizard import Tags as _Tags
 @router.get("/models/tags", response_model=_Tags, summary="导出 Tags 模型（用于类型生成）")
 def export_tags_model():
-    return _Tags() 
+    return _Tags()
+
+
+# ==================== 指令流生成端点 ====================
+
+
+@router.post("/generate/stream", summary="指令流式生成端点")
+async def generate_with_instruction_stream(
+    request: InstructionGenerateRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    指令流式生成端点
+    
+    实时返回 LLM 生成的指令流，前端逐条执行并更新 UI。
+    支持自动校验和修复，用户可以在生成过程中与 AI 交互。
+    """
+    async def event_generator():
+        try:
+            # 1. 组装完整 Schema（注入 $defs）
+            full_schema = compose_full_schema(session, request.response_model_schema)
+            
+            # 2. 加载卡片任务提示词（如果提供了名称）
+            card_prompt_content = None
+            if request.prompt_template:
+                from app.services import prompt_service
+                from loguru import logger
+                prompt = prompt_service.get_prompt_by_name(session, request.prompt_template)
+                if prompt and prompt.template:
+                    card_prompt_content = prompt.template
+                    logger.info(f"[卡片生成] 加载提示词模板: {request.prompt_template}, 长度: {len(card_prompt_content)}")
+                else:
+                    logger.warning(f"[卡片生成] 未找到提示词模板: {request.prompt_template}")
+            
+            # 3. 构建 System Prompt（卡片任务 + 指令规范 + Schema）
+            system_prompt = build_instruction_system_prompt(
+                session=session,
+                schema=full_schema,
+                card_prompt=card_prompt_content
+            )
+            
+            # 4. 调用指令流生成服务
+            async for event in generate_instruction_stream(
+                session=session,
+                llm_config_id=request.llm_config_id,
+                user_prompt=request.user_prompt,
+                system_prompt=system_prompt,
+                schema=full_schema,
+                current_data=request.current_data,
+                conversation_context=request.conversation_context,
+                context_info=request.context_info,
+                temperature=request.temperature or 0.7,
+                max_tokens=request.max_tokens,
+                timeout=request.timeout or 150
+            ):
+                # 5. 发送 SSE 事件（格式：data: {json}\n\n）
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        
+        except Exception as e:
+            logger.error(f"指令流生成失败: {e}", exc_info=True)
+            error_event = {
+                "type": "error",
+                "text": f"生成失败: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    ) 

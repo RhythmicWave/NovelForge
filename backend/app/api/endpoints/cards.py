@@ -140,16 +140,43 @@ def get_card(card_id: int, db: Session = Depends(get_session)):
 
 @router.put("/cards/{card_id}", response_model=CardRead)
 def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session), response: Response = None):
+    # 获取更新前的状态
+    old_card = db.get(Card, card_id)
+    was_needs_confirmation = getattr(old_card, 'needs_confirmation', False) if old_card else False
+    
     service = CardService(db)
     db_card = service.update(card_id, card)
     if db_card is None:
         raise HTTPException(status_code=404, detail="Card not found")
+    
+    # 检查是否从"需要确认"状态变为"已确认"状态
+    is_now_confirmed = was_needs_confirmation and not getattr(db_card, 'needs_confirmation', False)
+    
+    # 用户保存时的处理
+    if is_now_confirmed:
+        # 场景1：用户确认了 AI 修改的卡片
+        logger.info(f"✅ 用户确认了 AI 修改的卡片 {card_id}，准备触发工作流")
+        db_card.last_modified_by = "user"
+        db_card.ai_modified = False  # 清除 AI 修改标记
+        db.add(db_card)
+        db.commit()
+        db.refresh(db_card)
+    elif not was_needs_confirmation and getattr(db_card, 'last_modified_by', None) != 'user':
+        # 场景2：用户手动修改卡片（非 AI 创建的，或已确认过的）
+        # 标记为用户修改，但不影响工作流触发
+        db_card.last_modified_by = "user"
+        db.add(db_card)
+        db.commit()
+        db.refresh(db_card)
     
     triggered_run_ids = []
     try:
         event_data = {"session": db, "card": db_card}
         emit_event("card.saved", event_data)
         triggered_run_ids = event_data.get("triggered_run_ids", [])
+        
+        if is_now_confirmed and triggered_run_ids:
+            logger.info(f"🎯 AI修改卡片确认后触发了 {len(triggered_run_ids)} 个工作流")
     except Exception:
         logger.exception("OnSave workflow trigger failed")
     

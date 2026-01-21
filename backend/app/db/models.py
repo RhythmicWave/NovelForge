@@ -123,6 +123,11 @@ class Card(SQLModel, table=True):
     # 用于排序卡片，用于同一父级下的排序
     display_order: int = Field(default=0)
     ai_context_template: Optional[str] = Field(default=None)
+    
+    # AI 修改状态标记
+    ai_modified: bool = Field(default=False)  # 是否由AI修改过
+    needs_confirmation: bool = Field(default=False)  # 是否需要用户确认（用于触发工作流）
+    last_modified_by: Optional[str] = Field(default=None)  # 最后修改者：'user' | 'ai' | None
 
 
 # 伏笔登记表
