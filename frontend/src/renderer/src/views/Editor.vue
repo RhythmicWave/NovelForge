@@ -66,6 +66,7 @@
                     <el-dropdown-item command="delete" divided>删除卡片</el-dropdown-item>
                   </template>
                   <template v-else>
+                    <el-dropdown-item command="create-child-in-group">新建子卡片</el-dropdown-item>
                     <el-dropdown-item command="delete-group" divided>删除该分组下所有卡片</el-dropdown-item>
                   </template>
                 </el-dropdown-menu>
@@ -404,6 +405,7 @@ import { generateAIContent } from '@renderer/api/ai'
               title: `${t}`,
               __isGroup: true,
               __groupType: t,
+              __parentCardId: n.id,  // 保存实际父卡片ID
               children: list.map(x => ({ ...x }))
             })
           } else {
@@ -917,6 +919,9 @@ function getIconByCardType(typeName?: string) {
 function handleContextCommand(command: string, data: any) {
   if (command === 'create-child') {
     openCreateChild(data.id)
+  } else if (command === 'create-child-in-group') {
+    // 分组节点：使用实际父卡片ID，并预设卡片类型
+    openCreateChildInGroup(data.__parentCardId, data.__groupType)
   } else if (command === 'delete') {
     deleteNode(data.id, data.title)
   } else if (command === 'delete-group') {
@@ -953,11 +958,23 @@ async function onCardSchemaSaved() {
   } catch {}
 }
 
-// 打开“新建卡片”对话框并预填父ID
+// 打开"新建卡片"对话框并预填父ID
 function openCreateChild(parentId: number) {
   newCardForm.title = ''
   newCardForm.card_type_id = undefined
   newCardForm.parent_id = parentId as any
+  isCreateCardDialogVisible.value = true
+}
+
+// 打开"新建卡片"对话框（分组节点专用）：预填父ID和卡片类型
+function openCreateChildInGroup(parentId: number, groupType: string) {
+  newCardForm.title = ''
+  newCardForm.parent_id = parentId as any
+  
+  // 根据分组类型名称查找对应的卡片类型ID
+  const cardType = cardStore.cardTypes.find(ct => ct.name === groupType)
+  newCardForm.card_type_id = cardType?.id
+  
   isCreateCardDialogVisible.value = true
 }
 
