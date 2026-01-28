@@ -1,0 +1,127 @@
+{
+  "dsl_version": 1,
+  "name": "世界观",
+  "nodes": [
+    {
+      "id": "trigger_start",
+      "type": "Trigger.CardSaved",
+      "position": {
+        "x": -197,
+        "y": 14
+      },
+      "config": {
+        "card_type": "世界观设定"
+      },
+      "data": {}
+    },
+    {
+      "id": "read",
+      "type": "Card.Read",
+      "label": "读取当前卡片",
+      "position": {
+        "x": 63,
+        "y": 246
+      },
+      "config": {},
+      "data": {
+        "label": "读取当前卡片"
+      }
+    },
+    {
+      "id": "extract_orgs",
+      "type": "Data.ExtractPath",
+      "label": "提取组织列表",
+      "position": {
+        "x": 359,
+        "y": 188
+      },
+      "config": {
+        "path": "content.world_view.social_system.major_power_camps",
+        "default_value": []
+      },
+      "data": {
+        "label": "提取组织列表"
+      }
+    },
+    {
+      "id": "batch_orgs",
+      "type": "Card.BatchUpsert",
+      "label": "同步组织卡片",
+      "position": {
+        "x": 657,
+        "y": 286
+      },
+      "config": {
+        "card_type": "组织卡",
+        "title_template": "{item.name}"
+      },
+      "data": {
+        "label": "同步组织卡片"
+      }
+    },
+    {
+      "id": "clear_list",
+      "type": "Card.Update",
+      "label": "清空来源列表",
+      "position": {
+        "x": 932,
+        "y": 535
+      },
+      "config": {
+        "content_merge": {
+          "world_view": {
+            "social_system": {
+              "major_power_camps": []
+            }
+          }
+        }
+      },
+      "data": {
+        "label": "清空来源列表"
+      },
+      "dependencies": [
+        "batch_orgs"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_tr",
+      "source": "trigger_start",
+      "target": "read",
+      "type": "default"
+    },
+    {
+      "id": "e1",
+      "source": "read",
+      "sourceHandle": "card",
+      "target": "extract_orgs",
+      "targetHandle": "input",
+      "type": "default"
+    },
+    {
+      "id": "e2",
+      "source": "extract_orgs",
+      "sourceHandle": "output",
+      "target": "batch_orgs",
+      "targetHandle": "items",
+      "type": "default"
+    },
+    {
+      "id": "e2_p",
+      "source": "read",
+      "sourceHandle": "card",
+      "target": "batch_orgs",
+      "targetHandle": "parent_id",
+      "type": "default"
+    },
+    {
+      "id": "e3",
+      "source": "read",
+      "sourceHandle": "card",
+      "target": "clear_list",
+      "targetHandle": "card",
+      "type": "default"
+    }
+  ]
+}

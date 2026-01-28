@@ -30,7 +30,7 @@ import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { components } from '@renderer/types/generated'
-import { listWorkflowTriggers, listWorkflows, type WorkflowRead, type WorkflowTriggerRead } from '@renderer/api/workflows'
+import { listWorkflows, type WorkflowRead } from '@renderer/api/workflows'
 
 type Project = components['schemas']['ProjectRead']
 type ProjectCreate = components['schemas']['ProjectCreate']
@@ -63,15 +63,16 @@ const emit = defineEmits(['create', 'update'])
 async function loadInitWorkflows() {
   try {
     loadingWorkflows.value = true
-    // 取所有触发器中过滤 onprojectcreate，再映射到工作流
-    const triggers = await listWorkflowTriggers()
-    const ids = Array.from(new Set(triggers.filter(t=>t.trigger_on==='onprojectcreate').map(t=>t.workflow_id)))
-    if (ids.length) {
-      const all = await listWorkflows()
-      initWorkflows.value = all.filter(w => ids.includes(w.id))
+    const all = await listWorkflows()
+    // Filter workflows that have a 'Trigger.ProjectCreated' node
+    initWorkflows.value = all.filter(w => {
+      const nodes = (w.definition_json?.nodes || []) as any[]
+      return Array.isArray(nodes) && nodes.some((n: any) => n.type === 'Trigger.ProjectCreated')
+    })
+    
+    if (initWorkflows.value.length) {
       selectedWorkflowId.value = initWorkflows.value[0]?.id ?? null
     } else {
-      initWorkflows.value = []
       selectedWorkflowId.value = null
     }
   } finally {

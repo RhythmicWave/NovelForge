@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.schemas.relation_extract import RelationExtraction, CN_TO_EN_KIND
 from app.schemas.entity import Entity
-from app.services.ai import llm_service
+from app.services.ai.core import llm_service
 from pydantic import BaseModel
 # 引入动态信息模型
 from app.schemas.entity import UpdateDynamicInfo, DynamicInfoType, DynamicInfoItem, DeletionInfo

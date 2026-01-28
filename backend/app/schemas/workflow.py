@@ -10,6 +10,7 @@ class WorkflowBase(BaseModel):
     version: Optional[int] = 1
     dsl_version: Optional[int] = 1
     definition_json: Optional[dict] = None
+    keep_run_history: Optional[bool] = False  # Default to False (Transient)
 
 
 class WorkflowCreate(WorkflowBase):
@@ -23,6 +24,7 @@ class WorkflowUpdate(BaseModel):
     version: Optional[int] = None
     dsl_version: Optional[int] = None
     definition_json: Optional[dict] = None
+    keep_run_history: Optional[bool] = None
 
 
 class WorkflowRead(WorkflowBase):
@@ -42,6 +44,7 @@ class WorkflowRunRead(BaseModel):
     idempotency_key: Optional[str] = None
     summary_json: Optional[dict] = None
     error_json: Optional[dict] = None
+    workflow: Optional["WorkflowRead"] = None  # Include basic info
 
     class Config:
         from_attributes = True
@@ -58,31 +61,49 @@ class CancelResponse(BaseModel):
     message: Optional[str] = None
 
 
+class NodeExecutionStatus(BaseModel):
+    """节点执行状态"""
+    node_id: str
+    node_type: str
+    status: str  # idle | pending | running | success | error | skipped
+    progress: int
+    error: Optional[str] = None
 
 
-# ---- Triggers ----
-
-class WorkflowTriggerBase(BaseModel):
+class RunStatus(BaseModel):
+    """工作流运行状态（包含节点状态）"""
+    run_id: int
     workflow_id: int
-    trigger_on: str  # onsave | ongenfinish | manual
-    card_type_name: Optional[str] = None
-    filter_json: Optional[dict] = None
-    is_active: Optional[bool] = True
+    status: str  # idle | pending | running | succeeded | failed | cancelled
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[dict] = None
+    nodes: List[NodeExecutionStatus]
 
 
-class WorkflowTriggerCreate(WorkflowTriggerBase):
-    pass
+# ---- Node Types ----
+
+class NodePortInfo(BaseModel):
+    """节点端口信息"""
+    name: str
+    type: str
+    required: Optional[bool] = None
+    description: Optional[str] = None
 
 
-class WorkflowTriggerUpdate(BaseModel):
-    trigger_on: Optional[str] = None
-    card_type_name: Optional[str] = None
-    filter_json: Optional[dict] = None
-    is_active: Optional[bool] = None
+class NodeTypeInfo(BaseModel):
+    """节点类型信息"""
+    type: str
+    category: str
+    label: str
+    description: str
+    inputs: List[NodePortInfo]
+    outputs: List[NodePortInfo]
+    config_schema: Optional[dict] = None
 
 
-class WorkflowTriggerRead(WorkflowTriggerBase):
-    id: int
+class NodeTypesResponse(BaseModel):
+    """节点类型列表响应"""
+    node_types: List[NodeTypeInfo]
 
-    class Config:
-        from_attributes = True

@@ -8,11 +8,13 @@ import SettingsDialog from './components/common/SettingsDialog.vue'
 import { useAppStore } from './stores/useAppStore'
 import { useProjectStore } from './stores/useProjectStore'
 import { useUpdateStore } from './stores/useUpdateStore'
+import { useWorkflowStatusStore } from './stores/useWorkflowStatusStore'
 import type { components } from '@renderer/types/generated'
 import { schemaService } from './api/schema'
 
 const IdeasHome = defineAsyncComponent(() => import('./views/IdeasHome.vue'))
-const WorkflowStudio = defineAsyncComponent(() => import('./views/WorkflowStudio.vue'))
+const WorkflowEditorV2 = defineAsyncComponent(() => import('./views/workflow/WorkflowEditorV2.vue'))
+const WorkflowStatusBar = defineAsyncComponent(() => import('./components/common/WorkflowStatusBar.vue'))
 
 type Project = components['schemas']['ProjectRead']
 
@@ -60,6 +62,7 @@ async function syncViewFromHash() {
 // 初始化主题和加载全局资源
 onMounted(async () => {
   appStore.initTheme()
+  useWorkflowStatusStore().init()
   schemaService.loadSchemas() // Load all schemas on app startup
   syncViewFromHash()
   window.addEventListener('hashchange', syncViewFromHash)
@@ -91,12 +94,14 @@ onBeforeUnmount(() => {
         @back-to-dashboard="handleBackToDashboard"
       />
       <IdeasHome v-else-if="currentView === 'ideas'" />
-      <WorkflowStudio v-else-if="currentView === 'workflows'" />
+      <WorkflowEditorV2 v-else-if="currentView === 'workflows'" />
     </main>
+
     <SettingsDialog 
       v-model="settingsDialogVisible"
       @close="handleCloseSettings"
     />
+    <WorkflowStatusBar />
   </div>
 </template>
 

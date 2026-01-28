@@ -22,7 +22,7 @@ export const getProjects = (): Promise<ProjectRead[]> => {
 }
 
 export const createProject = (data: ProjectCreate): Promise<ProjectRead> => {
-  return request.post('/projects', data)
+  return request.post('/projects/', data)
 }
 
 export const updateProject = (id: number, data: ProjectUpdate): Promise<void> => {

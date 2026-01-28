@@ -687,8 +687,13 @@ async function handleStartGeneration(userPrompt: string, useExistingContent: boo
     }
 
     // 6. 显示用户要求（如果有）
+    // 必须要要在 reset 之后添加，否则会被 reset 清空
     if (userPrompt && generationPanelRef.value) {
-      generationPanelRef.value.addMessage('user', userPrompt)
+      console.log('Adding user prompt to panel:', userPrompt)
+      // 使用 setTimeout 确保在 reset 的 DOM 更新后执行
+      setTimeout(() => {
+        generationPanelRef.value?.addMessage('user', userPrompt)
+      }, 0)
     }
 
     // 7. 开始生成
@@ -743,11 +748,14 @@ async function performGeneration(
           // 更新 UI
           const data = instructionExecutor.value?.getData()
           if (data) {
-            if (wrapperName.value) {
-              innerData.value = data
-            } else {
-              localData.value = data
-            }
+            import('lodash-es').then(({ cloneDeep }) => {
+              const clonedData = cloneDeep(data)
+              if (wrapperName.value) {
+                innerData.value = clonedData
+              } else {
+                localData.value = clonedData
+              }
+            })
           }
 
           // 显示指令执行消息
@@ -762,10 +770,30 @@ async function performGeneration(
           generationPanelRef.value?.addMessage('error', text)
           generationPanelRef.value?.finishGeneration(false, text)
         },
-        onDone: (success, message) => {
-          generationPanelRef.value?.finishGeneration(success, message)
+        onDone: async (success, message, finalData) => {
           if (success) {
-            ElMessage.success('生成完成！')
+            // 如果后端回传了最终完整数据（包含默认值注入），则合并更新
+            if (finalData) {
+              console.log('Received final data from backend:', finalData)
+              const { mergeWith, isArray } = await import('lodash-es')
+              const arrayOverwrite = (objValue: any, srcValue: any) => {
+                if (isArray(objValue) || isArray(srcValue)) {
+                  return srcValue
+                }
+                return undefined
+              }
+              if (wrapperName.value) {
+                const mergedInner = mergeWith({}, innerData.value || {}, finalData, arrayOverwrite)
+                innerData.value = mergedInner
+              } else {
+                const merged = mergeWith({}, localData.value || {}, finalData, arrayOverwrite)
+                localData.value = merged
+              }
+            }
+            generationPanelRef.value?.finishGeneration(true, message)
+            ElMessage.success(message || '生成完成！')
+          } else {
+            generationPanelRef.value?.finishGeneration(false, message)
           }
         }
       },

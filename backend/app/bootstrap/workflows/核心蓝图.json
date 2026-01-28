@@ -1,0 +1,237 @@
+{
+  "dsl_version": 1,
+  "name": "核心蓝图",
+  "nodes": [
+    {
+      "id": "trigger_start",
+      "type": "Trigger.CardSaved",
+      "position": {
+        "x": -141,
+        "y": -108
+      },
+      "config": {
+        "card_type": "核心蓝图"
+      },
+      "data": {}
+    },
+    {
+      "id": "read_bp",
+      "type": "Card.Read",
+      "label": "读取核心蓝图",
+      "position": {
+        "x": -77,
+        "y": 187
+      },
+      "config": {},
+      "data": {
+        "label": "读取核心蓝图"
+      }
+    },
+    {
+      "id": "gen_volumes",
+      "type": "Data.GenerateRange",
+      "label": "生成分卷列表",
+      "position": {
+        "x": 210,
+        "y": -75
+      },
+      "config": {
+        "start": 1,
+        "count_source": "content.volume_count",
+        "output_field": "index",
+        "extra_fields": {}
+      },
+      "data": {
+        "label": "生成分卷列表"
+      }
+    },
+    {
+      "id": "batch_vols",
+      "type": "Card.BatchUpsert",
+      "label": "批量创建分卷",
+      "position": {
+        "x": 554.7843802599645,
+        "y": -15.970288830160111
+      },
+      "config": {
+        "card_type": "分卷大纲",
+        "title_template": "第{item.index}卷",
+        "content_template": {
+          "volume_number": "{item.index}"
+        },
+        "match_by": "title"
+      },
+      "data": {
+        "label": "批量创建分卷"
+      }
+    },
+    {
+      "id": "extract_chars",
+      "type": "Data.ExtractPath",
+      "label": "提取角色列表",
+      "position": {
+        "x": 288.7090783435287,
+        "y": 240.46290677765137
+      },
+      "config": {
+        "path": "content.character_cards",
+        "default_value": []
+      },
+      "data": {
+        "label": "提取角色列表"
+      }
+    },
+    {
+      "id": "batch_chars",
+      "type": "Card.BatchUpsert",
+      "label": "批量创建角色",
+      "position": {
+        "x": 530.1884619244381,
+        "y": 420.5412991811655
+      },
+      "config": {
+        "card_type": "角色卡",
+        "title_template": "{item.name}",
+        "match_by": "title"
+      },
+      "data": {
+        "label": "批量创建角色"
+      }
+    },
+    {
+      "id": "extract_scenes",
+      "type": "Data.ExtractPath",
+      "label": "提取场景列表",
+      "position": {
+        "x": 257.56273111933996,
+        "y": 601.6958848069831
+      },
+      "config": {
+        "path": "content.scene_cards",
+        "default_value": []
+      },
+      "data": {
+        "label": "提取场景列表"
+      }
+    },
+    {
+      "id": "batch_scenes",
+      "type": "Card.BatchUpsert",
+      "label": "批量创建场景",
+      "position": {
+        "x": 534.9043502308917,
+        "y": 729.9324401823936
+      },
+      "config": {
+        "card_type": "场景卡",
+        "title_template": "{item.name}",
+        "match_by": "title"
+      },
+      "data": {
+        "label": "批量创建场景"
+      }
+    },
+    {
+      "id": "clear_source",
+      "type": "Card.Update",
+      "label": "清空来源列表",
+      "position": {
+        "x": 939.6208263200474,
+        "y": 222.99632173021948
+      },
+      "config": {
+        "content_merge": {
+          "character_cards": [],
+          "scene_cards": []
+        }
+      },
+      "data": {
+        "label": "清空来源列表"
+      },
+      "dependencies": [
+        "batch_chars",
+        "batch_scenes"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_tr",
+      "source": "trigger_start",
+      "target": "read_bp",
+      "type": "default"
+    },
+    {
+      "id": "e_v1",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "gen_volumes",
+      "targetHandle": "input",
+      "type": "default"
+    },
+    {
+      "id": "e_v2",
+      "source": "gen_volumes",
+      "sourceHandle": "output",
+      "target": "batch_vols",
+      "targetHandle": "items",
+      "type": "default"
+    },
+    {
+      "id": "e_c1",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "extract_chars",
+      "targetHandle": "input",
+      "type": "default"
+    },
+    {
+      "id": "e_c2",
+      "source": "extract_chars",
+      "sourceHandle": "output",
+      "target": "batch_chars",
+      "targetHandle": "items",
+      "type": "default"
+    },
+    {
+      "id": "e_c3",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "batch_chars",
+      "targetHandle": "parent_id",
+      "type": "default"
+    },
+    {
+      "id": "e_s1",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "extract_scenes",
+      "targetHandle": "input",
+      "type": "default"
+    },
+    {
+      "id": "e_s2",
+      "source": "extract_scenes",
+      "sourceHandle": "output",
+      "target": "batch_scenes",
+      "targetHandle": "items",
+      "type": "default"
+    },
+    {
+      "id": "e_s3",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "batch_scenes",
+      "targetHandle": "parent_id",
+      "type": "default"
+    },
+    {
+      "id": "e_clear1",
+      "source": "read_bp",
+      "sourceHandle": "card",
+      "target": "clear_source",
+      "targetHandle": "card",
+      "type": "default"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "dsl_version": 1,
+  "name": "项目创建·雪花创作法",
+  "nodes": [
+    {
+      "id": "trigger_start",
+      "type": "Trigger.ProjectCreated",
+      "position": {
+        "x": -152.98132363950188,
+        "y": -89.80291411466496
+      },
+      "config": {},
+      "data": {}
+    },
+    {
+      "id": "create_tags",
+      "type": "Card.Create",
+      "position": {
+        "x": 40,
+        "y": 150
+      },
+      "config": {
+        "card_type": "作品标签",
+        "title": "作品标签"
+      },
+      "data": {}
+    },
+    {
+      "id": "create_power",
+      "type": "Card.Create",
+      "position": {
+        "x": 300,
+        "y": 150
+      },
+      "config": {
+        "card_type": "金手指",
+        "title": "金手指"
+      },
+      "data": {}
+    },
+    {
+      "id": "create_one",
+      "type": "Card.Create",
+      "position": {
+        "x": 560,
+        "y": 150
+      },
+      "config": {
+        "card_type": "一句话梗概",
+        "title": "一句话梗概"
+      },
+      "data": {}
+    },
+    {
+      "id": "create_outline",
+      "type": "Card.Create",
+      "position": {
+        "x": 820,
+        "y": 150
+      },
+      "config": {
+        "card_type": "故事大纲",
+        "title": "故事大纲"
+      },
+      "data": {}
+    },
+    {
+      "id": "create_world",
+      "type": "Card.Create",
+      "position": {
+        "x": 1080,
+        "y": 150
+      },
+      "config": {
+        "card_type": "世界观设定",
+        "title": "世界观设定"
+      },
+      "data": {}
+    },
+    {
+      "id": "create_bp",
+      "type": "Card.Create",
+      "position": {
+        "x": 1340,
+        "y": 150
+      },
+      "config": {
+        "card_type": "核心蓝图",
+        "title": "核心蓝图"
+      },
+      "data": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "trigger_start",
+      "target": "create_tags",
+      "type": "default"
+    },
+    {
+      "id": "e2",
+      "source": "create_tags",
+      "target": "create_power",
+      "type": "default"
+    },
+    {
+      "id": "e3",
+      "source": "create_power",
+      "target": "create_one",
+      "type": "default"
+    },
+    {
+      "id": "e4",
+      "source": "create_one",
+      "target": "create_outline",
+      "type": "default"
+    },
+    {
+      "id": "e5",
+      "source": "create_outline",
+      "target": "create_world",
+      "type": "default"
+    },
+    {
+      "id": "e6",
+      "source": "create_world",
+      "target": "create_bp",
+      "type": "default"
+    }
+  ]
+}

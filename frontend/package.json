@@ -73,6 +73,7 @@
     "openapi-typescript": "^7.8.0",
     "png-to-ico": "^2.1.8",
     "prettier": "^3.5.3",
+    "sass-embedded": "^1.97.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
     "vite": "^6.2.6",

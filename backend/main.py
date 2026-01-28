@@ -32,6 +32,18 @@ from app.core.startup import startup, shutdown
 async def lifespan(app):
     # 启动时执行
     startup()
+    
+    # [Optimize] 启动时清理过期的工作流运行记录
+    try:
+        from app.db.session import engine
+        from sqlmodel import Session
+        from app.services.workflow.cleanup import cleanup_expired_runs
+        
+        with Session(engine) as session:
+            cleanup_expired_runs(session)
+    except Exception as e:
+        print(f"Startup cleanup failed: {e}")
+        
     yield
     # 关闭时执行
     shutdown()
@@ -45,6 +57,10 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan
 )
+
+# 注册工作流 Header 中间件 (在 CORS 之前注册，确保响应头被 CORS 处理)
+from app.core.middleware.workflow import WorkflowHeaderMiddleware
+app.add_middleware(WorkflowHeaderMiddleware)
 
 # 设置CORS中间件
 app.add_middleware(

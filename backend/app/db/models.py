@@ -158,10 +158,25 @@ class Workflow(SQLModel, table=True):
     name: str = Field(index=True)
     description: Optional[str] = None
     version: int = Field(default=1)
-    dsl_version: int = Field(default=1)
+    dsl_version: int = Field(default=2)  # 新版本DSL
     is_built_in: bool = Field(default=False)
     is_active: bool = Field(default=True)
     definition_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    
+    # 版本管理
+    previous_version_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # 上一版本（用于回滚）
+    last_saved_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    last_saved_by: Optional[str] = None  # 预留字段
+    
+    # 工作流模板
+    is_template: bool = Field(default=False)
+    template_category: Optional[str] = None  # 如："内容生成"、"数据处理"
+    
+    # 运行数据保留策略
+    # True: 长期保留（受全局有效期限制）
+    # False: 短期保留（仅用于前端查看结果，之后自动清理）
+    keep_run_history: bool = Field(default=False)
+    
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
@@ -194,13 +209,62 @@ class WorkflowRun(SQLModel, table=True):
     workflow: Workflow = Relationship(back_populates="runs")
 
     definition_version: int = Field(default=1)
-    # queued | running | succeeded | failed | cancelled | partial
+    # queued | running | succeeded | failed | cancelled | paused | timeout
     status: str = Field(default="queued", index=True)
     scope_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     params_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     idempotency_key: Optional[str] = Field(default=None, index=True)
+    
+    # 执行状态
+    state_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # 运行时状态（变量、节点输出等）
+    error_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # 错误信息
+    
+    # 时间控制
+    max_execution_time: Optional[int] = None  # 秒，None表示无限制
+    
+    # 补偿日志（用于回滚）
+    compensation_log: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+    
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     summary_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-    error_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    
+    # Relations
+    node_states: List["NodeExecutionState"] = Relationship(back_populates="run", sa_relationship_kwargs={
+        "cascade": "all, delete-orphan"
+    })
+
+
+class NodeExecutionState(SQLModel, table=True):
+    """节点执行状态表 - 用于详细追踪每个节点的执行情况"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="workflowrun.id", index=True)
+    run: WorkflowRun = Relationship(back_populates="node_states")
+    
+    node_id: str = Field(index=True)  # 节点ID（来自DSL）
+    node_type: str  # 节点类型
+    
+    # 执行状态：idle | pending | running | success | error | skipped
+    status: str = Field(default="idle", index=True)
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    progress: int = Field(default=0)  # 0-100
+    
+    # 输入输出
+    inputs_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    outputs_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    
+    # 错误信息
+    error_message: Optional[str] = None
+    error_details: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    
+    # 日志
+    logs_json: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+    
+    # 重试信息
+    retry_count: int = Field(default=0)
+    max_retries: int = Field(default=0)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)

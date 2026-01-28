@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy.orm import joinedload
 
@@ -245,6 +245,104 @@ class CardService:
         self.db.delete(card)
         self.db.commit()
         return True 
+
+    def replace_field_text(self, card_id: int, field_path: str, old_text: str, new_text: str, fuzzy_match: bool = True) -> Dict[str, Any]:
+        """
+        替换卡片字段中的指定文本片段
+        
+        Args:
+            card_id: 目标卡片ID
+            field_path: 字段路径（如 "content", "overview" 等）
+            old_text: 要被替换的原文片段
+            new_text: 新的文本内容
+            fuzzy_match: 是否启用模糊匹配（支持 "开头...结尾" 格式）
+            
+        Returns:
+            result dict including success, replaced_count, etc.
+        """
+        import copy
+        
+        # 1. 获取卡片
+        card = self.get_by_id(card_id)
+        if not card:
+            return {"success": False, "error": f"卡片 {card_id} 不存在"}
+            
+        # 2. 标准化路径 (自动处理 content. 前缀)
+        normalized_path = field_path
+        if not normalized_path.startswith("content."):
+            normalized_path = f"content.{normalized_path}"
+            
+        # 3. 获取当前值
+        try:
+            current_value = card.content or {}
+            # 逐层访问
+            parts = normalized_path.split(".")[1:] # 跳过 content
+            for part in parts:
+                if isinstance(current_value, dict):
+                    current_value = current_value.get(part, "")
+                else:
+                    return {"success": False, "error": f"字段路径 {normalized_path} 无效: 无法遍历到 {part}"}
+        except Exception as e:
+            return {"success": False, "error": f"获取字段值失败: {str(e)}"}
+            
+        if not isinstance(current_value, str):
+            return {"success": False, "error": f"字段 {field_path} 不是文本类型"}
+            
+        # 4. 匹配逻辑
+        actual_old_text = old_text
+        if fuzzy_match and ("..." in old_text or "……" in old_text):
+            separator = "..." if "..." in old_text else "……"
+            split_parts = old_text.split(separator, 1)
+            if len(split_parts) == 2:
+                start_text = split_parts[0].strip()
+                end_text = split_parts[1].strip()
+                
+                # 查找范围
+                start_idx = current_value.find(start_text)
+                if start_idx == -1:
+                    return {"success": False, "error": "未找到开头文本", "hint": f"开头: {start_text[:20]}..."}
+                
+                end_search_start = start_idx + len(start_text)
+                end_idx = current_value.find(end_text, end_search_start)
+                if end_idx == -1:
+                    return {"success": False, "error": "未找到结尾文本", "hint": f"结尾: ...{end_text[-20:]}"}
+                
+                actual_old_text = current_value[start_idx:end_idx + len(end_text)]
+            else:
+                 return {"success": False, "error": "模糊匹配格式错误"}
+        
+        if actual_old_text not in current_value:
+             return {"success": False, "error": "未找到指定的原文片段"}
+             
+        # 5. 执行替换
+        replaced_count = current_value.count(actual_old_text)
+        updated_value = current_value.replace(actual_old_text, new_text)
+        
+        # 6. 更新并保存
+        new_content = copy.deepcopy(card.content or {})
+        target = new_content
+        # 导航到父级
+        parts = normalized_path.split(".")[1:]
+        for part in parts[:-1]:
+            if part not in target:
+                 target[part] = {}
+            target = target[part]
+        
+        target[parts[-1]] = updated_value
+        
+        card.content = new_content
+        self.db.add(card)
+        self.db.commit()
+        self.db.refresh(card)
+        
+        return {
+            "success": True,
+            "card_id": card.id,
+            "card_title": card.title,
+            "replaced_count": replaced_count,
+            "old_length": len(current_value),
+            "new_length": len(updated_value)
+        }
 
     # ---- 移动与复制 ----
     def move_card(self, card_id: int, target_project_id: int, parent_id: Optional[int] = None) -> Optional[Card]:

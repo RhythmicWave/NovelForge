@@ -81,7 +81,7 @@ class CharacterCardCore(Entity):
 class CharacterCard(CharacterCardCore):
     """完整角色卡。"""
     # 固定实体类型标记
-    entity_type: EntityType = Field('character', description="实体类型标记。")
+    entity_type: EntityType = Field(description="实体类型标记。")
     personality: str = Field(description="性格关键词，如'谨慎'、'幽默'。")
     core_drive: str = Field(description="核心驱动力/目标。")
     character_arc: str = Field(description="一段话简要描述角色在全书的弧光/阶段变化。")

@@ -1,5 +1,5 @@
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlmodel import Session, select
 
 from app.db.models import Project, Workflow
@@ -37,34 +37,34 @@ def get_project(session: Session, project_id: int) -> Optional[Project]:
 
 
 
-def create_project(session: Session, project_in: ProjectCreate) -> Project:
+from typing import List, Optional, Tuple
+
+def create_project(session: Session, project_in: ProjectCreate) -> Tuple[Project, List[int]]:
     db_project = Project.model_validate(project_in)
     session.add(db_project)
     session.commit()
     session.refresh(db_project)
     
-    # 如果传入的是 workflow_id，则直接运行该工作流
-    workflow_id = getattr(project_in, 'workflow_id', None)
-    if isinstance(workflow_id, int) and workflow_id > 0:
-        wf = session.get(Workflow, workflow_id)
-        if wf:
-            # 直接创建一次运行，作用域仅携带 project_id
-            from app.services.workflow_engine import engine as wf_engine
-            run = wf_engine.create_run(session, wf, scope_json={"project_id": db_project.id}, params_json={}, idempotency_key=f"proj-init:{db_project.id}:{workflow_id}")
-            wf_engine.run(session, run)
-    else:
-        # 触发所有 onprojectcreate 工作流
-        try:
-            from app.core import emit_event
-            emit_event("project.created", {"session": session, "project_id": db_project.id})
-        except Exception:
-            # 不阻断项目创建
-            pass
+    triggered_run_ids = []
+    # 触发所有 onprojectcreate 工作流
+    try:
+        from app.core import emit_event
+        # 如果指定了 workflow_id，可以通过 payload 传递，但目前触发器逻辑主要是基于事件名
+        # 为了兼容，我们统一触发 project.created 事件
+        event_data = {"session": session, "project_id": db_project.id}
+        if getattr(project_in, 'workflow_id', None):
+             event_data["specified_workflow_id"] = project_in.workflow_id
+        
+        emit_event("project.created", event_data)
+        triggered_run_ids = event_data.get("triggered_run_ids", [])
+    except Exception:
+        # 不阻断项目创建
+        pass
     
     # 刷新以加载新创建的卡片到项目关系中
     session.refresh(db_project)
     
-    return db_project
+    return db_project, triggered_run_ids
 
 
 def update_project(session: Session, project_id: int, project_in: ProjectUpdate) -> Optional[Project]:

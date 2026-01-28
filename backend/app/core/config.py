@@ -169,6 +169,21 @@ class AppSettings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
 
+class WorkflowSettings(BaseSettings):
+    """工作流配置"""
+    
+    # 临时记录保留时间（分钟）
+    retention_transient_minutes: int = Field(default=10, alias="WORKFLOW_RETENTION_TRANSIENT_MINUTES")
+    # 持久化记录保留时间（天）
+    retention_persistent_days: int = Field(default=30, alias="WORKFLOW_RETENTION_PERSISTENT_DAYS")
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+        extra = "ignore"
+
+
 class Settings:
     """全局配置对象"""
     
@@ -178,6 +193,7 @@ class Settings:
         self.neo4j = Neo4jSettings()
         self.ai = AISettings()
         self.bootstrap = BootstrapSettings()
+        self.workflow = WorkflowSettings()
         self.app = AppSettings()
     
     def __repr__(self) -> str:

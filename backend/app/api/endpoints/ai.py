@@ -4,8 +4,7 @@ from app.db.session import get_session
 from app.schemas.ai import ContinuationRequest, ContinuationResponse, GeneralAIRequest
 from app.schemas.response import ApiResponse
 from app.services import prompt_service, llm_config_service
-from app.services.ai import llm_service
-from app.services.ai.model_builder import build_model_from_json_schema
+
 from app.services.schema_service import compose_full_schema
 from app.utils.stream_utils import wrap_sse_stream
 from fastapi.responses import StreamingResponse
@@ -23,12 +22,11 @@ from app.schemas.entity import DYNAMIC_INFO_TYPES
 from app.schemas import entity as entity_schemas
 from app.core import emit_event
 from app.services.context_service import assemble_context, ContextAssembleParams
-from app.services import llm_config_service as _llm_svc
-
-# 指令流生成相关导入
-from app.services.ai.instruction_validator import validate_instruction, apply_instruction
-from app.services.ai.instruction_generator import generate_instruction_stream
-from app.services.ai.prompt_builder import build_instruction_system_prompt
+from app.services.ai.core import llm_service
+from app.services.ai.core.model_builder import build_model_from_json_schema
+from app.services.ai.generation.instruction_validator import validate_instruction, apply_instruction
+from app.services.ai.generation.instruction_generator import generate_instruction_stream
+from app.services.ai.generation.prompt_builder import build_instruction_system_prompt
 from app.schemas.instruction import InstructionGenerateRequest
 from app.schemas.wizard import Tags as _Tags
 from loguru import logger

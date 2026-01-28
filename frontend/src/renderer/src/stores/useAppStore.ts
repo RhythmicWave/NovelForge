@@ -3,18 +3,18 @@ import { ref, computed } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   // 当前视图
-  const currentView = ref<'dashboard' | 'editor' | 'ideas' | 'workflows'>('dashboard')
-  
+  const currentView = ref<'dashboard' | 'editor' | 'ideas' | 'workflows' | 'triggers'>('dashboard')
+
   // 主题状态
   const isDarkMode = ref(false)
-  
+
   // 设置对话框状态
   const settingsDialogVisible = ref(false)
   const settingsInitialTab = ref<string>('llm')
-  
+
   // 全局加载状态
   const globalLoading = ref(false)
-  
+
   // 全局错误状态
   const globalError = ref<string | null>(null)
 
@@ -24,7 +24,7 @@ export const useAppStore = defineStore('app', () => {
   const isWorkflows = computed(() => currentView.value === 'workflows')
 
   // Actions
-  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas' | 'workflows') {
+  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas' | 'workflows' | 'triggers') {
     currentView.value = view
   }
 
@@ -42,6 +42,10 @@ export const useAppStore = defineStore('app', () => {
 
   function goToWorkflows() {
     currentView.value = 'workflows'
+  }
+
+  function goToTriggers() {
+    currentView.value = 'triggers'
   }
 
   function toggleTheme() {
@@ -107,18 +111,19 @@ export const useAppStore = defineStore('app', () => {
     settingsInitialTab,
     globalLoading,
     globalError,
-    
+
     // Computed
     isDashboard,
     isEditor,
     isWorkflows,
-    
+
     // Actions
     setCurrentView,
     goToDashboard,
     goToEditor,
     goToIdeas,
     goToWorkflows,
+    goToTriggers,
     toggleTheme,
     setTheme,
     applyTheme,

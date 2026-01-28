@@ -10,7 +10,7 @@ from typing import AsyncGenerator
 from loguru import logger
 
 from app.db.session import get_session
-from app.services.ai.assistant_service import generate_assistant_chat_streaming
+from app.services.ai.assistant.assistant_service import generate_assistant_chat_streaming
 from app.schemas.ai import AssistantChatRequest
 from app.utils.stream_utils import wrap_sse_stream
 

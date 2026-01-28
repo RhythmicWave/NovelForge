@@ -64,7 +64,7 @@ class HttpClient {
         return config
       },
       (error) => {
-        try { this.loadingCount = Math.max(0, this.loadingCount - 1); if (this.loadingCount === 0) this.loadingInstance?.close() } catch {}
+        try { this.loadingCount = Math.max(0, this.loadingCount - 1); if (this.loadingCount === 0) this.loadingInstance?.close() } catch { }
         return Promise.reject(error)
       }
     )
@@ -76,21 +76,33 @@ class HttpClient {
           try {
             this.loadingCount = Math.max(0, this.loadingCount - 1)
             if (this.loadingCount === 0) this.loadingInstance?.close()
-          } catch {}
+          } catch { }
         }
+        // 检查是否有由于请求触发的工作流运行
+        const startedWorkflows = response.headers['x-workflows-started']
+        if (startedWorkflows) {
+          const runIds = startedWorkflows.split(',').map(Number)
+          if (runIds.length > 0) {
+            window.dispatchEvent(new CustomEvent('workflow-started', { detail: runIds }))
+          }
+        }
+
         // 允许透传原始响应（用于读取 headers）
         if ((response.config as any).rawResponse === true) {
           return response as any
         }
         const res = response.data
-        if (res.status === undefined) {
-          return res
+        // 只有当 status 是 'success' 或 'error' 时才认为是包装格式
+        // 避免误判业务对象中的 status 字段（如 WorkflowRunRead.status）
+        if (res.status === 'success' || res.status === 'error') {
+          if (res.status === 'error') {
+            ElMessage.error(res.message || '操作失败')
+            return Promise.reject(new Error(res.message || 'Error'))
+          }
+          return res.data
         }
-        if (res.status === 'error') {
-          ElMessage.error(res.message || '操作失败')
-          return Promise.reject(new Error(res.message || 'Error'))
-        }
-        return res.data
+        // 其他情况直接返回原始数据
+        return res
       },
       (error) => {
         const showLoading = (error.config as any)?.showLoading !== false
@@ -98,7 +110,7 @@ class HttpClient {
           try {
             this.loadingCount = Math.max(0, this.loadingCount - 1)
             if (this.loadingCount === 0) this.loadingInstance?.close()
-          } catch {}
+          } catch { }
         }
         if (error.response && error.response.status === 422) {
           const validationErrors = error.response.data.detail

@@ -105,21 +105,19 @@ def update_card_type_ai_params(card_type_id: int, payload: Dict[str, Any], db: S
 # --- Card Endpoints ---
 
 @router.post("/projects/{project_id}/cards", response_model=CardRead)
-def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session), response: Response = None):
+def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session)):
     service = CardService(db)
     try:
         created = service.create(card, project_id)
         triggered_run_ids = []
         try:
-            event_data = {"session": db, "card": created}
+            event_data = {"session": db, "card": created, "is_created": True}
             emit_event("card.saved", event_data)
             triggered_run_ids = event_data.get("triggered_run_ids", [])
         except Exception:
             logger.exception("OnSave workflow trigger failed")
         
-        # 通过响应头返回工作流运行ID
-        if triggered_run_ids and response:
-            response.headers["X-Workflows-Started"] = ",".join(map(str, triggered_run_ids))
+        # Header is managed by Middleware
         
         return created
     except BusinessException as e:
@@ -139,9 +137,14 @@ def get_card(card_id: int, db: Session = Depends(get_session)):
     return db_card
 
 @router.put("/cards/{card_id}", response_model=CardRead)
-def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session), response: Response = None):
+def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session)):
     # 获取更新前的状态
     old_card = db.get(Card, card_id)
+    old_content = None
+    if old_card and old_card.content:
+        import copy
+        old_content = copy.deepcopy(old_card.content)
+
     was_needs_confirmation = getattr(old_card, 'needs_confirmation', False) if old_card else False
     
     service = CardService(db)
@@ -171,7 +174,12 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
     
     triggered_run_ids = []
     try:
-        event_data = {"session": db, "card": db_card}
+        event_data = {
+            "session": db, 
+            "card": db_card, 
+            "is_created": False,
+            "old_content": old_content
+        }
         emit_event("card.saved", event_data)
         triggered_run_ids = event_data.get("triggered_run_ids", [])
         
@@ -180,9 +188,7 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
     except Exception:
         logger.exception("OnSave workflow trigger failed")
     
-    # 通过响应头返回工作流运行ID
-    if triggered_run_ids and response:
-        response.headers["X-Workflows-Started"] = ",".join(map(str, triggered_run_ids))
+    # Header is managed by Middleware
     
     return db_card
 

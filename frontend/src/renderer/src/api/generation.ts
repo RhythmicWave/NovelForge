@@ -1,8 +1,4 @@
-/**
- * 指令流生成 API
- * 
- * 封装了与后端指令流生成端点的通信
- */
+import { API_BASE_URL } from './request'
 
 import type {
   InstructionGenerateRequest,
@@ -25,7 +21,7 @@ export interface GenerateCallbacks {
   onInstruction?: (instruction: Instruction) => void
   onWarning?: (text: string) => void
   onError?: (text: string) => void
-  onDone?: (success: boolean, message?: string) => void
+  onDone?: (success: boolean, message?: string, finalData?: any) => void
 }
 
 /**
@@ -40,8 +36,7 @@ export async function generateWithInstructionStream(
   callbacks: GenerateCallbacks,
   signal?: AbortSignal
 ): Promise<void> {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
-  const url = `${API_BASE}/api/ai/generate/stream`
+  const url = `${API_BASE_URL}/ai/generate/stream`
 
   try {
     // 发送 POST 请求
@@ -174,7 +169,7 @@ function handleEvent(event: { event: string; data: any }, callbacks: GenerateCal
       break
 
     case 'done':
-      callbacks.onDone?.(data.success !== false, data.message)
+      callbacks.onDone?.(data.success !== false, data.message, data.final_data)
       break
 
     default:

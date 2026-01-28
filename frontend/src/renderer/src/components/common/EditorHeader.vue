@@ -18,7 +18,7 @@
         </el-tooltip>
         <el-button v-if="!isChapterContent" type="success" plain @click="$emit('generate')">AI 生成</el-button>
         <el-button 
-          type="primary" 
+          :type="canSaveComputed ? 'primary' : 'info'" 
           :disabled="!canSaveComputed" 
           :loading="saving" 
           :class="{ 'needs-confirmation-btn': needsConfirmation }"
