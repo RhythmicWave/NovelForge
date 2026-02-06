@@ -9,9 +9,12 @@
 """
 
 # 导入所有节点模块以触发注册
-from . import logic  # 导入逻辑节点包
+from . import logic
+from . import novel  # 导入逻辑节点包
 from . import card  # 导入卡片节点包
 from . import trigger  # 导入触发器节点包
 from . import data  # 导入数据节点包
+from . import ai  # 导入 AI 节点包
+
 
 __all__ = []

@@ -22,6 +22,7 @@ backend/alembic/versions/*.py
 !README.md
 !README.MD
 !CLA.md
+!工作流系统架构.md
 
 
 primitive_models/

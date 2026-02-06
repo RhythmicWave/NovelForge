@@ -130,6 +130,7 @@ class ExecutionGraph:
     successors: Dict[str, List[str]]  # node_id -> [successor_ids]
     start_nodes: List[str]  # 起始节点
     topology_order: List[str]  # 拓扑排序结果
+    unreachable_nodes: set = field(default_factory=set)  # 不可达节点（孤立节点）
     
     def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """获取节点"""

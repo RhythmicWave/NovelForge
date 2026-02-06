@@ -91,6 +91,9 @@ def get_node_categories():
     return {'categories': categories}
 
 
+
+
+
 @router.get("/workflows", response_model=List[WorkflowRead])
 def list_workflows(session: Session = Depends(get_session)):
     return session.exec(select(Workflow)).all()
@@ -310,15 +313,24 @@ async def stream_events(run_id: int, session: Session = Depends(get_session)):
                 # 1. 推送默认消息（状态更新）
                 yield f"data: {json.dumps(status, ensure_ascii=False)}\n\n"
                 
-                # 2. 推送节点级事件 (step_started, step_succeeded, step_failed)
+                # 2. 推送节点级事件 (step_started, step_succeeded, step_failed, step_progress)
                 current_nodes = {n['node_id']: n for n in status.get('nodes', [])}
                 
                 for node_id, node_data in current_nodes.items():
                     curr_state = node_data['status']
-                    prev_state = seen_nodes.get(node_id, 'idle')
+                    curr_progress = node_data.get('progress', 0)
                     
+                    prev_state_info = seen_nodes.get(node_id, {})
+                    # 兼容之前只存 string 的情况 (status)
+                    if isinstance(prev_state_info, str):
+                        prev_state_info = {'status': prev_state_info, 'progress': 0}
+                        
+                    prev_state = prev_state_info.get('status', 'idle')
+                    prev_progress = prev_state_info.get('progress', 0)
+                    
+                    # 检查状态变化
                     if curr_state != prev_state:
-                        seen_nodes[node_id] = curr_state
+                        seen_nodes[node_id] = {'status': curr_state, 'progress': curr_progress}
                         
                         event_payload = json.dumps({
                             "node_id": node_id,
@@ -329,10 +341,22 @@ async def stream_events(run_id: int, session: Session = Depends(get_session)):
                         
                         if curr_state == 'running':
                             yield f"event: step_started\ndata: {event_payload}\n\n"
-                        elif curr_state == 'success': # 注意数据库里是 success，前端可能期望 succeeded? 前端代码监听 step_succeeded
+                        elif curr_state == 'success':
                             yield f"event: step_succeeded\ndata: {event_payload}\n\n"
                         elif curr_state == 'error':
                             yield f"event: step_failed\ndata: {event_payload}\n\n"
+                            
+                    # 检查进度变化 (只在 running 状态下)
+                    elif curr_state == 'running' and curr_progress != prev_progress:
+                        seen_nodes[node_id]['progress'] = curr_progress
+                        
+                        progress_payload = json.dumps({
+                            "node_id": node_id,
+                            "status": curr_state,
+                            "progress": curr_progress,
+                            "message": f"Progress: {curr_progress}%" # 简单消息，后续可从 logs 获取更详细的
+                        }, ensure_ascii=False)
+                        yield f"event: step_progress\ndata: {progress_payload}\n\n"
 
                 # 3. 检查是否完成
                 run_status = status['status']

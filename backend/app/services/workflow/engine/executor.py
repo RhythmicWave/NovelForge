@@ -60,6 +60,25 @@ class WorkflowExecutor:
         # 不预先创建节点状态，只在执行时创建
         # 这样未执行的节点就不会有状态记录
         
+        logger.info(f"[Executor] 图中不可达节点: {graph.unreachable_nodes}")
+        logger.info(f"[Executor] 起始节点: {graph.start_nodes}")
+        
+        # 立即标记不可达节点为 skipped
+        for node_id in graph.unreachable_nodes:
+            node = graph.nodes.get(node_id)
+            if node:
+                self.state_manager.create_node_state(
+                    run_id=run_id,
+                    node_id=node_id,
+                    node_type=node.get("type", "unknown")
+                )
+                self.state_manager.update_node_status(
+                    run_id=run_id,
+                    node_id=node_id,
+                    status="skipped"
+                )
+                logger.info(f"[Executor] ✓ 孤立节点标记为 skipped: {node_id}")
+        
         try:
             # 执行图
             await self._execute_graph(
@@ -72,9 +91,9 @@ class WorkflowExecutor:
                 failed=failed
             )
             
-            # 将未执行的节点标记为 skipped
+            # 将未执行的节点标记为 skipped（排除已标记的不可达节点）
             all_nodes = set(graph.nodes.keys())
-            skipped_nodes = all_nodes - executed - failed
+            skipped_nodes = all_nodes - executed - failed - graph.unreachable_nodes
             
             logger.info(f"[Executor] 所有节点: {all_nodes}")
             logger.info(f"[Executor] 已执行: {executed}")
@@ -141,6 +160,7 @@ class WorkflowExecutor:
         
         # 待执行队列（已就绪的节点）
         ready_queue: List[str] = list(graph.start_nodes)
+        logger.info(f"[Executor] 初始就绪队列: {ready_queue}")
         
         while ready_queue or running_tasks:
             # 启动新任务（受并发限制）
@@ -237,7 +257,8 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """从边中提取节点的输入数据
         
-        遍历所有连接到该节点的边，从源节点的输出中提取数据
+        遍历所有连接到该节点的边，从源节点的输出中提取数据。
+        如果多个边连接到同一个目标端口,只使用成功节点的数据。
         """
         inputs = {}
         
@@ -253,12 +274,19 @@ class WorkflowExecutor:
             # 获取源节点的输出
             if source_id in node_outputs:
                 source_result = node_outputs[source_id]
+                
+                # 只从成功的节点提取数据
+                if not source_result.success:
+                    continue
+                    
                 source_output = source_result.outputs
                 
                 # 从源节点的指定端口获取数据
                 if source_port in source_output:
                     data = source_output[source_port]
-                    inputs[target_port] = data
+                    # 如果该目标端口已有数据,不覆盖(保留第一个成功的连接)
+                    if target_port not in inputs:
+                        inputs[target_port] = data
         
         return inputs
     

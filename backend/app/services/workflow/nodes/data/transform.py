@@ -33,6 +33,7 @@ class DataTransformNode(BaseNode):
         try:
             eval_context = {
                 "input": input_data,
+                **inputs,  # 包含所有输入端口的数据
                 **self.context.variables
             }
             

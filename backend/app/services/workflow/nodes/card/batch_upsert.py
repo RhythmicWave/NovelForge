@@ -14,9 +14,9 @@ from ..base import BaseNode, BaseNodeConfig, get_card_type_by_name
 class CardBatchUpsertConfig(BaseNodeConfig):
     card_type: str = Field(..., description="卡片类型名称")
     title_template: str = Field(..., description="标题模板，支持 {item.field} 语法")
-    content_template: Optional[Dict[str, Any]] = Field(default_factory=dict, description="内容模板（可选）")
+    content_template: Optional[Any] = Field(default_factory=dict, description="内容模板（可选，支持 dict 或 str）")
     match_by: str = Field("title", description="匹配现有卡片的方式（默认按标题）")
-    parent_id: Optional[int] = Field(None, description="父卡片ID（可选）")
+    parent_id: Optional[Any] = Field(None, description="父卡片ID（支持ID数字或模板语法 {item.pid}）")
 
 
 @register_node
@@ -32,7 +32,7 @@ class CardBatchUpsertNode(BaseNode):
         return {
             "inputs": [
                 NodePort("items", "list", required=True, description="数据列表（必须是list类型）"),
-                NodePort("parent_id", "number", required=False, description="父卡片ID（覆盖配置）")
+                NodePort("parent_id", "any", required=False, description="父卡片ID（覆盖配置，支持数字或模板）")
             ],
             "outputs": [
                 NodePort("cards", "card-list", description="处理后的卡片列表"),
@@ -52,11 +52,15 @@ class CardBatchUpsertNode(BaseNode):
             )
         
         items = raw_items
-        parent_id = inputs.get("parent_id") or config.parent_id
+        # 获取基础 parent_id 配置 (可能是 inputs 覆盖，也可能是 config)
+        # inputs 里的 parent_id 可能是 int 或 template string
+        base_parent_id = inputs.get("parent_id")
+        if base_parent_id is None:
+             base_parent_id = config.parent_id
         
         # 兼容性处理：如果 parent_id 是字典（来自 Card.Read 输出），提取 id
-        if isinstance(parent_id, dict):
-            parent_id = parent_id.get("id")
+        if isinstance(base_parent_id, dict):
+            base_parent_id = base_parent_id.get("id")
         
         # 获取卡片类型
         card_type = get_card_type_by_name(self.context.session, config.card_type)
@@ -68,15 +72,10 @@ class CardBatchUpsertNode(BaseNode):
         if not project_id:
             trigger = self.context.variables.get("trigger", {})
             project_id = trigger.get("project_id")
-        if not project_id and parent_id:
-             # 尝试从父卡片获取
-             parent = self.get_card_by_id(parent_id)
-             if parent:
-                 project_id = parent.project_id
         
-        if not project_id and raw_items and hasattr(raw_items, 'project_id'):
-            # 尝试从输入源对象获取 (如果输入是 Card)
-            project_id = getattr(raw_items, 'project_id', None)
+        # 尝试从输入列表的第一个元素获取项目ID (如果输入是 Card 对象)
+        if not project_id and items and hasattr(items[0], 'project_id'):
+            project_id = getattr(items[0], 'project_id', None)
 
         if not project_id:
              return ExecutionResult(success=False, error="无法确定项目ID")
@@ -98,14 +97,32 @@ class CardBatchUpsertNode(BaseNode):
             if not title:
                 continue
 
+            # 计算当前项的 parent_id
+            current_parent_id = None
+            if base_parent_id is not None:
+                if isinstance(base_parent_id, int):
+                    current_parent_id = base_parent_id
+                elif isinstance(base_parent_id, str):
+                    if '{' in base_parent_id and '}' in base_parent_id:
+                        # 模板渲染
+                        rendered = self._render_template(base_parent_id, ctx)
+                        # 尝试转 int
+                        if rendered and rendered.isdigit():
+                            current_parent_id = int(rendered)
+                        else:
+                            # 渲染结果为空或非数字，视为无父级或无效
+                            current_parent_id = None 
+                    elif base_parent_id.isdigit():
+                         current_parent_id = int(base_parent_id)
+            
             # 查找现有卡片
             stmt = select(Card).where(
                 Card.project_id == project_id,
                 Card.card_type_id == card_type.id,
                 Card.title == title
             )
-            if parent_id:
-                stmt = stmt.where(Card.parent_id == parent_id)
+            if current_parent_id:
+                stmt = stmt.where(Card.parent_id == current_parent_id)
             
             existing_card = self.context.session.exec(stmt).first()
             
@@ -128,8 +145,8 @@ class CardBatchUpsertNode(BaseNode):
                     updated = True
                 
                 # 如果父ID变化（移动）
-                if parent_id and existing_card.parent_id != parent_id:
-                    existing_card.parent_id = parent_id
+                if current_parent_id and existing_card.parent_id != current_parent_id:
+                    existing_card.parent_id = current_parent_id
                     updated = True
                     
                 if updated:
@@ -141,27 +158,20 @@ class CardBatchUpsertNode(BaseNode):
                 else:
                     results.append(existing_card)
             else:
-                # 创建 - 使用 CardService.create 以确保所有默认值（如上下文模版）被正确应用
+                # 创建
                 try:
-                    # 构造 CardCreate，注意 CardCreate 需要的是基础数据
-                    # Service 会处理 title 冲突，但这里我们希望如果是 BatchUpsert，应该尽量使用我们的 title
-                    # 不过 Service 的机制是如果有冲突会自动加 (n)。
-                    # 这里的逻辑是：如果没有 existing_card，说明没有完全重名的（在同父节点下）
-                    
                     card_create = CardCreate(
                         title=title,
                         content=content,
                         card_type_id=card_type.id,
-                        parent_id=parent_id,
-                        # ai_params 和 json_schema 留空，跟随类型
+                        parent_id=current_parent_id,
+                        project_id=project_id
                     )
                     
-                    # 调用 service.create
                     new_card = service.create(card_create, project_id)
                     results.append(new_card)
                 except Exception as e:
                     logger.error(f"[BatchUpsert] 创建卡片失败: {e}")
-                    # 这里的异常可能是单例限制等
                     continue
         
         self.context.session.commit()
@@ -219,6 +229,29 @@ class CardBatchUpsertNode(BaseNode):
         if isinstance(template, str):
             # 只有包含 {} 才尝试渲染
             if '{' in template and '}' in template:
+                # 特殊处理：如果是单一路径引用（如 {item.ai_result}），返回原始对象
+                import re
+                single_path_match = re.fullmatch(r'\{([^}]+)\}', template)
+                if single_path_match:
+                    path = single_path_match.group(1).strip()
+                    parts = path.split('.')
+                    value = context
+                    try:
+                        for part in parts:
+                            if isinstance(value, dict):
+                                value = value.get(part)
+                            elif hasattr(value, part):
+                                value = getattr(value, part)
+                            else:
+                                value = None
+                                break
+                        # 如果解析成功，返回原始对象
+                        if value is not None:
+                            return value
+                    except Exception:
+                        pass
+                
+                # Fallback：正常字符串渲染
                 return self._render_template(template, context)
             return template
         elif isinstance(template, dict):

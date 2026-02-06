@@ -43,16 +43,21 @@ class GraphBuilder:
         
         # 找到起始节点
         start_nodes = self._find_start_nodes(nodes, dependencies)
+        logger.info(f"[GraphBuilder] 起始节点: {start_nodes}")
+        logger.info(f"[GraphBuilder] 所有节点: {list(nodes.keys())}")
+        logger.info(f"[GraphBuilder] 依赖关系: {dependencies}")
         
-        # 验证图的合法性
-        self._validate_graph(nodes, dependencies, start_nodes)
+        # 验证图的合法性并获取不可达节点
+        unreachable_nodes = self._validate_graph(nodes, dependencies, start_nodes)
+        logger.info(f"[GraphBuilder] 不可达节点: {unreachable_nodes}")
         
-        # 计算拓扑排序
-        topology_order = self._topological_sort(nodes, dependencies, start_nodes)
+        # 计算拓扑排序（只排序可达节点）
+        topology_order = self._topological_sort(nodes, dependencies, start_nodes, unreachable_nodes)
         
         logger.info(
             f"[GraphBuilder] 图构建完成: {len(nodes)} 个节点, "
-            f"{len(edges_list)} 条边, {len(start_nodes)} 个起始节点"
+            f"{len(edges_list)} 条边, {len(start_nodes)} 个起始节点, "
+            f"{len(unreachable_nodes)} 个孤立节点"
         )
         
         return ExecutionGraph(
@@ -61,7 +66,8 @@ class GraphBuilder:
             dependencies=dependencies,
             successors=successors,
             start_nodes=start_nodes,
-            topology_order=topology_order
+            topology_order=topology_order,
+            unreachable_nodes=unreachable_nodes
         )
     
     def _build_relationships(
@@ -125,14 +131,22 @@ class GraphBuilder:
         nodes: Dict[str, Dict[str, Any]], 
         dependencies: Dict[str, List[str]]
     ) -> List[str]:
-        """找到起始节点（没有依赖的节点）"""
-        start_nodes = [
-            node_id for node_id in nodes.keys()
-            if node_id not in dependencies or not dependencies[node_id]
-        ]
+        """找到起始节点（触发器节点）
+        
+        只有触发器节点（Logic.Start, Trigger.*）才能作为起始节点，
+        而不是所有没有依赖的节点。
+        """
+        start_nodes = []
+        
+        for node_id, node in nodes.items():
+            node_type = node.get("type", "")
+            
+            # 只有触发器节点才能作为起始节点
+            if node_type == "Logic.Start" or node_type.startswith("Trigger."):
+                start_nodes.append(node_id)
         
         if not start_nodes:
-            raise ValueError("工作流中没有起始节点，可能存在循环依赖")
+            raise ValueError("工作流中没有起始节点（需要至少一个 Logic.Start 或 Trigger.* 节点）")
         
         return start_nodes
     
@@ -141,13 +155,19 @@ class GraphBuilder:
         nodes: Dict[str, Dict[str, Any]],
         dependencies: Dict[str, List[str]],
         start_nodes: List[str]
-    ) -> None:
-        """验证图的合法性"""
+    ) -> Set[str]:
+        """验证图的合法性
+        
+        Returns:
+            unreachable_nodes: 不可达节点集合
+        """
         # 检测循环依赖
         self._detect_cycles(nodes, dependencies)
         
-        # 检查是否所有节点都可达
-        self._check_reachability(nodes, dependencies, start_nodes)
+        # 检查是否所有节点都可达，并返回不可达节点
+        unreachable_nodes = self._check_reachability(nodes, dependencies, start_nodes)
+        
+        return unreachable_nodes
     
     def _detect_cycles(
         self,
@@ -185,8 +205,12 @@ class GraphBuilder:
         nodes: Dict[str, Dict[str, Any]],
         dependencies: Dict[str, List[str]],
         start_nodes: List[str]
-    ) -> None:
-        """检查所有节点是否从起始节点可达"""
+    ) -> Set[str]:
+        """检查所有节点是否从起始节点可达
+        
+        Returns:
+            unreachable: 不可达节点的集合
+        """
         # 构建后继关系用于正向遍历
         successors: Dict[str, List[str]] = {}
         for target, sources in dependencies.items():
@@ -212,31 +236,53 @@ class GraphBuilder:
         unreachable = set(nodes.keys()) - visited
         if unreachable:
             logger.warning(
-                f"[GraphBuilder] 发现不可达节点（孤立节点）: {unreachable}"
+                f"[GraphBuilder] 发现不可达节点（孤立节点）: {unreachable}，这些节点将被跳过"
             )
+        
+        return unreachable
     
     def _topological_sort(
         self,
         nodes: Dict[str, Dict[str, Any]],
         dependencies: Dict[str, List[str]],
-        start_nodes: List[str]
+        start_nodes: List[str],
+        unreachable_nodes: Set[str] = None
     ) -> List[str]:
         """拓扑排序（Kahn算法）
         
+        只对可达节点进行排序，跳过不可达节点
+        
+        Args:
+            unreachable_nodes: 不可达节点集合，这些节点不会被排序
+        
         返回节点的执行顺序，用于串行执行时的参考
         """
-        # 计算入度
-        in_degree = {node_id: len(dependencies.get(node_id, [])) for node_id in nodes}
+        if unreachable_nodes is None:
+            unreachable_nodes = set()
+        
+        # 只对可达节点进行排序
+        reachable_nodes = {nid: n for nid, n in nodes.items() if nid not in unreachable_nodes}
+        
+        # 计算入度（只考虑可达节点）
+        in_degree = {}
+        for node_id in reachable_nodes:
+            # 过滤掉不可达节点的依赖
+            deps = dependencies.get(node_id, [])
+            reachable_deps = [d for d in deps if d not in unreachable_nodes]
+            in_degree[node_id] = len(reachable_deps)
         
         # 队列初始化为所有入度为0的节点
-        queue = [node_id for node_id in start_nodes]
+        queue = [node_id for node_id in start_nodes if node_id not in unreachable_nodes]
         result = []
         
-        # 构建后继关系
+        # 构建后继关系（只考虑可达节点）
         successors: Dict[str, List[str]] = {}
         for target, sources in dependencies.items():
+            if target in unreachable_nodes:
+                continue
             for source in sources:
-                successors.setdefault(source, []).append(target)
+                if source not in unreachable_nodes:
+                    successors.setdefault(source, []).append(target)
         
         while queue:
             # 取出一个入度为0的节点
@@ -249,8 +295,11 @@ class GraphBuilder:
                 if in_degree[successor] == 0:
                     queue.append(successor)
         
-        if len(result) != len(nodes):
+        if len(result) != len(reachable_nodes):
             # 理论上不会到达这里，因为已经做了循环检测
+            logger.error(f"[GraphBuilder] 拓扑排序失败: 期望 {len(reachable_nodes)} 个节点，实际 {len(result)} 个")
+            logger.error(f"[GraphBuilder] 可达节点: {set(reachable_nodes.keys())}")
+            logger.error(f"[GraphBuilder] 排序结果: {result}")
             raise ValueError("拓扑排序失败，可能存在循环依赖")
         
         return result

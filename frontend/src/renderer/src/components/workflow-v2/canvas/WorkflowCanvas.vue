@@ -138,6 +138,20 @@ watch(edges, (newEdges) => {
 
 // 连接节点
 onConnect((params) => {
+  // 0. 检查目标端口是否已有连接，如果有则删除旧连接（单输入端口限制）
+  if (params.target && params.targetHandle) {
+    const existingEdges = edges.value.filter(
+      e => e.target === params.target && e.targetHandle === params.targetHandle
+    )
+    if (existingEdges.length > 0) {
+      // 删除所有连接到该目标端口的旧边
+      edges.value = edges.value.filter(
+        e => !(e.target === params.target && e.targetHandle === params.targetHandle)
+      )
+      console.log(`[WorkflowCanvas] 自动断开旧连接: ${existingEdges.length} 条`)
+    }
+  }
+  
   // 1. 处理依赖连接 (dep-output -> dep-input)
   if (params.sourceHandle === 'dep-output' && params.targetHandle === 'dep-input') {
     const newEdge: any = {

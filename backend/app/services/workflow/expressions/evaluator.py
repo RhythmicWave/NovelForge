@@ -150,6 +150,10 @@ class ExpressionEvaluator:
         if isinstance(node, ast.ListComp):
             return self._eval_listcomp(node)
         
+        # 字典推导式（简单支持）
+        if isinstance(node, ast.DictComp):
+            return self._eval_dictcomp(node)
+        
         raise ValueError(f"不支持的表达式节点: {type(node).__name__}")
     
     def _eval_binop(self, op: ast.operator, left: Any, right: Any) -> Any:
@@ -268,6 +272,45 @@ class ExpressionEvaluator:
                 # 求值表达式
                 value = self._eval_node(node.elt)
                 result.append(value)
+        finally:
+            # 恢复上下文
+            if old_value is None:
+                self.context.pop(var_name, None)
+            else:
+                self.context[var_name] = old_value
+        
+        return result
+    
+    def _eval_dictcomp(self, node: ast.DictComp) -> Dict[Any, Any]:
+        """求值字典推导式（简单实现）"""
+        # 只支持简单的 {key_expr: value_expr for var in iterable}
+        if len(node.generators) != 1:
+            raise ValueError("只支持单层字典推导式")
+        
+        generator = node.generators[0]
+        if generator.ifs:
+            raise ValueError("暂不支持带条件的字典推导式")
+        
+        # 获取迭代器
+        iterable = self._eval_node(generator.iter)
+        
+        # 迭代求值
+        result = {}
+        var_name = generator.target.id if isinstance(generator.target, ast.Name) else None
+        if not var_name:
+            raise ValueError("不支持的迭代变量")
+        
+        # 保存原始上下文
+        old_value = self.context.get(var_name)
+        
+        try:
+            for item in iterable:
+                # 设置迭代变量
+                self.context[var_name] = item
+                # 求值键和值
+                key = self._eval_node(node.key)
+                value = self._eval_node(node.value)
+                result[key] = value
         finally:
             # 恢复上下文
             if old_value is None:

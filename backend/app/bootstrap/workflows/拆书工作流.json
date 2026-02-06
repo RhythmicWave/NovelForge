@@ -1,0 +1,321 @@
+{
+    "dsl_version": 1,
+    "name": "拆书工作流",
+    "description": "自动扫描小说目录,按分卷组织,批量提取章节大纲",
+    "nodes": [
+        {
+            "id": "start",
+            "type": "Logic.Start",
+            "label": "开始",
+            "position": {
+                "x": -450,
+                "y": 100
+            },
+            "config": {},
+            "data": {
+                "label": "开始"
+            }
+        },
+        {
+            "id": "select_project",
+            "type": "Logic.SelectProject",
+            "label": "选择项目",
+            "position": {
+                "x": -200,
+                "y": 100
+            },
+            "config": {
+                "project_id": 10
+            },
+            "data": {
+                "label": "选择项目"
+            },
+            "dependencies": [
+                "start"
+            ]
+        },
+        {
+            "id": "load_novel",
+            "type": "Novel.Load",
+            "label": "扫描小说目录",
+            "position": {
+                "x": 50,
+                "y": 100
+            },
+            "config": {
+                "root_path": "E:\\LLMProjects\\小说数据\\熵减纪元的裂痕",
+                "file_pattern": ".*\\.(txt|md)$",
+                "volume_pattern": "第[一二三四五六七八九十0-9]+[卷部纪]",
+                "chapter_pattern": "第([零一二三四五六七八九十百千0-9]+)章"
+            },
+            "data": {
+                "label": "扫描小说目录"
+            },
+            "dependencies": [
+                "select_project"
+            ]
+        },
+        {
+            "id": "group_by_volume",
+            "type": "Data.Group",
+            "label": "按分卷分组",
+            "position": {
+                "x": 300,
+                "y": 100
+            },
+            "config": {
+                "group_by": "volume"
+            },
+            "data": {
+                "label": "按分卷分组"
+            }
+        },
+        {
+            "id": "create_volume_cards",
+            "type": "Card.BatchUpsert",
+            "label": "创建分卷卡片",
+            "position": {
+                "x": 300,
+                "y": 250
+            },
+            "config": {
+                "card_type": "分卷大纲",
+                "title_template": "{item}",
+                "content_template": {
+                    "volume_name": "{item}"
+                }
+            },
+            "data": {
+                "label": "创建分卷卡片"
+            }
+        },
+        {
+            "id": "map_volume_ids",
+            "type": "Data.Transform",
+            "label": "映射分卷ID",
+            "position": {
+                "x": 550,
+                "y": 100
+            },
+            "config": {
+                "expression": "{card['content'].get('volume_name', card['title']): card['id'] for card in input}"
+            },
+            "data": {
+                "label": "映射分卷ID"
+            }
+        },
+        {
+            "id": "inject_parent_ids",
+            "type": "Data.Transform",
+            "label": "注入父卡片ID",
+            "position": {
+                "x": 1050,
+                "y": 250
+            },
+            "config": {
+                "expression": "[merge(item, {'meta': merge(item['meta'], {'volume_parent_id': volume_map.get(item['meta']['volume'])})}) for item in input]"
+            },
+            "data": {
+                "label": "注入父卡片ID"
+            }
+        },
+        {
+            "id": "load_prompt",
+            "type": "Prompt.Load",
+            "label": "加载提示词",
+            "position": {
+                "x": 550,
+                "y": 250
+            },
+            "config": {
+                "prompt_id": "章节大纲_拆书"
+            },
+            "data": {
+                "label": "加载提示词"
+            },
+            "dependencies": [
+                "select_project"
+            ]
+        },
+        {
+            "id": "batch_extract_outlines",
+            "type": "AI.BatchStructured",
+            "label": "批量提取章节大纲",
+            "position": {
+                "x": 800,
+                "y": 100
+            },
+            "config": {
+                "llm_config_id": 5,
+                "response_model_id": "章节大纲",
+                "concurrency": 3,
+                "max_retries": 2
+            },
+            "data": {
+                "label": "批量提取章节大纲"
+            }
+        },
+        {
+            "id": "create_chapter_cards",
+            "type": "Card.BatchUpsert",
+            "label": "创建章节卡片",
+            "position": {
+                "x": 1050,
+                "y": 100
+            },
+            "config": {
+                "card_type": "章节大纲",
+                "title_template": "{item.meta.title}",
+                "content_template": "{item.ai_result}",
+                "parent_id": "{item.meta.volume_parent_id}"
+            },
+            "data": {
+                "label": "创建章节卡片"
+            }
+        },
+        {
+            "id": "read_chapter_content",
+            "type": "Data.Transform",
+            "label": "读取章节内容",
+            "position": {
+                "x": 1050,
+                "y": 550
+            },
+            "config": {
+                "expression": "[merge(item, {'content_data': read_file(item['meta']['path']) if 'path' in item.get('meta', {}) else ''}) for item in input]"
+            },
+            "data": {
+                "label": "读取章节内容"
+            }
+        },
+        {
+            "id": "create_chapter_content_cards",
+            "type": "Card.BatchUpsert",
+            "label": "创建章节正文卡片",
+            "position": {
+                "x": 1050,
+                "y": 400
+            },
+            "config": {
+                "card_type": "章节正文",
+                "title_template": "{item.meta.title}",
+                "content_template": {
+                    "content": "{item.content_data}"
+                },
+                "parent_id": "{item.meta.volume_parent_id}"
+            },
+            "data": {
+                "label": "创建章节正文卡片"
+            }
+        },
+        {
+            "id": "end",
+            "type": "Logic.End",
+            "position": {
+                "x": 1300,
+                "y": 100
+            },
+            "config": {},
+            "data": {
+                "label": "结束"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "id": "e2",
+            "source": "load_novel",
+            "sourceHandle": "chapter_list",
+            "target": "group_by_volume",
+            "targetHandle": "array",
+            "type": "default"
+        },
+        {
+            "id": "e3",
+            "source": "load_novel",
+            "sourceHandle": "volume_list",
+            "target": "create_volume_cards",
+            "targetHandle": "items",
+            "type": "default"
+        },
+        {
+            "id": "e4_map",
+            "source": "create_volume_cards",
+            "sourceHandle": "cards",
+            "target": "map_volume_ids",
+            "targetHandle": "input",
+            "type": "default"
+        },
+        {
+            "id": "e5",
+            "source": "load_novel",
+            "sourceHandle": "chapter_list",
+            "target": "batch_extract_outlines",
+            "targetHandle": "items",
+            "type": "default"
+        },
+        {
+            "id": "e6",
+            "source": "load_prompt",
+            "sourceHandle": "text",
+            "target": "batch_extract_outlines",
+            "targetHandle": "prompt_template",
+            "type": "default"
+        },
+        {
+            "id": "e7_inject",
+            "source": "batch_extract_outlines",
+            "sourceHandle": "results",
+            "target": "inject_parent_ids",
+            "targetHandle": "input",
+            "type": "default"
+        },
+        {
+            "id": "e7_map",
+            "source": "map_volume_ids",
+            "sourceHandle": "output",
+            "target": "inject_parent_ids",
+            "targetHandle": "volume_map",
+            "type": "default"
+        },
+        {
+            "id": "e7_final",
+            "source": "inject_parent_ids",
+            "sourceHandle": "output",
+            "target": "create_chapter_cards",
+            "targetHandle": "items",
+            "type": "default"
+        },
+        {
+            "id": "e8_read",
+            "source": "inject_parent_ids",
+            "sourceHandle": "output",
+            "target": "read_chapter_content",
+            "targetHandle": "input",
+            "type": "default"
+        },
+        {
+            "id": "e8_content",
+            "source": "read_chapter_content",
+            "sourceHandle": "output",
+            "target": "create_chapter_content_cards",
+            "targetHandle": "items",
+            "type": "default"
+        },
+        {
+            "id": "e9",
+            "source": "create_chapter_cards",
+            "target": "end",
+            "type": "default",
+            "dependencies": [
+                "create_chapter_content_cards"
+            ]
+        }
+    ],
+    "settings": {
+        "timeout": 3600,
+        "errorHandling": "stop",
+        "maxConcurrency": 5,
+        "logLevel": "info"
+    }
+}

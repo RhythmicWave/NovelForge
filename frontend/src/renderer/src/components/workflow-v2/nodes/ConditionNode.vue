@@ -1,5 +1,14 @@
 <template>
   <div class="workflow-node condition-node" :class="{ selected }">
+    <!-- 上方依赖输入端口 -->
+    <Handle 
+      id="dep-input"
+      type="target" 
+      :position="Position.Top" 
+      class="dep-handle dep-handle-input"
+      title="依赖输入（控制流）"
+    />
+    
     <!-- 左侧输入端口 -->
     <Handle 
       type="target" 
@@ -60,6 +69,15 @@
       </el-icon>
       <span class="handle-label">False</span>
     </div>
+    
+    <!-- 下方依赖输出端口 -->
+    <Handle 
+      id="dep-output"
+      type="source" 
+      :position="Position.Bottom" 
+      class="dep-handle dep-handle-output"
+      title="依赖输出（控制流）"
+    />
   </div>
 </template>
 
@@ -193,6 +211,33 @@ const handleSourceDoubleClick = (event: MouseEvent, handleId: string) => {
   &:hover {
     background: #f78989 !important;
   }
+}
+
+// 依赖控制流 Handle (Top/Bottom) - 与 BaseNode 保持一致
+.dep-handle {
+  width: 24px !important;
+  height: 8px !important;
+  border-radius: 4px !important;
+  background: #E4E7ED !important;
+  border: 1px solid #fff !important;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: #409eff !important;
+    height: 10px !important;
+  }
+}
+
+.dep-handle-input {
+  top: -4px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+}
+
+.dep-handle-output {
+  bottom: -4px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
 }
 
 // 端口标签
