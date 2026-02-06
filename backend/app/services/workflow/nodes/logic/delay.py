@@ -1,40 +1,36 @@
 import asyncio
-from typing import Any, Dict
-from pydantic import Field
+from typing import Any, AsyncIterator
+from pydantic import BaseModel, Field
 from loguru import logger
 
 from ...registry import register_node
-from ...types import ExecutionResult, NodePort
-from ..base import BaseNode, BaseNodeConfig
+from ..base import BaseNode
 
 
-class LogicDelayConfig(BaseNodeConfig):
+class LogicDelayInput(BaseModel):
+    """延迟输入"""
+    input: Any = Field(None, description="输入数据（透传）")
     seconds: float = Field(1.0, description="延迟秒数")
 
 
+class LogicDelayOutput(BaseModel):
+    """延迟输出"""
+    output: Any = Field(None, description="输出数据（透传）")
+
+
 @register_node
-class LogicDelayNode(BaseNode):
+class LogicDelayNode(BaseNode[LogicDelayInput, LogicDelayOutput]):
     node_type = "Logic.Delay"
     category = "logic"
     label = "延迟"
     description = "延迟指定时间后继续"
-    config_model = LogicDelayConfig
+    
+    input_model = LogicDelayInput
+    output_model = LogicDelayOutput
 
-    @classmethod
-    def get_ports(cls):
-        return {
-            "inputs": [NodePort("input", "any")],
-            "outputs": [NodePort("output", "any")]
-        }
-
-    async def execute(self, inputs: Dict[str, Any], config: LogicDelayConfig) -> ExecutionResult:
+    async def execute(self, inputs: LogicDelayInput) -> AsyncIterator[LogicDelayOutput]:
         """延迟节点"""
-        input_data = inputs.get("input")
+        logger.info(f"[Delay] 延迟 {inputs.seconds} 秒")
+        await asyncio.sleep(inputs.seconds)
         
-        logger.info(f"[Delay] 延迟 {config.seconds} 秒")
-        await asyncio.sleep(config.seconds)
-        
-        return ExecutionResult(
-            success=True,
-            outputs={"output": input_data}
-        )
+        yield LogicDelayOutput(output=inputs.input)

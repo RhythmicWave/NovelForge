@@ -1,114 +1,103 @@
-from typing import Any, Dict, Optional
-from loguru import logger
-from pydantic import Field
+"""卡片更新节点"""
 
-from ...registry import register_node
-from ...types import ExecutionResult, NodePort
-from ..base import BaseNode, BaseNodeConfig
+from typing import Any, Dict, Optional, AsyncIterator
+from pydantic import BaseModel, Field
+
+from app.services.workflow.nodes.base import BaseNode
+from app.services.workflow.registry import register_node
 
 
-class CardUpdateConfig(BaseNodeConfig):
-    content_merge: Optional[Dict[str, Any]] = Field(None, description="要合并的内容（浅合并）")
-    title: Optional[str] = Field(None, description="新标题（可选）")
+class CardUpdateInput(BaseModel):
+    """卡片更新输入"""
+    card_id: Optional[int] = Field(None, description="卡片ID（可选，可从上下文获取）")
+    content_merge: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="要合并的内容（深度合并到现有内容）"
+    )
+    title: Optional[str] = Field(
+        None,
+        description="新标题（可选）"
+    )
+
+
+class CardUpdateOutput(BaseModel):
+    """卡片更新输出"""
+    card_id: int = Field(..., description="更新后的卡片ID")
+    success: bool = Field(True, description="是否更新成功")
 
 
 @register_node
 class CardUpdateNode(BaseNode):
+    """卡片更新节点
+    
+    更新现有卡片的内容或标题。
+    支持深度合并内容，不会覆盖未指定的字段。
+    
+    示例：
+    1. 清空列表字段：content_merge={"items": []}
+    2. 更新嵌套字段：content_merge={"world_view": {"social_system": {"major_power_camps": []}}}
+    3. 更新标题：title="新标题"
+    """
+    
     node_type = "Card.Update"
     category = "card"
     label = "更新卡片"
-    description = "更新卡片内容"
-    config_model = CardUpdateConfig
-
-    @classmethod
-    def get_ports(cls):
-        return {
-            "inputs": [
-                NodePort("card", "card", description="要更新的卡片"),
-                NodePort("title", "string", required=False, description="新标题"),
-                NodePort("content", "object", required=False, description="要合并的内容")
-            ],
-            "outputs": [NodePort("card", "card", description="更新后的卡片")]
-        }
-
-    async def execute(self, inputs: Dict[str, Any], config: CardUpdateConfig) -> ExecutionResult:
-        """更新卡片节点"""
-        card_data = inputs.get("card", {})
-        card_id = card_data.get("id")
+    description = "更新现有卡片的内容或标题"
+    
+    input_model = CardUpdateInput
+    output_model = CardUpdateOutput
+    
+    async def execute(self, input_data: CardUpdateInput) -> AsyncIterator[CardUpdateOutput]:
+        """执行卡片更新"""
+        from sqlmodel import select
+        from app.db.models import Card
         
+        # 确定卡片ID
+        card_id = input_data.card_id
         if not card_id:
-            return ExecutionResult(
-                success=False,
-                error="未提供卡片ID"
-            )
+            raise ValueError("必须提供 card_id")
         
-        card = self.get_card_by_id(card_id)
+        # 获取卡片
+        card = self.context.session.get(Card, card_id)
         if not card:
-            return ExecutionResult(
-                success=False,
-                error=f"卡片不存在: {card_id}"
-            )
+            raise ValueError(f"卡片不存在: card_id={card_id}")
         
         # 更新标题
-        input_title = inputs.get("title")
-        final_title = input_title if input_title is not None else config.title
+        if input_data.title:
+            card.title = input_data.title
         
-        if final_title:
-            card.title = final_title
-        
-        # 合并内容
-        input_content = inputs.get("content") or {}
-        config_content = config.content_merge or {}
-        
-        # Merge source: inputs > config
-        # 如果 inputs 提供 content, 它将合并到 current content 中
-        # 如果 config 提供 content_merge, 它也会合并
-        # 这里策略是: 先合并 config, 再合并 inputs
-        
-        if config_content or input_content:
-            # 必须进行深拷贝和重新赋值，以确保 SQLAlchemy 检测到变更
-            import copy
-            new_content = copy.deepcopy(card.content) if isinstance(card.content, dict) else {}
-            
-            if config_content:
-                self._deep_merge(new_content, config_content)
-            
-            if input_content:
-                self._deep_merge(new_content, input_content)
-                
-            card.content = new_content
+        # 深度合并内容
+        if input_data.content_merge:
+            card.content = self._deep_merge(card.content or {}, input_data.content_merge)
         
         # 保存
         self.context.session.add(card)
         self.context.session.commit()
         self.context.session.refresh(card)
         
-        # 记录受影响的卡片
-        self.context.variables.setdefault("touched_card_ids", set()).add(card.id)
-        
-        logger.info(
-            f"[Card.Update] 更新卡片: id={card.id}, title={card.title}"
+        yield CardUpdateOutput(
+            card_id=card.id,
+            success=True
         )
+    
+    def _deep_merge(self, base: Dict, update: Dict) -> Dict:
+        """深度合并字典
         
-        return ExecutionResult(
-            success=True,
-            outputs={
-                "card": {
-                    "id": card.id,
-                    "title": card.title,
-                    "content": card.content,
-                    "card_type_id": card.card_type_id,
-                    "parent_id": card.parent_id
-                }
-            }
-        )
-
-    def _deep_merge(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
-        """递归合并字典"""
-        for key, value in source.items():
-            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
-                self._deep_merge(target[key], value)
+        Args:
+            base: 基础字典
+            update: 更新字典
+            
+        Returns:
+            合并后的字典
+        """
+        result = base.copy()
+        
+        for key, value in update.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # 递归合并嵌套字典
+                result[key] = self._deep_merge(result[key], value)
             else:
-                # 对于列表或基本类型，直接覆盖（如果那是你想要的）
-                # 注意：如果 value 是空列表 []，也会覆盖 target[key]，这正是清空列表所需的
-                target[key] = value
+                # 直接覆盖
+                result[key] = value
+        
+        return result

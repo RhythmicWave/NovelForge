@@ -1,4 +1,5 @@
 from typing import Optional, Any, List
+from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -8,9 +9,10 @@ class WorkflowBase(BaseModel):
     is_active: Optional[bool] = True
     is_built_in: Optional[bool] = False
     version: Optional[int] = 1
-    dsl_version: Optional[int] = 1
-    definition_json: Optional[dict] = None
+    dsl_version: Optional[int] = 2  # 代码式工作流版本
+    definition_code: str = ""  # 工作流代码
     keep_run_history: Optional[bool] = False  # Default to False (Transient)
+    triggers_cache: Optional[List[dict]] = None  # 触发器缓存
 
 
 class WorkflowCreate(WorkflowBase):
@@ -23,7 +25,7 @@ class WorkflowUpdate(BaseModel):
     is_active: Optional[bool] = None
     version: Optional[int] = None
     dsl_version: Optional[int] = None
-    definition_json: Optional[dict] = None
+    definition_code: Optional[str] = None
     keep_run_history: Optional[bool] = None
 
 
@@ -44,10 +46,16 @@ class WorkflowRunRead(BaseModel):
     idempotency_key: Optional[str] = None
     summary_json: Optional[dict] = None
     error_json: Optional[dict] = None
+    created_at: Optional[datetime] = None  # 添加创建时间
+    started_at: Optional[datetime] = None  # 添加开始时间
+    finished_at: Optional[datetime] = None  # 添加完成时间
     workflow: Optional["WorkflowRead"] = None  # Include basic info
 
     class Config:
         from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
 
 
 class RunRequest(BaseModel):
@@ -84,23 +92,14 @@ class RunStatus(BaseModel):
 
 # ---- Node Types ----
 
-class NodePortInfo(BaseModel):
-    """节点端口信息"""
-    name: str
-    type: str
-    required: Optional[bool] = None
-    description: Optional[str] = None
-
-
 class NodeTypeInfo(BaseModel):
     """节点类型信息"""
     type: str
     category: str
     label: str
     description: str
-    inputs: List[NodePortInfo]
-    outputs: List[NodePortInfo]
-    config_schema: Optional[dict] = None
+    input_schema: dict = {}  # Pydantic JSON Schema
+    output_schema: dict = {}  # Pydantic JSON Schema
 
 
 class NodeTypesResponse(BaseModel):

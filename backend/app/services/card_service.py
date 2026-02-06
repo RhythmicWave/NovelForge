@@ -70,14 +70,30 @@ def _shallow_clone(src: Card, project_id: int, parent_id: Optional[int], display
 
 # ---- 标题后缀生成 ----
 
-def _generate_non_conflicting_title(db: Session, project_id: int, base_title: str) -> str:
+def _generate_non_conflicting_title(db: Session, project_id: int, base_title: str, card_type_id: Optional[int] = None) -> str:
+    """生成不冲突的标题
+    
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+        base_title: 基础标题
+        card_type_id: 卡片类型ID（如果提供，只检查同类型卡片的标题冲突）
+    """
     title = (base_title or '').strip() or '新卡片'
-    # 收集同项目内所有以 base_title 开头且形如 base_title(数字) 的标题
+    
+    # 构建查询：同项目内的标题
     stmt = select(Card.title).where(Card.project_id == project_id)
+    
+    # 如果指定了卡片类型，只检查同类型的标题冲突
+    if card_type_id is not None:
+        stmt = stmt.where(Card.card_type_id == card_type_id)
+    
     titles = db.exec(stmt).all() or []
     existing_titles = set(titles)
+    
     if title not in existing_titles:
         return title
+    
     # 找最大后缀
     import re
     pattern = re.compile(rf"^{re.escape(title)}\((\d+)\)$")
@@ -142,8 +158,13 @@ class CardService:
         elif not ai_context_template:
             ai_context_template = card_type.default_ai_context_template
 
-        # 自动处理标题冲突：相同标题追加 (n)
-        final_title = _generate_non_conflicting_title(self.db, project_id, getattr(card_create, 'title', '') or card_type.name)
+        # 自动处理标题冲突：相同类型的卡片标题追加 (n)
+        final_title = _generate_non_conflicting_title(
+            self.db, 
+            project_id, 
+            getattr(card_create, 'title', '') or card_type.name,
+            card_type_id=card_create.card_type_id  # 只检查同类型卡片
+        )
 
         card = Card(
             **{ **card_create.model_dump(), 'title': final_title },

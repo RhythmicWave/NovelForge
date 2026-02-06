@@ -1,0 +1,90 @@
+# 工作流：拆书工作流
+# 功能：自动扫描小说目录，按分卷组织，批量提取章节大纲
+# 说明：这是一个手动触发的工作流，通过 API 调用执行
+
+# 选择项目
+<node name="project">
+  Logic.SelectProject(project_id=10)
+</node>
+
+# 扫描小说目录
+<node name="novel">
+  Novel.Load(
+    root_path="E:\\LLMProjects\\小说数据\\熵减纪元的裂痕",
+    file_pattern=".*\\.(txt|md)$",
+    volume_pattern="第[一二三四五六七八九十0-9]+[卷部纪]",
+    chapter_pattern="第([零一二三四五六七八九十百千0-9]+)章"
+  )
+</node>
+
+# 批量创建分卷卡片
+<node name="volume_cards">
+  Card.BatchUpsert(
+    project_id=project.project_id,
+    card_type="分卷大纲",
+    title_template="{item}",
+    content_template={"volume_name": "{item}"},
+    items=novel.volume_list
+  )
+</node>
+
+# 创建分卷名称到卡片ID的映射
+<node name="volume_map">
+  Logic.Expression(
+    expression="{card.title: card.id for card in volume_cards.cards or []}"
+  )
+</node>
+
+# 加载提示词
+<node name="prompt">
+  Prompt.Load(prompt_id="章节大纲_拆书")
+</node>
+
+# 批量提取章节大纲（AI处理，异步）
+<node name="outline_results" async="true">
+  AI.BatchStructured(
+    llm_config_id=5,
+    response_model_id="章节大纲",
+    prompt_template=prompt.text,
+    concurrency=30,
+    max_retries=3,
+    items=novel.chapter_list
+  )
+</node>
+
+# 等待异步任务完成
+<node name="wait_outline">
+  Logic.Wait(tasks=outline_results)
+</node>
+
+# 为每个章节注入父卡片ID和文件内容
+# 通过引用 wait_outline 确保等待完成
+<node name="chapters_with_parent">
+  Logic.Expression(
+    expression="[{**item, 'meta': {**item.meta, 'volume_parent_id': volume_map.result[item.meta.volume] if item.meta.volume in volume_map.result else None, 'content': read_file(item.meta.path) if 'path' in item.meta and item.meta.path else ''}, 'file_content': read_file(item.meta.path) if 'path' in item.meta and item.meta.path else ''} for item in outline_results.results] if wait_outline.count > 0 else []"
+  )
+</node>
+
+# 批量创建章节大纲卡（异步）
+<node name="outline_cards" async="true">
+  Card.BatchUpsert(
+    project_id=project.project_id,
+    card_type="章节大纲",
+    title_template="{item.meta.title}",
+    content_template="{item.ai_result}",
+    parent_id="{item.meta.volume_parent_id}",
+    items=chapters_with_parent.result
+  )
+</node>
+
+# 批量创建章节正文卡（异步）
+<node name="content_cards" async="true">
+  Card.BatchUpsert(
+    project_id=project.project_id,
+    card_type="章节正文",
+    title_template="{item.meta.title}",
+    content_template={"content": "{item.file_content}"},
+    parent_id="{item.meta.volume_parent_id}",
+    items=chapters_with_parent.result
+  )
+</node>

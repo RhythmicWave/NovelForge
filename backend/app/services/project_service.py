@@ -40,20 +40,30 @@ def get_project(session: Session, project_id: int) -> Optional[Project]:
 from typing import List, Optional, Tuple
 
 def create_project(session: Session, project_in: ProjectCreate) -> Tuple[Project, List[int]]:
+    # 检查项目名称是否已存在
+    from sqlmodel import select
+    existing_project = session.exec(
+        select(Project).where(Project.name == project_in.name)
+    ).first()
+    
+    if existing_project:
+        raise ValueError(f"项目名称已存在: {project_in.name}")
+    
     db_project = Project.model_validate(project_in)
     session.add(db_project)
     session.commit()
     session.refresh(db_project)
     
     triggered_run_ids = []
-    # 触发所有 onprojectcreate 工作流
+    # 触发项目创建事件
     try:
         from app.core import emit_event
-        # 如果指定了 workflow_id，可以通过 payload 传递，但目前触发器逻辑主要是基于事件名
-        # 为了兼容，我们统一触发 project.created 事件
-        event_data = {"session": session, "project_id": db_project.id}
-        if getattr(project_in, 'workflow_id', None):
-             event_data["specified_workflow_id"] = project_in.workflow_id
+        
+        event_data = {
+            "session": session,
+            "project_id": db_project.id,
+            "template": project_in.template,  # 传递模板标识
+        }
         
         emit_event("project.created", event_data)
         triggered_run_ids = event_data.get("triggered_run_ids", [])

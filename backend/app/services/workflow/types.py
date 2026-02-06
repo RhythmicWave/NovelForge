@@ -1,6 +1,9 @@
-"""工作流引擎类型定义"""
+"""工作流引擎类型定义
 
-from typing import Any, Dict, List, Optional, Callable, Literal
+只包含新代码式工作流系统使用的类型。
+"""
+
+from typing import Literal, Any, Callable, Dict
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -11,14 +14,6 @@ NodeStatus = Literal["idle", "pending", "running", "success", "error", "skipped"
 # 运行状态类型
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "paused", "timeout"]
 
-# 端口数据类型
-PortDataType = Literal[
-    "string", "number", "boolean", "object", "array",
-    "card", "card-list",
-    "llm-response", "agent-result",
-    "any"
-]
-
 # 错误处理策略
 ErrorHandling = Literal["stop", "continue"]
 
@@ -27,19 +22,22 @@ LogLevel = Literal["debug", "info", "warn", "error"]
 
 
 @dataclass
-class NodePort:
-    """节点端口定义"""
-    name: str
-    type: PortDataType
-    required: bool = False
-    default_value: Any = None
-    description: Optional[str] = None
+class NodeMetadata:
+    """节点元数据"""
+    type: str
+    category: str
+    label: str
+    description: str
+    documentation: str  # 完整的文档（从 docstring 提取）
+    input_schema: Dict[str, Any]  # 从 input_model 生成的 JSON Schema
+    output_schema: Dict[str, Any]  # 从 output_model 生成的 JSON Schema
+    executor: Callable  # 节点执行器类
 
 
 @dataclass
 class WorkflowSettings:
     """工作流执行设置"""
-    max_execution_time: Optional[int] = None  # 秒
+    max_execution_time: int | None = None  # 秒
     timeout: int = 300  # 节点默认超时时间（秒）
     error_handling: ErrorHandling = "stop"
     max_concurrency: int = 5  # 最大并发节点数
@@ -48,113 +46,44 @@ class WorkflowSettings:
 
 @dataclass
 class ExecutionContext:
-    """节点执行上下文"""
+    """节点执行上下文（简化版，用于兼容旧节点）"""
     run_id: int
     node_id: str
     node_type: str
-    config: Dict[str, Any]
-    inputs: Dict[str, Any]
-    variables: Dict[str, Any]  # 全局变量
-    node_outputs: Dict[str, Dict[str, Any]]  # 其他节点的输出
+    config: dict[str, Any]
+    inputs: dict[str, Any]
+    variables: dict[str, Any]  # 全局变量
+    node_outputs: dict[str, dict[str, Any]]  # 其他节点的输出
     settings: WorkflowSettings
     session: Any  # SQLModel Session
+    checkpoint: dict[str, Any] | None = None  # 检查点数据（恢复时注入）
+    """检查点数据（恢复时由执行器注入）
     
-    # 辅助方法
-    def get_node_output(self, node_id: str, field: Optional[str] = None) -> Any:
-        """获取其他节点的输出
-        
-        支持两种格式：
-        1. Dict[str, Any] - 旧格式，直接返回
-        2. ExecutionResult - 新格式，返回 .outputs
-        """
-        if node_id not in self.node_outputs:
-            return None
-        
-        node_data = self.node_outputs[node_id]
-        
-        # 检查是否是 ExecutionResult 对象
-        if hasattr(node_data, 'outputs'):
-            output = node_data.outputs
+    节点可以通过 self.context.checkpoint 访问上次保存的检查点数据。
+    
+    示例：
+        checkpoint = getattr(self.context, 'checkpoint', None)
+        if checkpoint:
+            start_index = checkpoint.get('processed_count', 0)
         else:
-            output = node_data
-        
-        if field:
-            return output.get(field) if isinstance(output, dict) else None
-        return output
+            start_index = 0
     
-    def set_variable(self, name: str, value: Any) -> None:
-        """设置全局变量"""
-        self.variables[name] = value
-    
-    def get_variable(self, name: str, default: Any = None) -> Any:
-        """获取全局变量"""
-        return self.variables.get(name, default)
-
-
-@dataclass
-class ExecutionResult:
-    """节点执行结果"""
-    success: bool
-    outputs: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    error_details: Optional[Dict[str, Any]] = None
-    logs: List[Dict[str, Any]] = field(default_factory=list)
-    should_skip_successors: bool = False  # 是否跳过后续节点
-    activated_ports: Optional[List[str]] = None  # 激活的输出端口列表（用于条件分支）
-    
-    def add_log(self, level: str, message: str, **kwargs) -> None:
-        """添加日志"""
-        self.logs.append({
-            "level": level,
-            "message": message,
-            "timestamp": datetime.utcnow().isoformat(),
-            **kwargs
-        })
-    
-    def get_activated_ports(self) -> List[str]:
-        """获取激活的端口列表
-        
-        如果未显式声明，则默认激活所有输出端口
-        """
-        if self.activated_ports is not None:
-            return self.activated_ports
-        return list(self.outputs.keys())
-
-
-@dataclass
-class ExecutionGraph:
-    """执行图"""
-    nodes: Dict[str, Dict[str, Any]]  # node_id -> node_data
-    edges: List[Dict[str, Any]]
-    dependencies: Dict[str, List[str]]  # node_id -> [predecessor_ids]
-    successors: Dict[str, List[str]]  # node_id -> [successor_ids]
-    start_nodes: List[str]  # 起始节点
-    topology_order: List[str]  # 拓扑排序结果
-    
-    def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
-        """获取节点"""
-        return self.nodes.get(node_id)
-    
-    def get_dependencies(self, node_id: str) -> List[str]:
-        """获取节点的依赖"""
-        return self.dependencies.get(node_id, [])
-    
-    def get_successors(self, node_id: str) -> List[str]:
-        """获取节点的后继"""
-        return self.successors.get(node_id, [])
+    注意：
+    - 只保存轻量级元数据（索引、计数器、ID等）
+    - 不保存业务数据（卡片内容、处理结果等）
+    - 大小限制：< 10KB
+    """
 
 
 @dataclass
 class ExecutionEvent:
-    """执行事件"""
+    """执行事件（用于 SSE 推送）"""
     type: str  # run.started | node.started | node.progress | node.completed | node.error | run.completed | run.paused | run.cancelled
-    data: Dict[str, Any]
+    data: dict
     timestamp: datetime = field(default_factory=datetime.utcnow)
     
     def to_sse(self) -> str:
         """转换为SSE格式"""
         import json
         return f"event: {self.type}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"
-
-
 

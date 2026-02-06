@@ -29,6 +29,9 @@
           <div class="cards-title-actions">
             <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
             <el-button v-if="!isFreeProject" size="small" @click="openImportFreeCards">导入卡片</el-button>
+            <el-button v-if="selectedCardIds.length > 0" size="small" type="danger" @click="batchDeleteCards">
+              删除选中 ({{ selectedCardIds.length }})
+            </el-button>
           </div>
         </div>
         <el-tree
@@ -49,7 +52,14 @@
         >
           <template #default="{ node, data }">
             <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
-              <div class="custom-tree-node full-row" @dragover.prevent @drop="(e:any) => onExternalDropToNode(e, data)" @dragenter.prevent>
+              <div 
+                class="custom-tree-node full-row" 
+                :class="{ 'selected': isCardSelected(data.id) }"
+                @click.stop="handleCardClick($event, data)"
+                @dragover.prevent 
+                @drop="(e:any) => onExternalDropToNode(e, data)" 
+                @dragenter.prevent
+              >
                 <el-icon class="card-icon"> 
                   <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
                 </el-icon>
@@ -59,11 +69,12 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <template v-if="!data.__isGroup">
-                    <el-dropdown-item command="create-child">新建子卡片</el-dropdown-item>
-                    <el-dropdown-item command="rename">重命名</el-dropdown-item>
-                    <el-dropdown-item command="edit-structure">结构编辑</el-dropdown-item>
-                    <el-dropdown-item command="add-as-reference">添加为引用</el-dropdown-item>
-                    <el-dropdown-item command="delete" divided>删除卡片</el-dropdown-item>
+                    <el-dropdown-item command="create-child" :disabled="selectedCardIds.length > 1">新建子卡片</el-dropdown-item>
+                    <el-dropdown-item command="rename" :disabled="selectedCardIds.length > 1">重命名</el-dropdown-item>
+                    <el-dropdown-item command="edit-structure" :disabled="selectedCardIds.length > 1">结构编辑</el-dropdown-item>
+                    <el-dropdown-item command="add-as-reference" :disabled="selectedCardIds.length > 1">添加为引用</el-dropdown-item>
+                    <el-dropdown-item v-if="selectedCardIds.length > 1" command="batch-delete" divided>删除选中的卡片 ({{ selectedCardIds.length }})</el-dropdown-item>
+                    <el-dropdown-item v-else command="delete" divided>删除卡片</el-dropdown-item>
                   </template>
                   <template v-else>
                     <el-dropdown-item command="create-child-in-group">新建子卡片</el-dropdown-item>
@@ -440,6 +451,10 @@ const newCardForm = reactive<Partial<CardCreate>>({
   parent_id: '' as any
 })
 
+// 卡片多选状态
+const selectedCardIds = ref<number[]>([])
+const lastSelectedCardId = ref<number | null>(null)
+
 // 空白区域菜单状态
 const blankMenuVisible = ref(false)
 const blankMenuX = ref(0)
@@ -565,8 +580,6 @@ async function handleNodeDrop(
   try {
     const draggedCard = draggingNode.data
     const targetCard = dropNode.data
-    
-    console.log('🔄 [拖拽] 拖拽卡片:', draggedCard.title, '目标:', targetCard.title || targetCard.__groupType, '位置:', dropType)
     
     // 如果是拖到分组内，设置 parent_id 为 null（根级）
     if (targetCard.__isGroup && dropType === 'inner') {
@@ -783,6 +796,166 @@ function handleNodeClick(data: any) {
   } catch {}
 }
 
+// 卡片点击处理（支持多选）
+function handleCardClick(event: MouseEvent, data: any) {
+  // 分组节点不支持多选
+  if (data.__isGroup) {
+    handleNodeClick(data)
+    return
+  }
+  
+  const cardId = data.id
+  
+  // Ctrl 键：跳跃式多选
+  if (event.ctrlKey || event.metaKey) {
+    const index = selectedCardIds.value.indexOf(cardId)
+    if (index > -1) {
+      // 取消选中
+      selectedCardIds.value.splice(index, 1)
+    } else {
+      // 添加选中
+      selectedCardIds.value.push(cardId)
+    }
+    lastSelectedCardId.value = cardId
+    event.stopPropagation()
+    return
+  }
+  
+  // Shift 键：连续多选
+  if (event.shiftKey && lastSelectedCardId.value !== null) {
+    // 获取所有可见的卡片ID（扁平化树结构）
+    const flatCards: number[] = []
+    function flattenTree(nodes: any[]) {
+      for (const node of nodes) {
+        if (!node.__isGroup && node.id) {
+          flatCards.push(node.id)
+        }
+        if (node.children && node.children.length > 0) {
+          flattenTree(node.children)
+        }
+      }
+    }
+    flattenTree(groupedTree.value)
+    
+    // 找到起始和结束位置
+    const startIndex = flatCards.indexOf(lastSelectedCardId.value)
+    const endIndex = flatCards.indexOf(cardId)
+    
+    if (startIndex !== -1 && endIndex !== -1) {
+      const minIndex = Math.min(startIndex, endIndex)
+      const maxIndex = Math.max(startIndex, endIndex)
+      
+      // 选中范围内的所有卡片
+      selectedCardIds.value = flatCards.slice(minIndex, maxIndex + 1)
+    }
+    
+    event.stopPropagation()
+    return
+  }
+  
+  // 普通点击：清空多选，打开卡片
+  selectedCardIds.value = []
+  lastSelectedCardId.value = cardId
+  handleNodeClick(data)
+}
+
+// 判断卡片是否被选中
+function isCardSelected(cardId: number): boolean {
+  return selectedCardIds.value.includes(cardId)
+}
+
+// 批量删除卡片
+async function batchDeleteCards() {
+  if (selectedCardIds.value.length === 0) {
+    ElMessage.warning('请先选择要删除的卡片')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      `确认删除选中的 ${selectedCardIds.value.length} 个卡片？此操作不可恢复`,
+      '批量删除确认',
+      { type: 'warning' }
+    )
+    
+    // 记录删除的卡片信息
+    const deletedCards = selectedCardIds.value.map(id => {
+      const card = cards.value.find(c => (c as any).id === id)
+      return {
+        id,
+        title: card?.title || '未知',
+        cardType: (card as any)?.card_type?.name || 'Unknown'
+      }
+    })
+    
+    // 如果当前激活的卡片在删除列表中，先清空激活状态
+    if (activeCard.value && selectedCardIds.value.includes((activeCard.value as any).id)) {
+      cardStore.setActiveCard(null as any)
+    }
+    
+    // 优化：过滤掉会被级联删除的子卡片
+    // 只删除顶层卡片（即不是其他选中卡片的子孙的卡片）
+    const selectedSet = new Set(selectedCardIds.value)
+    const cardsToDelete: number[] = []
+    
+    // 检查一个卡片是否是另一个选中卡片的子孙
+    function isDescendantOfSelected(cardId: number): boolean {
+      const card = cards.value.find(c => (c as any).id === cardId)
+      if (!card) return false
+      
+      let parentId = (card as any).parent_id
+      while (parentId) {
+        if (selectedSet.has(parentId)) {
+          return true  // 是某个选中卡片的子孙
+        }
+        const parent = cards.value.find(c => (c as any).id === parentId)
+        if (!parent) break
+        parentId = (parent as any).parent_id
+      }
+      return false
+    }
+    
+    // 只保留顶层卡片（不是其他选中卡片的子孙）
+    for (const cardId of selectedCardIds.value) {
+      if (!isDescendantOfSelected(cardId)) {
+        cardsToDelete.push(cardId)
+      }
+    }
+    
+    // 批量删除（只删除顶层卡片，子卡片会被后端级联删除）
+    let successCount = 0
+    for (const cardId of cardsToDelete) {
+      try {
+        await cardStore.removeCard(cardId)
+        successCount++
+      } catch (error: any) {
+        console.error(`删除卡片 ${cardId} 失败:`, error)
+        ElMessage.error(`删除卡片失败: ${error.message || '未知错误'}`)
+      }
+    }
+    
+    // 记录删除操作（记录所有选中的卡片，包括被级联删除的）
+    if (projectStore.currentProject?.id) {
+      for (const card of deletedCards) {
+        assistantStore.recordOperation(projectStore.currentProject.id, {
+          type: 'delete',
+          cardId: card.id,
+          cardTitle: card.title,
+          cardType: card.cardType
+        })
+      }
+    }
+    
+    // 清空选中状态
+    selectedCardIds.value = []
+    lastSelectedCardId.value = null
+    
+    ElMessage.success(`已删除 ${selectedCardIds.value.length || deletedCards.length} 个卡片`)
+  } catch (e) {
+    // 用户取消
+  }
+}
+
 // 兜底：当 activeCard 改变时也自动注入一次
 watch(activeCard, (c) => {
  try {
@@ -792,7 +965,6 @@ watch(activeCard, (c) => {
    assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: (c as any).id, cardTitle: (c as any).title || '', content: (c as any).content || {} })
    
    //  更新卡片上下文（用于灵感助手工具调用）
-   console.log('🔄 [Editor] 更新卡片上下文:', { card_id: (c as any).id, title: (c as any).title, pid })
    assistantStore.updateActiveCard(c as any, pid)
    
    //  更新项目结构（当前卡片变化时）
@@ -807,8 +979,6 @@ watch(() => projectStore.currentProject, (newProject) => {
   if (!newProject?.id) return
   
   try {
-    console.log('📦 [Editor] 项目切换，初始化助手上下文:', newProject.name)
-    
     // 加载操作历史
     assistantStore.loadOperations(newProject.id)
     
@@ -924,6 +1094,8 @@ function handleContextCommand(command: string, data: any) {
     openCreateChildInGroup(data.__parentCardId, data.__groupType)
   } else if (command === 'delete') {
     deleteNode(data.id, data.title)
+  } else if (command === 'batch-delete') {
+    batchDeleteCards()
   } else if (command === 'delete-group') {
     deleteGroupNodes(data)
   } else if (command === 'edit-structure') {
@@ -1004,16 +1176,27 @@ async function deleteNode(cardId: number, title: string) {
     const card = cards.value.find(c => (c as any).id === cardId)
     const cardType = card ? ((card as any).card_type?.name || 'Unknown') : 'Unknown'
     
-    await cardStore.removeCard(cardId)
+    // 如果删除的是当前激活的卡片，先清空激活状态
+    if (activeCard.value && (activeCard.value as any).id === cardId) {
+      cardStore.setActiveCard(null as any)
+    }
     
-    //  记录删除操作
-    if (projectStore.currentProject?.id) {
-      assistantStore.recordOperation(projectStore.currentProject.id, {
-        type: 'delete',
-        cardId,
-        cardTitle: title,
-        cardType
-      })
+    try {
+      await cardStore.removeCard(cardId)
+      ElMessage.success('卡片已删除')
+      
+      //  记录删除操作
+      if (projectStore.currentProject?.id) {
+        assistantStore.recordOperation(projectStore.currentProject.id, {
+          type: 'delete',
+          cardId,
+          cardTitle: title,
+          cardType
+        })
+      }
+    } catch (error: any) {
+      console.error('删除卡片失败:', error)
+      ElMessage.error('删除卡片失败')
     }
   } catch (e) {
     // 用户取消
@@ -1441,9 +1624,19 @@ onMounted(async () => {
   align-items: center;
   width: 100%;
   padding: 3px 6px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
 }
 .custom-tree-node.full-row .label {
   flex: 1;
+}
+.custom-tree-node.full-row.selected {
+  background-color: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+}
+.custom-tree-node.full-row.selected .label {
+  color: var(--el-color-primary);
+  font-weight: 500;
 }
 
 

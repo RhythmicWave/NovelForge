@@ -363,3 +363,23 @@ def fn_coalesce(*values) -> Any:
         if value is not None:
             return value
     return None
+
+
+@register_function("merge")
+def fn_merge(*dicts) -> Dict:
+    """合并多个字典"""
+    result = {}
+    for d in dicts:
+        if isinstance(d, dict):
+            result.update(d)
+    return result
+
+
+@register_function("read_file")
+def fn_read_file(path: str, encoding: str = "utf-8") -> str:
+    """读取文件内容"""
+    try:
+        with open(path, "r", encoding=encoding) as f:
+            return f.read()
+    except Exception as e:
+        return f"[读取失败: {e}]"

@@ -46,6 +46,7 @@
     "@vue-flow/core": "^1.46.4",
     "@vue-flow/node-toolbar": "^1.1.1",
     "axios": "^1.10.0",
+    "codemirror": "^6.0.2",
     "electron-updater": "^6.6.2",
     "element-plus": "^2.10.4",
     "element-plus-x": "^1.1.11",

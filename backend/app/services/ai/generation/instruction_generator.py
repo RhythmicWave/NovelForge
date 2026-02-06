@@ -5,6 +5,7 @@
 
 import json
 import re
+import asyncio
 from typing import AsyncIterator, Dict, Any, List, Optional
 from sqlmodel import Session
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
@@ -394,6 +395,12 @@ async def generate_instruction_stream(
                 messages.append(AIMessage(content="\n".join(ai_output_lines)))
                 messages.append(HumanMessage(content=fix_prompt))
                 
+                # 重试前等待，避免立即重试触发限流
+                if attempt < max_retry - 1:
+                    retry_delay = min(2 ** attempt, 5)  # 指数退避：1秒、2秒、4秒...
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+                
                 # 继续下一轮生成
                 continue
             
@@ -432,6 +439,12 @@ async def generate_instruction_stream(
                 
                 # 清空失败列表，准备下一轮
                 failed_instructions = []
+                
+                # 重试前等待，避免立即重试触发限流
+                if attempt < max_retry - 1:
+                    retry_delay = min(2 ** attempt, 5)  # 指数退避：1秒、2秒、4秒...
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
                 
                 # 继续下一轮生成
                 continue
@@ -498,6 +511,12 @@ async def generate_instruction_stream(
 """
                         messages.append(AIMessage(content="\n".join(ai_output_lines)))
                         messages.append(HumanMessage(content=fix_prompt))
+                        
+                        # 重试前等待
+                        retry_delay = min(2 ** attempt, 5)
+                        logger.info(f"等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+                        
                         continue
                     else:
                         # 最后一轮了，直接返回不完整的数据
@@ -550,6 +569,13 @@ async def generate_instruction_stream(
 """
                 messages.append(AIMessage(content="\n".join(ai_output_lines)))
                 messages.append(HumanMessage(content=fix_prompt))
+                
+                # 重试前等待
+                if attempt < max_retry - 1:
+                    retry_delay = min(2 ** attempt, 4)
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+                
                 continue
             
         except Exception as e:

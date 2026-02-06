@@ -1,6 +1,8 @@
-"""工作流触发器（装饰器注册版）
+"""工作流触发器
 
 使用事件系统实现工作流触发。
+只支持新的代码式工作流系统。
+
 """
 
 import asyncio
@@ -9,16 +11,9 @@ from sqlmodel import Session, select
 from time import monotonic
 from loguru import logger
 
-from app.db.models import WorkflowTrigger, Card, Workflow, WorkflowRun
-from app.services.workflow.engine import (
-    RunManager,
-    GraphBuilder,
-    WorkflowExecutor,
-    StateManager
-)
-from app.services.workflow.types import WorkflowSettings
+from app.db.models import Card, Workflow, WorkflowRun
+from app.services.workflow.engine import StateManager
 from app.db.session import engine as db_engine
-from sqlmodel import Session
 from app.core import on_event, Event
 
 # 防抖相关
@@ -34,14 +29,19 @@ def _make_idempotency_key(event: str, workflow_id: int, card: Card | None, proje
 
 
 def _should_suppress(session: Session, key: str, workflow_id: int) -> bool:
-    """检查是否应该抑制触发（防抖）"""
-    # 1) 进程内防抖
+    """检查是否应该抑制触发（仅进程内防抖）
+    
+    只做短时间防抖（1.5秒），避免同一事件在极短时间内重复触发。
+    不做持久层检查，允许失败的任务重新触发。
+    """
+    # 进程内防抖：1.5秒内不重复触发
     now = monotonic()
     last = _recent_keys.get(key)
     if last is not None and (now - last) * 1000 < _DEBOUNCE_MS:
+        logger.debug(f"[Trigger] 防抖抑制: {key}")
         return True
     
-    # 清理过期项
+    # 清理过期项（超过1分钟）
     try:
         for k, v in list(_recent_keys.items()):
             if (now - v) * 1000 > 60000:
@@ -49,26 +49,7 @@ def _should_suppress(session: Session, key: str, workflow_id: int) -> bool:
     except Exception:
         pass
     
-    # 2. 持久层防抖
-    # 查找是否存在正在运行或排队的相同任务
-    # 增加时间检查：如果任务卡在 queued/running 超过 2 分钟，视为僵尸任务，允许重新触发
-    from datetime import datetime, timedelta
-    
-    cutoff_time = datetime.utcnow() - timedelta(minutes=2)
-    
-    existing = session.exec(
-        select(WorkflowRun).where(
-            WorkflowRun.workflow_id == workflow_id,
-            WorkflowRun.idempotency_key == key,
-            WorkflowRun.status.in_(["queued", "running"]),
-            WorkflowRun.created_at > cutoff_time # 只有最近活跃的才算冲突
-        )
-    ).first()
-    
-    if existing:
-        logger.warning(f"[Trigger] Idempotency hit: Found active run {existing.id} (created at {existing.created_at})")
-        return True
-    
+    # 记录本次触发
     _recent_keys[key] = now
     return False
 
@@ -174,39 +155,34 @@ def _evaluate_filter(card: Card, filter_config: Dict, old_content: Dict | None =
         return any(results)
 
 
-def _match_triggers_for_card(session: Session, event: str, card: Card, is_created: bool = False, old_content: Dict | None = None) -> List[WorkflowTrigger]:
-    """匹配卡片相关的触发器"""
-    q = select(WorkflowTrigger).where(
-        WorkflowTrigger.trigger_on == event,
-        WorkflowTrigger.is_active == True,  # noqa: E712
-    )
-    triggers = session.exec(q).all()
+def _match_triggers_for_card(session: Session, event: str, card: Card, is_created: bool = False, old_content: Dict | None = None) -> List[Dict[str, Any]]:
+    """匹配卡片相关的触发器（使用 triggers_cache）"""
+    from app.services.workflow.trigger_extractor import get_active_triggers
     
     if card.card_type is None and card.card_type_id:
         session.refresh(card, ["card_type"])
     
     card_type_name = card.card_type.name if card.card_type else None
     
-    matched: List[WorkflowTrigger] = []
+    # 从 triggers_cache 中获取触发器（性能优化）
+    all_triggers = get_active_triggers(session, event, card_type_name)
+    
+    matched: List[Dict[str, Any]] = []
     current_event = "create" if is_created else "update"
     
-    for t in triggers:
-        # 1. 检查卡片类型 (如果是 None，则匹配所有类型)
-        if t.card_type_name:
-            if not card_type_name or card_type_name != t.card_type_name:
-                continue
+    for t in all_triggers:
+        filter_json = t.get("filter_json")
         
-        # 检查过滤配置
-        if t.filter_json:
-            # 2. 检查细粒度事件类型 (create/update)
-            if "events" in t.filter_json:
-                allowed_events = t.filter_json["events"]
+        if filter_json:
+            # 1. 检查细粒度事件类型 (create/update)
+            if "events" in filter_json:
+                allowed_events = filter_json["events"]
                 if current_event not in allowed_events:
                     continue
             
-            # 3. 检查条件过滤器
-            if "conditions" in t.filter_json:
-                if not _evaluate_filter(card, t.filter_json, old_content):
+            # 2. 检查条件过滤器
+            if "conditions" in filter_json:
+                if not _evaluate_filter(card, filter_json, old_content):
                     continue
                 
         matched.append(t)
@@ -214,9 +190,11 @@ def _match_triggers_for_card(session: Session, event: str, card: Card, is_create
 
 
 def _async_execute_workflow(run_id: int):
-    """异步执行工作流（在后台任务中）"""
+    """异步执行工作流（在后台任务中）
+    
+    只支持代码式工作流系统。
+    """
     async def _execute():
-        # logger.debug(f"[Trigger] 开始后台执行工作流: run_id={run_id}")
         session = Session(db_engine)
         try:
             # 1. 获取运行记录
@@ -230,51 +208,20 @@ def _async_execute_workflow(run_id: int):
             if not wf:
                 logger.error(f"[Trigger] 工作流不存在: wf_id={run.workflow_id}")
                 return
-
-            # 2. 构建执行图
-            graph_builder = GraphBuilder()
-            # 兼容处理：优先使用 definition_json
-            definition = wf.definition_json or {}
-            graph = graph_builder.build(definition)
-
-            # 3. 准备执行器
-            executor = WorkflowExecutor(state_manager)
             
-            # 4. 执行
-            # 初始变量
-            initial_vars = {}
-            if run.scope_json:
-                initial_vars.update(run.scope_json)
-            if run.params_json:
-                initial_vars.update(run.params_json)
-
-            settings = WorkflowSettings() 
-            
-            # [Fix] 手动管理运行状态，因为这里为了保持 session 独立性没有使用 RunManager._execute_run
+            # 2. 更新状态为运行中
             state_manager.update_run_status(run_id, "running")
             
             try:
-                result = await executor.execute(
-                    run_id=run_id,
-                    graph=graph,
-                    settings=settings,
-                    initial_variables=initial_vars
-                )
-                
-                # [Fix] 执行成功后更新状态为 succeeded
-                state_manager.update_run_status(
-                    run_id, 
-                    "succeeded",
-                    summary_json={
-                        "executed_nodes": result.get("executed_nodes", []),
-                        "outputs": result.get("outputs", {})
-                    }
-                )
+                # 3. 执行代码式工作流
+                await _execute_code_workflow(session, state_manager, run, wf)
+                    
             except Exception as e:
-                # [Fix] 执行失败更新状态
+                # 执行失败更新状态
                 state_manager.update_run_status(run_id, "failed")
                 state_manager.save_error(run_id, str(e))
                 raise
+                
         except Exception as e:
             logger.exception(f"[Trigger] 后台执行失败: run_id={run_id}")
         finally:
@@ -288,38 +235,108 @@ def _async_execute_workflow(run_id: int):
             loop = None
 
         if loop and loop.is_running():
-            # logger.debug(f"[Trigger] 在现有事件循环中调度后台任务: run_id={run_id}")
             loop.create_task(_execute())
         else:
-            # logger.debug(f"[Trigger] 在同步上下文中执行（阻塞模式）: run_id={run_id}")
             # Use asyncio.run for sync context (e.g. threadpool)
-            # functionality > latency for now
             asyncio.run(_execute())
             
     except Exception as e:
         logger.error(f"[Trigger] 无法调度后台任务: {e}")
 
 
-def _execute_triggers(session: Session, event_name: str, triggers: List[WorkflowTrigger], 
+async def _execute_code_workflow(
+    session: Session,
+    state_manager: StateManager,
+    run: WorkflowRun,
+    workflow: Workflow,
+) -> None:
+    """执行代码式工作流（触发器专用）
+    
+    与 API 的流式执行不同，这里是后台执行，不需要推送事件。
+    """
+    from .engine.async_executor import AsyncExecutor
+    from .parser.xml_parser import XMLWorkflowParser
+    
+    run_id = run.id
+    code = workflow.definition_code or ""
+    
+    if not code:
+        raise ValueError("工作流缺少代码内容")
+    
+    logger.info(f"[Trigger] 解析代码式工作流: run_id={run_id}")
+    
+    # 解析代码
+    parser = XMLWorkflowParser()
+    plan = parser.parse(code)
+    
+    logger.info(f"[Trigger] 执行代码式工作流: run_id={run_id}, 语句数={len(plan.statements)}")
+    
+    # 准备初始上下文（注入触发器数据）
+    initial_context = {}
+    
+    # 将触发器数据注入到 __trigger_data__ 键
+    # 触发器节点会从这里读取数据并输出
+    trigger_data = {}
+    if run.scope_json:
+        trigger_data.update(run.scope_json)
+    if run.params_json:
+        trigger_data.update(run.params_json)
+    
+    if trigger_data:
+        initial_context["__trigger_data__"] = trigger_data
+    
+    # 执行工作流（消费所有事件）
+    executor = AsyncExecutor(
+        session=session,
+        state_manager=state_manager,
+        run_id=run_id
+    )
+    
+    # execute_stream 是一个异步生成器，需要消费所有事件
+    async for event in executor.execute_stream(plan, initial_context):
+        # 记录关键事件
+        if event.type == "error":
+            logger.error(f"[Trigger] 节点执行失败: {event.statement.variable if event.statement else 'unknown'}, error={event.error}")
+        elif event.type == "complete":
+            logger.debug(f"[Trigger] 节点执行完成: {event.statement.variable if event.statement else 'unknown'}")
+    
+    # 更新状态为成功
+    state_manager.update_run_status(
+        run_id,
+        "succeeded",
+        summary_json={
+            "variables": list(executor.context.keys()),
+            "outputs": executor.context
+        }
+    )
+    
+    logger.info(f"[Trigger] 工作流执行完成: run_id={run_id}")
+
+
+def _execute_triggers(session: Session, event_name: str, triggers: List[Dict[str, Any]], 
                      scope: Dict, card: Card | None = None, project_id: int | None = None,
                      payload: Dict[str, Any] | None = None) -> List[int]:
-    """执行触发器"""
+    """执行触发器（使用 triggers_cache）"""
+    from .engine import RunManager
+    
     run_ids: List[int] = []
     
     run_manager = RunManager(session)
-    # logger.debug(f"[Trigger] Processing {len(triggers)} triggers for event {event_name}")
     
     for t in triggers:
-        wf = session.get(Workflow, t.workflow_id)
+        workflow_id = t.get("workflow_id")
+        if not workflow_id:
+            continue
+            
+        wf = session.get(Workflow, workflow_id)
         if not wf:
-            logger.warning(f"[Trigger] Workflow {t.workflow_id} not found")
+            logger.warning(f"[Trigger] Workflow {workflow_id} not found")
             continue
         if not wf.is_active:
-            # logger.debug(f"[Trigger] Workflow {t.workflow_id} is inactive")
             continue
         
-        idem_key = _make_idempotency_key(event_name, int(t.workflow_id), card, project_id)
-        if _should_suppress(session, idem_key, int(t.workflow_id)):
+        idem_key = _make_idempotency_key(event_name, workflow_id, card, project_id)
+        if _should_suppress(session, idem_key, workflow_id):
             logger.debug(f"[Trigger] Trigger suppressed by idempotency: {idem_key}")
             continue
         
@@ -333,10 +350,9 @@ def _execute_triggers(session: Session, event_name: str, triggers: List[Workflow
                     if isinstance(value, (str, int, float, bool, list, dict, type(None))):
                         serializable_payload[key] = value
             
-            # logger.debug(f"[Trigger] Creating run for workflow {t.workflow_id}")
-            # 1. 创建运行记录 (使用当前 Session)
+            # 创建运行记录
             run = run_manager.create_run(
-                workflow_id=t.workflow_id,
+                workflow_id=workflow_id,
                 trigger_data=scope,
                 params=serializable_payload,
                 idempotency_key=idem_key
@@ -351,14 +367,13 @@ def _execute_triggers(session: Session, event_name: str, triggers: List[Workflow
                 except Exception:
                     pass
 
-                # logger.debug(f"[Trigger] Run created: {run.id}. Scheduling async exec.")
-                # 2. 调度异步执行
+                # 调度异步执行
                 _async_execute_workflow(run.id)
             else:
-                 logger.error(f"[Trigger] Run creation returned no ID for wf {t.workflow_id}")
+                 logger.error(f"[Trigger] Run creation returned no ID for wf {workflow_id}")
                 
         except Exception as e:
-            logger.exception(f"[Trigger] 创建/触发运行失败: wf={t.workflow_id}, err={e}")
+            logger.exception(f"[Trigger] 创建/触发运行失败: wf={workflow_id}, err={e}")
 
     return run_ids
 
@@ -385,64 +400,46 @@ def handle_card_saved(event: Event):
         logger.info(f"[工作流触发] card.saved - 触发了 {len(run_ids)} 个工作流")
 
 
-@on_event("generate.finished")
-def handle_generate_finished(event: Event):
-    """处理生成完成事件"""
-    session: Session = event.data.get("session")
-    card: Card | None = event.data.get("card")
-    project_id: int | None = event.data.get("project_id")
-    
-    if not session:
-        logger.warning("[工作流触发] generate.finished 事件缺少session")
-        return
-    
-    q = select(WorkflowTrigger).where(
-        WorkflowTrigger.trigger_on == "ongenfinish",
-        WorkflowTrigger.is_active == True,  # noqa: E712
-    )
-    triggers = session.exec(q).all()
-    
-    if card:
-        filtered_triggers = []
-        for t in triggers:
-            if t.card_type_name and card.card_type and card.card_type.name != t.card_type_name:
-                continue
-            filtered_triggers.append(t)
-        triggers = filtered_triggers
-    
-    scope = {"project_id": project_id}
-    if card and card.id:
-        scope["card_id"] = card.id
-    
-    run_ids = _execute_triggers(session, "ongenfinish", triggers, scope, card, project_id, payload=event.data)
-    if run_ids:
-        logger.info(f"[工作流触发] generate.finished - 触发了 {len(run_ids)} 个工作流")
-
-
 @on_event("project.created")
 def handle_project_created(event: Event):
-    """处理项目创建事件"""
+    """处理项目创建事件
+    
+    如果 template 为 None，则不触发任何工作流（空白项目）。
+    """
+    from app.services.workflow.trigger_extractor import get_active_triggers_by_event
+    
     try:
         session: Session = event.data.get("session")
         project_id: int = event.data.get("project_id")
+        template: str | None = event.data.get("template")
         
         if not session or not project_id:
             logger.warning("[工作流触发] project.created 事件缺少必要数据")
             return
         
-        triggers = session.exec(
-            select(WorkflowTrigger).where(
-                WorkflowTrigger.trigger_on == "onprojectcreate",
-                WorkflowTrigger.is_active == True,
-            )
-        ).all()
+        # 如果 template 为 None，不触发任何工作流（空白项目）
+        if template is None:
+            logger.info(f"[工作流触发] project.created - 空白项目，不触发工作流")
+            event.data["triggered_run_ids"] = []
+            return
         
-        scope = {"project_id": project_id}
-        run_ids = _execute_triggers(session, "onprojectcreate", triggers, scope, None, project_id, payload=event.data)
+        # 准备事件数据（用于匹配）
+        event_data = {
+            "project_id": project_id,
+            "template": template,
+            "user_id": event.data.get("user_id"),
+        }
+        
+        # 使用新格式匹配
+        triggers = get_active_triggers_by_event(session, "project.created", event_data)
+        
+        scope = {"project_id": project_id, "template": template}
+        run_ids = _execute_triggers(session, "project.created", triggers, scope, None, project_id, payload=event.data)
         
         event.data["triggered_run_ids"] = run_ids
 
         if run_ids:
-            logger.info(f"[工作流触发] project.created - 触发了 {len(run_ids)} 个工作流")
+            logger.info(f"[工作流触发] project.created - 触发了 {len(run_ids)} 个工作流 (template={template})")
     except Exception as e:
         logger.exception(f"[工作流] handle_project_created failed: {e}")
+

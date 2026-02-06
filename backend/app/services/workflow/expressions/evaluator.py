@@ -92,22 +92,34 @@ class ExpressionEvaluator:
         # 逻辑运算
         if isinstance(node, ast.BoolOp):
             if isinstance(node.op, ast.And):
-                for value in node.values:
-                    if not self._eval_node(value):
-                        return False
-                return True
+                # and: 返回第一个假值，或最后一个值
+                result = True
+                for value_node in node.values:
+                    result = self._eval_node(value_node)
+                    if not result:
+                        return result
+                return result
             elif isinstance(node.op, ast.Or):
-                for value in node.values:
-                    if self._eval_node(value):
-                        return True
-                return False
+                # or: 返回第一个真值，或最后一个值
+                result = False
+                for value_node in node.values:
+                    result = self._eval_node(value_node)
+                    if result:
+                        return result
+                return result
         
         # 属性访问
         if isinstance(node, ast.Attribute):
             obj = self._eval_node(node.value)
             if isinstance(obj, dict):
+                # 字典：使用 get 方法，不存在返回 None
                 return obj.get(node.attr)
-            return getattr(obj, node.attr, None)
+            elif obj is None:
+                # 如果对象是 None，返回 None（支持链式访问）
+                return None
+            else:
+                # 其他对象：使用 getattr，不存在返回 None
+                return getattr(obj, node.attr, None)
         
         # 下标访问
         if isinstance(node, ast.Subscript):
@@ -133,9 +145,19 @@ class ExpressionEvaluator:
         if isinstance(node, ast.Dict):
             result = {}
             for key_node, value_node in zip(node.keys, node.values):
-                key = self._eval_node(key_node)
-                value = self._eval_node(value_node)
-                result[key] = value
+                if key_node is None:
+                    # 字典解包：{**dict1, **dict2}
+                    # key 为 None 表示这是一个解包操作
+                    dict_to_unpack = self._eval_node(value_node)
+                    if isinstance(dict_to_unpack, dict):
+                        result.update(dict_to_unpack)
+                    else:
+                        raise TypeError(f"只能解包字典类型，当前类型: {type(dict_to_unpack)}")
+                else:
+                    # 普通键值对
+                    key = self._eval_node(key_node)
+                    value = self._eval_node(value_node)
+                    result[key] = value
             return result
         
         # 条件表达式 (a if condition else b)
@@ -149,6 +171,14 @@ class ExpressionEvaluator:
         # 列表推导式（简单支持）
         if isinstance(node, ast.ListComp):
             return self._eval_listcomp(node)
+        
+        # 字典推导式（简单支持）
+        if isinstance(node, ast.DictComp):
+            return self._eval_dictcomp(node)
+        
+        # f-string（格式化字符串字面量）
+        if isinstance(node, ast.JoinedStr):
+            return self._eval_joinedstr(node)
         
         raise ValueError(f"不支持的表达式节点: {type(node).__name__}")
     
@@ -213,13 +243,25 @@ class ExpressionEvaluator:
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
         elif isinstance(node.func, ast.Attribute):
-            # 方法调用（如 str.upper()）
+            # 方法调用（如 str.upper()、dict.get()）
             obj = self._eval_node(node.func.value)
             method_name = node.func.attr
             args = [self._eval_node(arg) for arg in node.args]
+            kwargs = {
+                kw.arg: self._eval_node(kw.value)
+                for kw in node.keywords
+            }
+            
+            # 特殊处理：如果对象有 model_dump 方法（Pydantic 模型），先转换为字典
+            if hasattr(obj, 'model_dump') and method_name == 'get':
+                obj = obj.model_dump()
+            elif hasattr(obj, 'dict') and method_name == 'get':
+                obj = obj.dict()
+            
+            # 获取方法
             method = getattr(obj, method_name, None)
             if callable(method):
-                return method(*args)
+                return method(*args, **kwargs)
             raise AttributeError(f"对象没有方法: {method_name}")
         else:
             raise ValueError("不支持的函数调用形式")
@@ -244,38 +286,146 @@ class ExpressionEvaluator:
         # 只支持简单的 [expr for var in iterable]
         if len(node.generators) != 1:
             raise ValueError("只支持单层列表推导式")
-        
+
         generator = node.generators[0]
         if generator.ifs:
             raise ValueError("暂不支持带条件的列表推导式")
-        
+
         # 获取迭代器
         iterable = self._eval_node(generator.iter)
-        
+
         # 迭代求值
         result = []
-        var_name = generator.target.id if isinstance(generator.target, ast.Name) else None
-        if not var_name:
+
+        # 处理迭代变量（可能是元组解包）
+        target = generator.target
+        if isinstance(target, ast.Name):
+            # 简单变量：for var in ...
+            var_names = [target.id]
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            # 元组解包：for i, val in ...
+            var_names = [elt.id for elt in target.elts if isinstance(elt, ast.Name)]
+        else:
             raise ValueError("不支持的迭代变量")
-        
+
         # 保存原始上下文
-        old_value = self.context.get(var_name)
-        
+        old_values = {name: self.context.get(name) for name in var_names}
+
         try:
             for item in iterable:
                 # 设置迭代变量
-                self.context[var_name] = item
+                if len(var_names) == 1:
+                    # 简单赋值
+                    self.context[var_names[0]] = item
+                else:
+                    # 元组解包
+                    if not isinstance(item, (tuple, list)) or len(item) != len(var_names):
+                        raise ValueError(f"无法解包迭代项: {item}")
+                    for name, value in zip(var_names, item):
+                        self.context[name] = value
+
                 # 求值表达式
                 value = self._eval_node(node.elt)
                 result.append(value)
         finally:
             # 恢复上下文
-            if old_value is None:
-                self.context.pop(var_name, None)
-            else:
-                self.context[var_name] = old_value
-        
+            for name in var_names:
+                if old_values[name] is None:
+                    self.context.pop(name, None)
+                else:
+                    self.context[name] = old_values[name]
+
         return result
+    
+    def _eval_dictcomp(self, node: ast.DictComp) -> Dict[Any, Any]:
+        """求值字典推导式（简单实现）"""
+        # 只支持简单的 {key_expr: value_expr for var in iterable}
+        if len(node.generators) != 1:
+            raise ValueError("只支持单层字典推导式")
+
+        generator = node.generators[0]
+        if generator.ifs:
+            raise ValueError("暂不支持带条件的字典推导式")
+
+        # 获取迭代器
+        iterable = self._eval_node(generator.iter)
+
+        # 迭代求值
+        result = {}
+
+        # 处理迭代变量（可能是元组解包）
+        target = generator.target
+        if isinstance(target, ast.Name):
+            # 简单变量：for var in ...
+            var_names = [target.id]
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            # 元组解包：for i, val in ...
+            var_names = [elt.id for elt in target.elts if isinstance(elt, ast.Name)]
+        else:
+            raise ValueError("不支持的迭代变量")
+
+        # 保存原始上下文
+        old_values = {name: self.context.get(name) for name in var_names}
+
+        try:
+            for item in iterable:
+                # 设置迭代变量
+                if len(var_names) == 1:
+                    # 简单赋值
+                    self.context[var_names[0]] = item
+                else:
+                    # 元组解包
+                    if not isinstance(item, (tuple, list)) or len(item) != len(var_names):
+                        raise ValueError(f"无法解包迭代项: {item}")
+                    for name, value in zip(var_names, item):
+                        self.context[name] = value
+
+                # 求值键和值
+                key = self._eval_node(node.key)
+                value = self._eval_node(node.value)
+                result[key] = value
+        finally:
+            # 恢复上下文
+            for name in var_names:
+                if old_values[name] is None:
+                    self.context.pop(name, None)
+                else:
+                    self.context[name] = old_values[name]
+
+        return result
+    
+    def _eval_joinedstr(self, node: ast.JoinedStr) -> str:
+        """求值 f-string（格式化字符串字面量）
+        
+        f-string 在 AST 中表示为 JoinedStr 节点，包含多个部分：
+        - Constant: 普通字符串部分
+        - FormattedValue: 格式化表达式部分（{expr}）
+        
+        例如：f"Hello {name}!" 
+        → JoinedStr([Constant("Hello "), FormattedValue(Name("name")), Constant("!")])
+        """
+        parts = []
+        
+        for value in node.values:
+            if isinstance(value, ast.Constant):
+                # 普通字符串部分
+                parts.append(str(value.value))
+            elif isinstance(value, ast.FormattedValue):
+                # 格式化表达式部分
+                expr_value = self._eval_node(value.value)
+                
+                # 处理格式说明符（如果有）
+                if value.format_spec:
+                    # format_spec 也是一个 JoinedStr
+                    format_spec = self._eval_joinedstr(value.format_spec)
+                    parts.append(format(expr_value, format_spec))
+                else:
+                    # 没有格式说明符，直接转字符串
+                    parts.append(str(expr_value))
+            else:
+                raise ValueError(f"f-string 中不支持的节点类型: {type(value).__name__}")
+        
+        return ''.join(parts)
 
 
 def evaluate_expression(

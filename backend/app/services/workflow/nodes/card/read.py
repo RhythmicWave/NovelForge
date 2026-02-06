@@ -1,83 +1,80 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, AsyncIterator
 from loguru import logger
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from app.db.models import Card
 from ...registry import register_node
-from ...types import ExecutionResult, NodePort
-from ..base import BaseNode, BaseNodeConfig, get_card_type_by_name
+from ..base import BaseNode, get_card_type_by_name, resolve_card_reference
 
 
-class CardReadConfig(BaseNodeConfig):
-    target: str = Field("$self", description="卡片引用：数字ID、$self、$parent")
+class CardReadInput(BaseModel):
+    """读取卡片输入"""
+    target: Optional[Any] = Field("$self", description="卡片引用：数字ID、$self、$parent")
+    card_id: Optional[int] = Field(None, description="卡片ID（覆盖target）")
     type_name: Optional[str] = Field(None, description="卡片类型名称（可选）")
 
 
+class CardReadOutput(BaseModel):
+    """读取卡片输出
+    
+    直接返回卡片字段（扁平结构），便于后续节点访问。
+    
+    访问示例：
+    - card.id: 卡片ID
+    - card.title: 卡片标题  
+    - card.content: 卡片内容（字典）
+    - card.content.get('field_name'): 访问内容字段
+    """
+    id: int = Field(..., description="卡片ID")
+    title: str = Field(..., description="卡片标题")
+    content: Dict[str, Any] = Field(..., description="卡片内容")
+    card_type_id: int = Field(..., description="卡片类型ID")
+    parent_id: Optional[int] = Field(None, description="父卡片ID")
+
+
 @register_node
-class CardReadNode(BaseNode):
+class CardReadNode(BaseNode[CardReadInput, CardReadOutput]):
     node_type = "Card.Read"
     category = "card"
     label = "读取卡片"
     description = "读取指定卡片的内容"
-    config_model = CardReadConfig
+    
+    input_model = CardReadInput
+    output_model = CardReadOutput
 
-    @classmethod
-    def get_ports(cls):
-        return {
-            "inputs": [
-                NodePort("card_id", "number", required=False, description="卡片ID（覆盖配置）")
-            ],
-            "outputs": [
-                NodePort("card", "card", description="卡片对象"),
-                NodePort("output", "card", description="卡片对象 (兼容)")
-            ]
-        }
-
-    async def execute(self, inputs: Dict[str, Any], config: CardReadConfig) -> ExecutionResult:
+    async def execute(self, inputs: CardReadInput) -> AsyncIterator[CardReadOutput]:
         """读取卡片节点"""
-        # 1. 优先从输入获取 ID
-        # 1. 优先从输入获取 ID
-        input_id = inputs.get("card_id")
+        # 优先使用 card_id
+        target = inputs.card_id if inputs.card_id is not None else inputs.target
         
-        # 兼容性：如果 card_id 为空，尝试从 input 获取
-        if input_id is None:
-            val = inputs.get("input")
-            if isinstance(val, int):
-                input_id = val
-            elif isinstance(val, str) and val.isdigit():
-                input_id = int(val)
-            elif isinstance(val, dict):
-                # 尝试从对象中提取 id (e.g. card object or trigger data)
-                input_id = val.get("id") or val.get("card_id")
-                if input_id is None and "card" in val:
-                     # handle {card: {...}} structure
-                     input_id = val["card"].get("id")
-        
-        target = input_id if input_id is not None else config.target
-        
-        # 2. 解析引用
+        # 解析引用
         card = None
         if isinstance(target, int):
-            card = self.get_card_by_id(target)
+            from ..base import get_card_by_id
+            card = get_card_by_id(self.context.session, target)
         else:
-            card = self.resolve_card_reference(target)
+            card = resolve_card_reference(
+                self.context.session,
+                target,
+                self.context.variables.get("card_id")
+            )
             
             if not card and isinstance(target, str) and target.isdigit():
-                 card = self.get_card_by_id(int(target))
+                from ..base import get_card_by_id
+                card = get_card_by_id(self.context.session, int(target))
         
         if not card:
-            return ExecutionResult(
-                success=False,
-                error=f"未找到卡片: {target}"
-            )
+            raise ValueError(f"未找到卡片: {target}")
         
-        # 2. 记录受影响的卡片
-        self.context.variables.setdefault("touched_card_ids", set()).add(card.id)
+        # 记录受影响的卡片
+        touched = self.context.variables.setdefault("touched_card_ids", [])
+        if card.id not in touched:
+            touched.append(card.id)
         
-        # 3. 获取类型信息
+        # 获取类型信息
         card_type_info = None
-        if config.type_name:
-            card_type = get_card_type_by_name(self.context.session, config.type_name)
+        if inputs.type_name:
+            card_type = get_card_type_by_name(self.context.session, inputs.type_name)
             if card_type:
                 card_type_info = {
                     "id": card_type.id,
@@ -89,23 +86,10 @@ class CardReadNode(BaseNode):
             f"[Card.Read] 读取卡片: id={card.id}, title={card.title}"
         )
         
-        return ExecutionResult(
-            success=True,
-            outputs={
-                "card": {
-                    "id": card.id,
-                    "title": card.title,
-                    "content": card.content,
-                    "card_type_id": card.card_type_id,
-                    "parent_id": card.parent_id,
-                    "type_info": card_type_info
-                },
-                "output": { # 兼容性输出
-                    "id": card.id,
-                    "title": card.title,
-                    "content": card.content,
-                    "card_type_id": card.card_type_id,
-                    "parent_id": card.parent_id
-                }
-            }
+        yield CardReadOutput(
+            id=card.id,
+            title=card.title,
+            content=card.content,
+            card_type_id=card.card_type_id,
+            parent_id=card.parent_id
         )

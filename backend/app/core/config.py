@@ -172,8 +172,6 @@ class AppSettings(BaseSettings):
 class WorkflowSettings(BaseSettings):
     """工作流配置"""
     
-    # 临时记录保留时间（分钟）
-    retention_transient_minutes: int = Field(default=10, alias="WORKFLOW_RETENTION_TRANSIENT_MINUTES")
     # 持久化记录保留时间（天）
     retention_persistent_days: int = Field(default=30, alias="WORKFLOW_RETENTION_PERSISTENT_DAYS")
     

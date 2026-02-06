@@ -1,16 +1,12 @@
-"""运行管理器 - 统一管理工作流运行"""
+"""运行管理器 - 统一管理代码式工作流运行"""
 
 from typing import Optional, Dict, Any
-from datetime import datetime
 from sqlmodel import Session, select
 from loguru import logger
 
 from app.db.models import Workflow, WorkflowRun
-from .graph_builder import GraphBuilder
-from .executor import WorkflowExecutor
 from .state_manager import StateManager
 from .scheduler import WorkflowScheduler
-from ..types import WorkflowSettings
 
 
 class RunManager:
@@ -21,13 +17,15 @@ class RunManager:
     - 管理运行生命周期
     - 提供暂停/恢复/取消接口
     - 协调各个组件
+    
+    只支持代码式工作流系统。
     """
     
     def __init__(self, session: Session):
         self.session = session
-        self.graph_builder = GraphBuilder()
         self.state_manager = StateManager(session)
         self.scheduler = WorkflowScheduler(max_concurrent_runs=5)
+        self.executors: Dict[int, AsyncExecutor] = {}  # 保存执行器引用（用于暂停/恢复）
     
     def create_run(
         self,
@@ -40,23 +38,24 @@ class RunManager:
         
         Args:
             workflow_id: 工作流ID
-            trigger_data: 触发数据（如卡片信息）
-            params: 运行参数
-            idempotency_key: 幂等键
+            trigger_data: 触发数据（如卡片信息），会注入到 scope_json
+            params: 运行参数，会注入到 params_json
+            idempotency_key: 幂等键，防止重复执行
             
         Returns:
             WorkflowRun: 运行记录
         """
-        # 检查幂等性
+        # 检查幂等性（只检查正在运行的任务，避免阻止失败任务重试）
         if idempotency_key:
             stmt = select(WorkflowRun).where(
-                WorkflowRun.idempotency_key == idempotency_key
+                WorkflowRun.idempotency_key == idempotency_key,
+                WorkflowRun.status.in_(["queued", "running"])
             )
             existing = self.session.exec(stmt).first()
             if existing:
-                logger.info(
-                    f"[RunManager] 幂等键已存在，返回现有运行: "
-                    f"run_id={existing.id}"
+                logger.warning(
+                    f"[RunManager] 幂等键冲突，任务正在运行: "
+                    f"run_id={existing.id}, status={existing.status}"
                 )
                 return existing
         
@@ -69,18 +68,23 @@ class RunManager:
             raise ValueError(f"工作流未激活: {workflow_id}")
         
         # 创建运行记录
+        from datetime import datetime
         run = WorkflowRun(
             workflow_id=workflow_id,
-            definition_version=workflow.version,
+            definition_version=workflow.dsl_version,  # 使用 dsl_version 代替 version
             status="queued",
             scope_json=trigger_data,
             params_json=params,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
+            created_at=datetime.now()  # 使用本地时间而不是 UTC
         )
         
         self.session.add(run)
         self.session.commit()
         self.session.refresh(run)
+        
+        # 清理该 run_id 的旧节点状态（确保干净的开始）
+        self.state_manager.clear_node_states(run.id)
         
         logger.info(
             f"[RunManager] 创建运行: run_id={run.id}, "
@@ -120,77 +124,77 @@ class RunManager:
         workflow: Workflow
     ) -> None:
         """执行运行（内部方法）"""
-        run_id = run.id
+        from ..parser.xml_parser import XMLWorkflowParser
+        from .async_executor import AsyncExecutor
         
+        run_id = run.id
+
         try:
             # 更新状态为运行中
             self.state_manager.update_run_status(run_id, "running")
-            
+
             # 解析工作流定义
             definition = workflow.definition_json or {}
-            
-            # 构建执行图
-            logger.info(f"[RunManager] 构建执行图: run_id={run_id}")
-            graph = self.graph_builder.build(definition)
-            
-            # 解析执行设置
-            settings_data = definition.get("settings", {})
-            settings = WorkflowSettings(
-                max_execution_time=run.max_execution_time,
-                timeout=settings_data.get("timeout", 300),
-                error_handling=settings_data.get("errorHandling", "stop"),
-                max_concurrency=settings_data.get("maxConcurrency", 5),
-                log_level=settings_data.get("logLevel", "info")
-            )
-            
-            # 准备初始变量
-            variables = {}
-            
-            # 从定义中加载全局变量
-            for var_def in definition.get("variables", []):
-                variables[var_def["name"]] = var_def.get("value")
-            
-            # 添加触发数据
+            code = definition.get("code", "")
+
+            if not code:
+                raise ValueError("工作流缺少代码内容")
+
+            logger.info(f"[RunManager] 解析代码式工作流: run_id={run_id}")
+
+            # 解析代码
+            parser = XMLWorkflowParser()
+            plan = parser.parse(code)
+
+            logger.info(f"[RunManager] 执行代码式工作流: run_id={run_id}, 语句数={len(plan.statements)}")
+
+            # 准备初始上下文（注入触发器数据）
+            initial_context = {}
+
+            # 将 scope_json 和 params_json 直接展开到顶层
             if run.scope_json:
-                variables["trigger"] = run.scope_json
-            
-            # 添加参数
+                initial_context.update(run.scope_json)
             if run.params_json:
-                variables["params"] = run.params_json
-            
-            # 创建执行器
-            executor = WorkflowExecutor(
-                state_manager=self.state_manager
+                initial_context.update(run.params_json)
+
+            # 执行工作流（流式）
+            executor = AsyncExecutor(
+                session=self.state_manager.session,
+                state_manager=self.state_manager,
+                run_id=run_id
             )
             
-            # 执行工作流（带超时控制）
-            if settings.max_execution_time:
-                import asyncio
-                result = await asyncio.wait_for(
-                    executor.execute(run_id, graph, settings, variables),
-                    timeout=settings.max_execution_time
-                )
-            else:
-                result = await executor.execute(
-                    run_id, graph, settings, variables
-                )
+            # 保存执行器引用（用于暂停/恢复）
+            self.executors[run_id] = executor
             
+            try:
+                # 消费所有事件（触发器场景不需要处理进度）
+                async for event in executor.execute_stream(plan, initial_context):
+                    pass  # 可以在这里添加日志记录
+                
+                # 获取最终结果
+                result_context = executor.context
+            finally:
+                # 清理执行器引用
+                if run_id in self.executors:
+                    del self.executors[run_id]
+
             # 更新状态为成功
             self.state_manager.update_run_status(
                 run_id,
                 "succeeded",
                 summary_json={
-                    "executed_nodes": result["executed_nodes"],
-                    "outputs": result["outputs"]
+                    "variables": list(result_context.keys()),
+                    "outputs": self.state_manager._make_json_serializable(result_context)
                 }
             )
-            
+
             logger.info(f"[RunManager] 运行成功: run_id={run_id}")
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.exception(f"[RunManager] 运行失败: run_id={run_id}")
-            
+
             # 判断是否超时
             import asyncio
             if isinstance(e, asyncio.TimeoutError):
@@ -215,6 +219,63 @@ class RunManager:
             return True
         
         return False
+    
+    async def pause_run(self, run_id: int) -> bool:
+        """暂停运行
+        
+        Args:
+            run_id: 运行ID
+            
+        Returns:
+            是否成功暂停
+        """
+        executor = self.executors.get(run_id)
+        if executor:
+            executor.pause()
+            self.state_manager.update_run_status(run_id, "paused")
+            logger.info(f"[RunManager] 运行已暂停: run_id={run_id}")
+            return True
+        
+        logger.warning(f"[RunManager] 无法暂停运行（执行器不存在）: run_id={run_id}")
+        return False
+    
+    async def resume_run(self, run_id: int) -> bool:
+        """恢复运行
+        
+        Args:
+            run_id: 运行ID
+            
+        Returns:
+            是否成功恢复
+        """
+        run = self.session.get(WorkflowRun, run_id)
+        if not run:
+            logger.warning(f"[RunManager] 运行不存在: run_id={run_id}")
+            return False
+        
+        if run.status != "paused":
+            logger.warning(f"[RunManager] 运行状态不是暂停: run_id={run_id}, status={run.status}")
+            return False
+        
+        # 检查执行器是否存在
+        executor = self.executors.get(run_id)
+        if executor:
+            # 执行器存在，直接恢复
+            executor.resume()
+            self.state_manager.update_run_status(run_id, "running")
+            logger.info(f"[RunManager] 运行已恢复: run_id={run_id}")
+            return True
+        else:
+            # 执行器不存在（服务器重启），重新启动运行
+            logger.info(f"[RunManager] 执行器不存在，重新启动运行: run_id={run_id}")
+            workflow = self.session.get(Workflow, run.workflow_id)
+            if not workflow:
+                logger.error(f"[RunManager] 工作流不存在: workflow_id={run.workflow_id}")
+                return False
+            
+            # 重新启动（会自动恢复状态）
+            await self.start_run(run_id)
+            return True
     
     def get_run_status(self, run_id: int) -> Optional[Dict[str, Any]]:
         """获取运行状态
@@ -245,14 +306,10 @@ class RunManager:
                     "node_id": ns.node_id,
                     "node_type": ns.node_type,
                     "status": ns.status,
-                    "progress": ns.progress,
+                    "progress": int(ns.progress) if ns.progress is not None else 0,
                     "error": ns.error_message,
-                    "inputs_json": ns.inputs_json,
-                    "outputs_json": ns.outputs_json,
-                    "logs_json": ns.logs_json
+                    "outputs_json": ns.outputs_json
                 }
                 for ns in node_states
             ]
         }
-    
-

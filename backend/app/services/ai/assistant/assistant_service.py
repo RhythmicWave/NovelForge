@@ -552,30 +552,24 @@ async def stream_chat_with_tools(
     tools = ASSISTANT_TOOLS
 
     # 构造中间件列表
-    middleware = []
-    if getattr(request, "context_summarization_enabled", None):
-        max_tokens_before_summary = (
-            int(request.context_summarization_threshold)
-            if getattr(request, "context_summarization_threshold", None)
-            else 8192
-        )
-        try:
-            middleware.append(
-                SummarizationMiddleware(
-                    model=model,
-                    max_tokens_before_summary=max_tokens_before_summary,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"初始化SummarizationMiddleware失败，将忽略上下文摘要: {e}")
+    enable_summarization = getattr(request, "context_summarization_enabled", None)
+    max_tokens_before_summary = (
+        int(request.context_summarization_threshold)
+        if getattr(request, "context_summarization_threshold", None)
+        else 8192
+    )
 
-    # 使用LangChain 1.x的create_agent创建带工具的智能体
-    agent = create_agent(
+    # 使用统一的 agent_builder 构建智能体
+    from app.services.ai.core.agent_builder import build_agent
+    
+    agent = build_agent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
-        middleware=middleware,
+        enable_summarization=enable_summarization,
+        max_tokens_before_summary=max_tokens_before_summary,
     )
+
 
     accumulated_text = ""
     reasoning_accumulated = ""

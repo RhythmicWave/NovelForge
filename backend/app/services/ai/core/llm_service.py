@@ -173,8 +173,8 @@ async def generate_structured(
         if not ok:
             raise ValueError(f"LLM配额不足: {reason}")
 
-    logger.info(f"[LangChain-Structured] system_prompt: {system_prompt}")
-    logger.info(f"[LangChain-Structured] user_prompt: {user_prompt}")
+    # logger.info(f"[LangChain-Structured] system_prompt: {system_prompt}")
+    # logger.info(f"[LangChain-Structured] user_prompt: {user_prompt}")
 
     last_exception = None
     for attempt in range(max_retries):
@@ -184,7 +184,7 @@ async def generate_structured(
                 session=session,
                 llm_config_id=llm_config_id,
                 temperature=temperature or 0.7,
-                max_tokens=max_tokens,
+                max_tokens=max_tokens or 4096,
                 timeout=timeout or 150,
             )
 
@@ -238,6 +238,12 @@ async def generate_structured(
             logger.warning(
                 f"[LangChain-Structured] 调用失败，重试 {attempt + 1}/{max_retries}，llm_config_id={llm_config_id}: {e}"
             )
+            
+            # ⚠️ 关键：重试前等待，避免立即重试触发限流
+            if attempt < max_retries - 1:  # 最后一次失败不需要等待
+                retry_delay = min(2 ** attempt,4)  # 指数退避：1秒、2秒、4秒...
+                logger.info(f"[LangChain-Structured] 等待 {retry_delay} 秒后重试...")
+                await asyncio.sleep(retry_delay)
 
     logger.error(
         f"[LangChain-Structured] 调用在重试 {max_retries} 次后仍失败，llm_config_id={llm_config_id}. Last error: {last_exception}"

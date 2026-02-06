@@ -43,6 +43,10 @@ def register_event_handlers():
     自动发现并导入所有事件处理器模块以触发@on_event装饰器。
     """
     logger.info("[启动] 注册事件处理器...")
+    
+    # 导入事件处理器模块以触发装饰器注册
+    import app.services  # noqa: F401
+    
     discover_event_handlers()
     logger.info("[启动] 事件处理器注册完成")
 
@@ -55,6 +59,39 @@ def register_workflow_nodes():
     logger.info("[启动] 注册工作流节点...")
     discover_workflow_nodes()
     logger.info("[启动] 工作流节点注册完成")
+
+
+def cleanup_zombie_runs():
+    """清理死机运行
+    
+    将所有状态为 "running" 的运行标记为 "failed"。
+    这些运行可能是因为服务器崩溃或重启而中断的。
+    """
+    logger.info("[启动] 清理死机运行...")
+    
+    from sqlmodel import select
+    from app.db.models import WorkflowRun
+    
+    with Session(engine) as session:
+        # 查找所有运行中的任务
+        stmt = select(WorkflowRun).where(WorkflowRun.status == "running")
+        zombie_runs = session.exec(stmt).all()
+        
+        if zombie_runs:
+            logger.warning(f"[启动] 发现 {len(zombie_runs)} 个死机工作流运行，正在清理...")
+            for run in zombie_runs:
+                run.status = "failed"
+                if not run.error_json:
+                    run.error_json = {"error": "服务器重启，运行中断"}
+                session.add(run)
+                logger.info(f"[启动] 清理死机运行: run_id={run.id}, workflow_id={run.workflow_id}")
+            
+            session.commit()
+            logger.info(f"[启动] 已清理 {len(zombie_runs)} 个死机工作流运行")
+        else:
+            logger.info("[启动] 没有发现死机工作流运行")
+    
+    logger.info("[启动] 死机工作流运行清理完成")
 
 
 def startup():
@@ -77,6 +114,9 @@ def startup():
     
     # 4. 注册工作流节点
     register_workflow_nodes()
+    
+    # 5. 清理死机运行
+    cleanup_zombie_runs()
     
     logger.info("=" * 50)
     logger.info("NovelForge 后端启动完成！")

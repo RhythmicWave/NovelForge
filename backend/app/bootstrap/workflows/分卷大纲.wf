@@ -1,0 +1,106 @@
+# 工作流：分卷大纲
+# 功能：分卷大纲保存时，创建角色、场景、阶段、写作指南
+# 触发器：分卷大纲卡片保存时自动触发
+
+# 触发器：监听分卷大纲卡片保存
+<node name="trigger">
+  Trigger.CardSaved(card_type="分卷大纲")
+</node>
+
+# 读取分卷大纲
+<node name="volume">
+  Card.Read(card_id=trigger.card_id)
+</node>
+
+# 提取新角色列表
+<node name="new_characters">
+  Logic.Expression(
+    expression="volume.content.new_character_cards or []"
+  )
+</node>
+
+# 批量创建角色卡（异步）
+<node name="char_cards" async="true">
+  Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="角色卡",
+    title_template="{item.name}",
+    items=new_characters.result
+  )
+</node>
+
+# 提取新场景列表
+<node name="new_scenes">
+  Logic.Expression(
+    expression="volume.content.new_scene_cards or []"
+  )
+</node>
+
+# 批量创建场景卡（异步）
+<node name="scene_cards" async="true">
+  Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="场景卡",
+    title_template="{item.name}",
+    items=new_scenes.result
+  )
+</node>
+
+# 生成阶段列表
+<node name="stages">
+  Logic.Expression(
+    expression="[{'index': i, 'volume_number': volume.content.volume_number} for i in range(1, (volume.content.stage_count or 0) + 1)]"
+  )
+</node>
+
+# 批量创建阶段大纲（异步）
+<node name="stage_cards" async="true">
+  Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="阶段大纲",
+    title_template="阶段{item.index}",
+    content_template={
+      "stage_number": "{item.index}",
+      "volume_number": "{item.volume_number}"
+    },
+    items=stages.result
+  )
+</node>
+
+# 创建写作指南（包装为列表）
+<node name="guide_item">
+  Logic.Expression(
+    expression="[volume.content]"
+  )
+</node>
+
+# 批量创建写作指南（异步）
+<node name="guide_card" async="true">
+  Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="写作指南",
+    title_template="写作指南",
+    content_template="{item}",
+    items=guide_item.result
+  )
+</node>
+
+# 等待所有异步任务完成
+<node name="wait_result">
+  Logic.Wait(tasks=[char_cards, scene_cards, stage_cards, guide_card])
+</node>
+
+# 清空临时列表
+<node name="update_result">
+  Card.Update(
+    card_id=trigger.card_id,
+    content_merge={
+      "new_character_cards": [],
+      "new_scene_cards": []
+    }
+  )
+</node>

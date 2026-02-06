@@ -414,11 +414,9 @@ const handlePaneClick = () => {
 
 // 清空运行状态样式
 const clearRunStatus = () => {
-  console.log('[清空状态] 清空运行状态, 当前节点数:', nodeStates.value.size)
   nodeStates.value.clear()
   runStatus.value = null
   updateNodeStyles()
-  console.log('[清空状态] 完成')
 }
 
 const handleUpdateNode = (nodeId: string, data: any) => {
@@ -571,7 +569,7 @@ const handleRun = async () => {
 // 开始状态监控（SSE 优先 + 轮询兜底）
 const startStatusMonitoring = () => {
   if (!currentRunId.value) {
-    console.warn('[监控] currentRunId 为空，无法开始监控')
+    console.error('[监控] currentRunId 为空，无法开始监控')
     return
   }
   
@@ -692,7 +690,7 @@ const stopStatusMonitoring = () => {
 // 开始轮询运行状态（已弃用，保留用于兜底）
 const startStatusPolling = () => {
   if (!currentRunId.value) {
-    console.warn('[轮询] currentRunId 为空，无法开始轮询')
+    console.error('[轮询] currentRunId 为空，无法开始轮询')
     return
   }
   
@@ -713,7 +711,7 @@ const startStatusPolling = () => {
 // 轮询运行状态（简化版，复用 handleStatusUpdate）
 const pollRunStatus = async () => {
   if (!currentRunId.value) {
-    console.warn('[轮询] currentRunId 为空')
+    console.error('[轮询] currentRunId 为空')
     return
   }
   

@@ -1,96 +1,99 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, AsyncIterator, Union, TYPE_CHECKING
 from loguru import logger
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sqlmodel import select
+
+if TYPE_CHECKING:
+    from ...engine.async_executor import ProgressEvent
 
 from app.db.models import Card
 from app.services.card_service import CardService
 from app.schemas.card import CardCreate
 from ...registry import register_node
-from ...types import ExecutionResult, NodePort
-from ..base import BaseNode, BaseNodeConfig, get_card_type_by_name
+from ..base import BaseNode, get_card_type_by_name
 
 
-class CardBatchUpsertConfig(BaseNodeConfig):
-    card_type: str = Field(..., description="卡片类型名称")
+class CardBatchUpsertInput(BaseModel):
+    """批量更新卡片输入"""
+    project_id: int = Field(..., description="项目ID（必须显式传递）")
+    items: List[Any] = Field(..., description="数据列表（必须是list类型）")
+    card_type: str = Field(
+        ..., 
+        description="卡片类型名称",
+        json_schema_extra={"x-component": "CardTypeSelect"}
+    )
     title_template: str = Field(..., description="标题模板，支持 {item.field} 语法")
-    content_template: Optional[Dict[str, Any]] = Field(default_factory=dict, description="内容模板（可选）")
+    content_template: Optional[Any] = Field(default_factory=dict, description="内容模板（可选，支持 dict 或 str）")
     match_by: str = Field("title", description="匹配现有卡片的方式（默认按标题）")
-    parent_id: Optional[int] = Field(None, description="父卡片ID（可选）")
+    parent_id: Optional[Any] = Field(None, description="父卡片ID（支持ID数字或模板语法 {item.pid}）")
+
+
+class CardBatchUpsertOutput(BaseModel):
+    """批量更新卡片输出"""
+    cards: List[Dict[str, Any]] = Field(..., description="处理后的卡片列表")
+    output: List[int] = Field(..., description="卡片ID列表（兼容）")
 
 
 @register_node
-class CardBatchUpsertNode(BaseNode):
+class CardBatchUpsertNode(BaseNode[CardBatchUpsertInput, CardBatchUpsertOutput]):
     node_type = "Card.BatchUpsert"
     category = "card"
     label = "批量更新卡片"
     description = "根据列表数据批量创建或更新卡片"
-    config_model = CardBatchUpsertConfig
+    
+    input_model = CardBatchUpsertInput
+    output_model = CardBatchUpsertOutput
 
-    @classmethod
-    def get_ports(cls):
-        return {
-            "inputs": [
-                NodePort("items", "list", required=True, description="数据列表（必须是list类型）"),
-                NodePort("parent_id", "number", required=False, description="父卡片ID（覆盖配置）")
-            ],
-            "outputs": [
-                NodePort("cards", "card-list", description="处理后的卡片列表"),
-                NodePort("output", "number-list", description="卡片ID列表 (兼容)")
-            ]
-        }
-
-    async def execute(self, inputs: Dict[str, Any], config: CardBatchUpsertConfig) -> ExecutionResult:
-        """批量更新卡片"""
-        raw_items = inputs.get("items")
+    async def execute(self, inputs: CardBatchUpsertInput) -> AsyncIterator[Union['ProgressEvent', CardBatchUpsertOutput]]:
+        """批量更新卡片（支持断点续传）"""
+        from ...engine.async_executor import ProgressEvent
+        
+        items = inputs.items
         
         # 强制要求输入是列表
-        if not isinstance(raw_items, list):
-            return ExecutionResult(
-                success=False,
-                error=f"items 输入必须是列表类型，当前类型: {type(raw_items).__name__}。请使用 Data.ExtractPath 节点提取列表。"
-            )
+        if not isinstance(items, list):
+            raise ValueError(f"items 输入必须是列表类型，当前类型: {type(items).__name__}。请使用 Data.ExtractPath 节点提取列表。")
         
-        items = raw_items
-        parent_id = inputs.get("parent_id") or config.parent_id
+        # === 1. 读取检查点 ===
+        checkpoint = getattr(self.context, 'checkpoint', None)
+        start_index = checkpoint.get('processed_count', 0) if checkpoint else 0
+        
+        if start_index > 0:
+            logger.info(f"[BatchUpsert] 从检查点恢复: 已处理 {start_index}/{len(items)}")
+        
+        # 获取基础 parent_id 配置
+        base_parent_id = inputs.parent_id
         
         # 兼容性处理：如果 parent_id 是字典（来自 Card.Read 输出），提取 id
-        if isinstance(parent_id, dict):
-            parent_id = parent_id.get("id")
+        if isinstance(base_parent_id, dict):
+            base_parent_id = base_parent_id.get("id")
         
         # 获取卡片类型
-        card_type = get_card_type_by_name(self.context.session, config.card_type)
+        card_type = get_card_type_by_name(self.context.session, inputs.card_type)
         if not card_type:
-            return ExecutionResult(success=False, error=f"卡片类型不存在: {config.card_type}")
+            raise ValueError(f"卡片类型不存在: {inputs.card_type}")
 
-        # 获取项目ID (从触发器或上下文)
-        project_id = self.context.variables.get("project_id")
-        if not project_id:
-            trigger = self.context.variables.get("trigger", {})
-            project_id = trigger.get("project_id")
-        if not project_id and parent_id:
-             # 尝试从父卡片获取
-             parent = self.get_card_by_id(parent_id)
-             if parent:
-                 project_id = parent.project_id
+        # 使用显式传递的 project_id（不再从全局变量查找）
+        project_id = inputs.project_id
         
-        if not project_id and raw_items and hasattr(raw_items, 'project_id'):
-            # 尝试从输入源对象获取 (如果输入是 Card)
-            project_id = getattr(raw_items, 'project_id', None)
-
-        if not project_id:
-             return ExecutionResult(success=False, error="无法确定项目ID")
+        logger.info(
+            f"[BatchUpsert] 使用显式传递的项目ID: project_id={project_id}"
+        )
 
         results = []
         service = CardService(self.context.session)
+        total = len(items)
         
-        for index, item in enumerate(items):
+        # === 2. 从检查点继续处理 ===
+        for index in range(start_index, total):
+            item = items[index]
+            
             # 准备模版上下文
             ctx = {"item": item, "index": index + 1}
             
             # 渲染标题
             try:
-                title = self._render_template(config.title_template, ctx)
+                title = self._render_template(inputs.title_template, ctx)
             except Exception as e:
                 logger.warning(f"[BatchUpsert] 标题渲染失败: {e}")
                 continue
@@ -98,21 +101,45 @@ class CardBatchUpsertNode(BaseNode):
             if not title:
                 continue
 
+            # 计算当前项的 parent_id
+            current_parent_id = None
+            if base_parent_id is not None:
+                if isinstance(base_parent_id, int):
+                    current_parent_id = base_parent_id
+                elif isinstance(base_parent_id, str):
+                    if '{' in base_parent_id and '}' in base_parent_id:
+                        # 模板渲染
+                        rendered = self._render_template(base_parent_id, ctx)
+                        # 尝试转 int
+                        if rendered and rendered.isdigit():
+                            current_parent_id = int(rendered)
+                        else:
+                            # 渲染结果为空或非数字，视为无父级或无效
+                            current_parent_id = None 
+                    elif base_parent_id.isdigit():
+                         current_parent_id = int(base_parent_id)
+            
             # 查找现有卡片
             stmt = select(Card).where(
                 Card.project_id == project_id,
                 Card.card_type_id == card_type.id,
                 Card.title == title
             )
-            if parent_id:
-                stmt = stmt.where(Card.parent_id == parent_id)
+            if current_parent_id:
+                stmt = stmt.where(Card.parent_id == current_parent_id)
             
             existing_card = self.context.session.exec(stmt).first()
             
             # 渲染内容
             content = {}
-            if config.content_template:
-                content = self._render_content(config.content_template, ctx)
+            if inputs.content_template:
+                rendered_content = self._render_content(inputs.content_template, ctx)
+                # 确保 content 是字典类型
+                if isinstance(rendered_content, dict):
+                    content = rendered_content
+                elif rendered_content:  # 非空但不是字典，包装成字典
+                    content = {"value": rendered_content}
+                # 如果是空字符串或 None，保持 content 为空字典
             elif isinstance(item, dict):
                  # 如果没有模板且 item 是 dict，默认使用 item 作为内容
                  content = item
@@ -128,8 +155,8 @@ class CardBatchUpsertNode(BaseNode):
                     updated = True
                 
                 # 如果父ID变化（移动）
-                if parent_id and existing_card.parent_id != parent_id:
-                    existing_card.parent_id = parent_id
+                if current_parent_id and existing_card.parent_id != current_parent_id:
+                    existing_card.parent_id = current_parent_id
                     updated = True
                     
                 if updated:
@@ -141,51 +168,55 @@ class CardBatchUpsertNode(BaseNode):
                 else:
                     results.append(existing_card)
             else:
-                # 创建 - 使用 CardService.create 以确保所有默认值（如上下文模版）被正确应用
+                # 创建
                 try:
-                    # 构造 CardCreate，注意 CardCreate 需要的是基础数据
-                    # Service 会处理 title 冲突，但这里我们希望如果是 BatchUpsert，应该尽量使用我们的 title
-                    # 不过 Service 的机制是如果有冲突会自动加 (n)。
-                    # 这里的逻辑是：如果没有 existing_card，说明没有完全重名的（在同父节点下）
-                    
                     card_create = CardCreate(
                         title=title,
                         content=content,
                         card_type_id=card_type.id,
-                        parent_id=parent_id,
-                        # ai_params 和 json_schema 留空，跟随类型
+                        parent_id=current_parent_id,
+                        project_id=project_id
                     )
                     
-                    # 调用 service.create
                     new_card = service.create(card_create, project_id)
                     results.append(new_card)
                 except Exception as e:
                     logger.error(f"[BatchUpsert] 创建卡片失败: {e}")
-                    # 这里的异常可能是单例限制等
                     continue
+            
+            # === 3. 报告进度（自动保存检查点）===
+            percent = ((index + 1) / total) * 100
+            yield ProgressEvent(
+                percent=percent,
+                message=f"已处理 {index + 1}/{total} 张卡片",
+                data={
+                    'processed_count': index + 1,  # ✅ 轻量级：计数器
+                    'last_title': title            # ✅ 轻量级：标识符
+                }
+            )
         
         self.context.session.commit()
         
         # 刷新以获取ID
+        touched = self.context.variables.setdefault("touched_card_ids", [])
         for card in results:
             self.context.session.refresh(card)
-            self.context.variables.setdefault("touched_card_ids", set()).add(card.id)
+            if card.id not in touched:
+                touched.append(card.id)
 
-        logger.info(f"[BatchUpsert] 批量处理完成: {len(results)} 个卡片 ({config.card_type})")
+        logger.info(f"[BatchUpsert] 批量处理完成: {len(results)} 个卡片 ({inputs.card_type})")
         
-        return ExecutionResult(
-            success=True,
-            outputs={
-                "cards": [
-                    {
-                        "id": c.id,
-                        "title": c.title,
-                        "content": c.content,
-                        "parent_id": c.parent_id
-                    } for c in results
-                ],
-                "output": [c.id for c in results] # 兼容性输出
-            }
+        # === 4. 返回最终结果 ===
+        yield CardBatchUpsertOutput(
+            cards=[
+                {
+                    "id": c.id,
+                    "title": c.title,
+                    "content": c.content,
+                    "parent_id": c.parent_id
+                } for c in results
+            ],
+            output=[c.id for c in results]  # 兼容性输出
         )
 
     def _render_template(self, template: str, context: Dict[str, Any]) -> str:
@@ -219,6 +250,29 @@ class CardBatchUpsertNode(BaseNode):
         if isinstance(template, str):
             # 只有包含 {} 才尝试渲染
             if '{' in template and '}' in template:
+                # 特殊处理：如果是单一路径引用（如 {item.ai_result}），返回原始对象
+                import re
+                single_path_match = re.fullmatch(r'\{([^}]+)\}', template)
+                if single_path_match:
+                    path = single_path_match.group(1).strip()
+                    parts = path.split('.')
+                    value = context
+                    try:
+                        for part in parts:
+                            if isinstance(value, dict):
+                                value = value.get(part)
+                            elif hasattr(value, part):
+                                value = getattr(value, part)
+                            else:
+                                value = None
+                                break
+                        # 如果解析成功，返回原始对象
+                        if value is not None:
+                            return value
+                    except Exception:
+                        pass
+                
+                # Fallback：正常字符串渲染
                 return self._render_template(template, context)
             return template
         elif isinstance(template, dict):

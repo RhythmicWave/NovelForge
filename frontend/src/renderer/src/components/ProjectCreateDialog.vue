@@ -9,8 +9,9 @@
         <el-input v-model="form.description" type="textarea" />
       </el-form-item>
       <el-form-item v-if="!isEditMode" label="项目模板">
-        <el-select v-model="selectedWorkflowId" placeholder="选择初始化工作流(类型:onprojectcreate)" filterable clearable :loading="loadingWorkflows" style="width:100%">
-          <el-option v-for="wf in initWorkflows" :key="wf.id" :label="wf.name" :value="wf.id" />
+        <el-select v-model="selectedTemplate" placeholder="选择项目模板（可选）" filterable clearable :loading="loadingTemplates" style="width:100%">
+          <el-option label="空白项目" :value="null" />
+          <el-option v-for="tpl in projectTemplates" :key="tpl.template" :label="tpl.workflow_name" :value="tpl.template" />
         </el-select>
       </el-form-item>
       <!-- 隐藏的提交按钮，确保在输入框按回车会触发表单提交 -->
@@ -26,16 +27,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { components } from '@renderer/types/generated'
-import { listWorkflows, type WorkflowRead } from '@renderer/api/workflows'
+import { getProjectTemplates } from '@renderer/api/workflows'
 
 type Project = components['schemas']['ProjectRead']
 type ProjectCreate = components['schemas']['ProjectCreate']
 type ProjectUpdate = components['schemas']['ProjectUpdate']
 
+interface ProjectTemplate {
+  workflow_id: number
+  workflow_name: string
+  template: string | null
+  description?: string
+}
 
 const visible = ref(false)
 const formRef = ref<FormInstance>()
@@ -45,10 +52,10 @@ const form = reactive<ProjectCreate | ProjectUpdate>({
 })
 const editingProject = ref<Project | null>(null)
 
-// 工作流模式
-const selectedWorkflowId = ref<number | null>(null)
-const initWorkflows = ref<WorkflowRead[]>([])
-const loadingWorkflows = ref(false)
+// 项目模板
+const selectedTemplate = ref<string | null>(null)
+const projectTemplates = ref<ProjectTemplate[]>([])
+const loadingTemplates = ref(false)
 
 const isEditMode = computed(() => !!editingProject.value)
 const dialogTitle = computed(() => isEditMode.value ? '编辑项目' : '新建项目')
@@ -59,24 +66,21 @@ const rules = reactive<FormRules>({
 
 const emit = defineEmits(['create', 'update'])
 
-
-async function loadInitWorkflows() {
+async function loadProjectTemplates() {
   try {
-    loadingWorkflows.value = true
-    const all = await listWorkflows()
-    // Filter workflows that have a 'Trigger.ProjectCreated' node
-    initWorkflows.value = all.filter(w => {
-      const nodes = (w.definition_json?.nodes || []) as any[]
-      return Array.isArray(nodes) && nodes.some((n: any) => n.type === 'Trigger.ProjectCreated')
-    })
+    loadingTemplates.value = true
+    const response = await getProjectTemplates()
+    projectTemplates.value = response.templates || []
     
-    if (initWorkflows.value.length) {
-      selectedWorkflowId.value = initWorkflows.value[0]?.id ?? null
-    } else {
-      selectedWorkflowId.value = null
+    // 默认选择第一个模板（如果有）
+    if (projectTemplates.value.length > 0) {
+      selectedTemplate.value = projectTemplates.value[0].template
     }
+  } catch (error) {
+    console.error('加载项目模板失败:', error)
+    ElMessage.error('加载项目模板失败')
   } finally {
-    loadingWorkflows.value = false
+    loadingTemplates.value = false
   }
 }
 
@@ -92,8 +96,9 @@ function open(project: Project | null = null) {
     } else {
       form.name = ''
       form.description = ''
-      // 重载工作流（保证最新）
-      loadInitWorkflows()
+      selectedTemplate.value = null
+      // 加载项目模板
+      loadProjectTemplates()
     }
   })
 }
@@ -105,7 +110,8 @@ function handleConfirm() {
         emit('update', editingProject.value.id, { ...form })
       } else {
         const payload: any = { ...form }
-        if (selectedWorkflowId.value) payload.workflow_id = selectedWorkflowId.value
+        // 显式传递 template 参数（null 表示空白项目）
+        payload.template = selectedTemplate.value
         emit('create', payload)
       }
       visible.value = false
@@ -119,7 +125,6 @@ function handleConfirm() {
 defineExpose({
   open
 })
-// 样式
 </script>
 
 <style scoped>

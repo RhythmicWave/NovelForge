@@ -103,6 +103,129 @@
                     />
                   </PropertyFieldWrapper>
                   
+                  <!-- LLM 配置选择 (x-component: LLMSelect) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'LLMSelect'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-select
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @change="(val) => updateConfig(prop.name, val)"
+                      size="small"
+                      style="width: 100%"
+                      :placeholder="getPlaceholder(prop) || '选择 LLM 配置'"
+                      filterable
+                      clearable
+                    >
+                      <el-option
+                        v-for="llm in llmConfigs"
+                        :key="llm.id"
+                        :label="`${llm.display_name || llm.model_name} (${llm.provider})`"
+                        :value="llm.id"
+                      />
+                    </el-select>
+                  </PropertyFieldWrapper>
+                  
+                  <!-- 提示词选择 (x-component: PromptSelect) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'PromptSelect'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-select
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @change="(val) => updateConfig(prop.name, val)"
+                      size="small"
+                      style="width: 100%"
+                      :placeholder="getPlaceholder(prop) || '选择提示词模板'"
+                      filterable
+                      clearable
+                    >
+                      <el-option
+                        v-for="prompt in prompts"
+                        :key="prompt.id"
+                        :label="prompt.name"
+                        :value="prompt.name"
+                      />
+                    </el-select>
+                  </PropertyFieldWrapper>
+                  
+                  <!-- 项目选择 (x-component: ProjectSelect) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'ProjectSelect'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-select
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @change="(val) => updateConfig(prop.name, val)"
+                      size="small"
+                      style="width: 100%"
+                      :placeholder="getPlaceholder(prop) || '选择项目'"
+                      filterable
+                      clearable
+                    >
+                      <el-option
+                        v-for="proj in projectListStore.projects"
+                        :key="proj.id"
+                        :label="proj.name"
+                        :value="proj.id"
+                      />
+                    </el-select>
+                  </PropertyFieldWrapper>
+                  
+                  <!-- 响应模型选择 (x-component: ResponseModelSelect) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'ResponseModelSelect'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-select
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @change="(val) => updateConfig(prop.name, val)"
+                      size="small"
+                      style="width: 100%"
+                      :placeholder="getPlaceholder(prop) || '选择输出模型'"
+                      filterable
+                      clearable
+                    >
+                      <el-option-group label="内置模型">
+                        <el-option value="OneSentence" label="一句话梗概" />
+                        <el-option value="ChapterOutline" label="章节大纲" />
+                        <el-option value="VolumeOutline" label="分卷大纲" />
+                        <el-option value="WorldBuilding" label="世界观设定" />
+                        <el-option value="WritingGuide" label="写作指南" />
+                        <el-option value="ParagraphOverview" label="段落概览" />
+                      </el-option-group>
+                      <el-option-group label="自定义卡片类型">
+                         <el-option
+                          v-for="ct in workflowStore.cardTypes"
+                          :key="ct.id"
+                          :label="ct.name"
+                          :value="ct.name"
+                        />
+                      </el-option-group>
+                    </el-select>
+                  </PropertyFieldWrapper>
+                  
+                  <!-- 工具多选 (x-component: ToolMultiSelect) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'ToolMultiSelect'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-select
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @change="(val) => updateConfig(prop.name, val)"
+                      size="small"
+                      style="width: 100%"
+                      :placeholder="getPlaceholder(prop) || '选择工具'"
+                      filterable
+                      multiple
+                      collapse-tags
+                    >
+                      <el-option
+                        v-for="tool in availableTools"
+                        :key="tool"
+                        :label="tool"
+                        :value="tool"
+                      />
+                    </el-select>
+                  </PropertyFieldWrapper>
+                  
+                  <!-- 多行文本框 (x-component: Textarea) -->
+                  <PropertyFieldWrapper v-else-if="prop.rawSchema?.['x-component'] === 'Textarea'" :show-connection-hint="isInputConnected(prop.name)">
+                    <el-input
+                      :model-value="getConfigValue(prop.name, prop.default)"
+                      @input="(val) => updateConfig(prop.name, val)"
+                      type="textarea"
+                      :rows="6"
+                      size="small"
+                      :placeholder="getPlaceholder(prop)"
+                    />
+                  </PropertyFieldWrapper>
+                  
                   <!-- 数字输入 -->
                   <PropertyFieldWrapper v-else-if="prop.type === 'integer' || prop.type === 'number'" :show-connection-hint="isInputConnected(prop.name)">
                     <el-input-number
@@ -229,14 +352,20 @@
               <el-collapse>
                 <el-collapse-item title="调试信息 (Debug Info)" name="debug">
                   <div class="debug-content">
-                    <h5>输入数据</h5>
-                    <pre class="debug-data">{{ JSON.stringify(selectedNode.data?.inputs || {}, null, 2) }}</pre>
+                    <h5>输入数据 (Inputs)</h5>
+                    <pre class="debug-data">{{ JSON.stringify(nodeRuntimeState?.inputs_json || selectedNode.data?.inputs || {}, null, 2) }}</pre>
                     
-                    <h5>输出数据</h5>
-                    <pre class="debug-data">{{ JSON.stringify(selectedNode.data?.outputs || {}, null, 2) }}</pre>
+                    <h5>输出数据 (Outputs)</h5>
+                    <pre class="debug-data">{{ JSON.stringify(nodeRuntimeState?.outputs_json || selectedNode.data?.outputs || {}, null, 2) }}</pre>
                     
-                    <h5>完整节点状态</h5>
-                    <pre class="debug-data">{{ JSON.stringify(selectedNode, null, 2) }}</pre>
+                    <h5>运行错误 (Error)</h5>
+                     <div v-if="nodeRuntimeState?.error" class="debug-error">
+                      {{ nodeRuntimeState.error }}
+                    </div>
+                    <div v-else class="text-secondary">无错误</div>
+
+                    <h5>完整运行状态</h5>
+                    <pre class="debug-data">{{ JSON.stringify(nodeRuntimeState || {}, null, 2) }}</pre>
                   </div>
                 </el-collapse-item>
               </el-collapse>
@@ -256,9 +385,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { Delete, InfoFilled, Monitor, List, Connection, Plus } from '@element-plus/icons-vue'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
+import { useProjectListStore } from '@/stores/useProjectListStore'
 import SchemaField from '@/components/workflow-v2/schema/SchemaField.vue'
 import PropertyFieldWrapper from '@/components/workflow-v2/panels/PropertyFieldWrapper.vue'
 import TemplateInput from '@/components/workflow-v2/panels/TemplateInput.vue'
+import { listLLMConfigs, listPrompts, type LLMConfigRead, type Prompt } from '@/api/setting'
 
 const props = defineProps<{
   selectedNode: any
@@ -274,9 +405,43 @@ const emit = defineEmits<{
 
 const activeTab = ref('properties')
 const workflowStore = useWorkflowStore()
+const projectListStore = useProjectListStore()
 
-onMounted(() => {
+// LLM 配置和提示词数据
+const llmConfigs = ref<LLMConfigRead[]>([])
+const prompts = ref<Prompt[]>([])
+const availableTools = ref<string[]>([
+  'search_cards',
+  'create_card',
+  'update_card',
+  'delete_card',
+  'get_card',
+  'list_cards'
+])
+
+onMounted(async () => {
   workflowStore.fetchCardTypes()
+  
+  // 加载项目列表
+  try {
+    await projectListStore.fetchProjects()
+  } catch (error) {
+    console.error('加载项目列表失败:', error)
+  }
+  
+  // 加载 LLM 配置
+  try {
+    llmConfigs.value = await listLLMConfigs()
+  } catch (error) {
+    console.error('加载 LLM 配置失败:', error)
+  }
+  
+  // 加载提示词
+  try {
+    prompts.value = await listPrompts()
+  } catch (error) {
+    console.error('加载提示词失败:', error)
+  }
 })
 
 // 获取当前选中节点的定义
@@ -345,17 +510,18 @@ interface LogEntry {
   message: string
 }
 
+// 节点运行时状态
+const nodeRuntimeState = computed(() => {
+  if (!props.selectedNode || !props.runStatus || !props.runStatus.nodes) {
+    return null
+  }
+  const nodeId = props.selectedNode.id
+  return props.runStatus.nodes.find((n: any) => n.node_id === nodeId)
+})
+
 // 节点日志
 const nodeLogs = computed<LogEntry[]>(() => {
-  // 从runStatus中获取当前节点的日志
-  if (!props.selectedNode || !props.runStatus) {
-    return []
-  }
-  
-  const nodeId = props.selectedNode.id
-  const nodeState = props.runStatus.nodeStates?.[nodeId]
-  
-  return nodeState?.logs || []
+  return nodeRuntimeState.value?.logs_json || []
 })
 
 // 节点输出显示（用于 Display 节点）
@@ -803,6 +969,17 @@ html.dark .property-panel {
     margin-bottom: 0;
     color: var(--el-text-color-primary);
     font-family: 'Consolas', monospace;
+  }
+
+  .debug-error {
+    background: var(--el-color-error-light-9);
+    color: var(--el-color-error);
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--el-color-error-light-5);
+    white-space: pre-wrap;
   }
 }
 

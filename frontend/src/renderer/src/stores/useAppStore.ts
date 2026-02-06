@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   // 当前视图
-  const currentView = ref<'dashboard' | 'editor' | 'ideas' | 'workflows' | 'triggers'>('dashboard')
+  const currentView = ref<'dashboard' | 'editor' | 'ideas' | 'workflows' | 'code-workflows' | 'triggers'>('dashboard')
 
   // 主题状态
   const isDarkMode = ref(false)
@@ -24,7 +24,7 @@ export const useAppStore = defineStore('app', () => {
   const isWorkflows = computed(() => currentView.value === 'workflows')
 
   // Actions
-  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas' | 'workflows' | 'triggers') {
+  function setCurrentView(view: 'dashboard' | 'editor' | 'ideas' | 'workflows' | 'code-workflows' | 'triggers') {
     currentView.value = view
   }
 
@@ -42,6 +42,10 @@ export const useAppStore = defineStore('app', () => {
 
   function goToWorkflows() {
     currentView.value = 'workflows'
+  }
+
+  function goToCodeWorkflows() {
+    currentView.value = 'code-workflows'
   }
 
   function goToTriggers() {

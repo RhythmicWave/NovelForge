@@ -11,9 +11,7 @@ import type { components } from '@/types/generated'
 export type WorkflowRead = components['schemas']['WorkflowRead']
 export type WorkflowUpdate = components['schemas']['WorkflowUpdate']
 export type WorkflowRunRead = components['schemas']['WorkflowRunRead']
-export type RunRequest = components['schemas']['RunRequest']
 export type NodeExecutionStatus = components['schemas']['NodeExecutionStatus']
-export type RunStatus = components['schemas']['RunStatus']
 
 export function listWorkflows(): Promise<WorkflowRead[]> {
   return request.get('/workflows', undefined, '/api', { showLoading: false })
@@ -35,7 +33,25 @@ export function deleteWorkflow(id: number): Promise<void> {
   return request.delete(`/workflows/${id}`, undefined, '/api', { showLoading: false })
 }
 
-export function validateWorkflow(id: number): Promise<{ canonical_nodes: any[]; errors: string[] }> {
+export function deleteRun(runId: number): Promise<{ ok: boolean; message: string }> {
+  return request.delete(`/workflows/runs/${runId}`, undefined, '/api')
+}
+
+export interface ValidationError {
+  line: number
+  variable: string
+  error_type: string
+  message: string
+  suggestion?: string
+}
+
+export interface ValidationResult {
+  is_valid: boolean
+  errors: ValidationError[]
+  warnings: ValidationError[]
+}
+
+export function validateWorkflow(id: number): Promise<ValidationResult> {
   return request.post(`/workflows/${id}/validate`, {}, '/api', { showLoading: false })
 }
 
@@ -67,22 +83,14 @@ export function getNodeTypes(): Promise<{ node_types: WorkflowNodeType[] }> {
 // API 函数
 // ============================================================
 
-// 启动工作流运行
-export async function runWorkflow(workflowId: number, payload: RunRequest = {}): Promise<WorkflowRunRead> {
-  console.log('[API] runWorkflow 调用, workflowId:', workflowId, 'payload:', payload)
-  const result = await request.post<WorkflowRunRead>(`/workflows/${workflowId}/run`, payload, '/api')
-  console.log('[API] runWorkflow 返回:', result)
-  return result
-}
-
-// 获取运行状态
-export function getRunStatus(runId: number): Promise<RunStatus> {
-  return request.get(`/workflows/runs/${runId}/status`, undefined, '/api', { showLoading: false })
-}
-
 // 获取运行详情
 export function getRun(runId: number): Promise<WorkflowRunRead> {
   return request.get(`/workflows/runs/${runId}`, undefined, '/api', { showLoading: false })
+}
+
+// 获取所有运行记录
+export function listAllRuns(params?: { limit?: number; offset?: number; status?: string }): Promise<WorkflowRunRead[]> {
+  return request.get('/runs', params, '/api', { showLoading: false })
 }
 
 // 取消运行
@@ -90,52 +98,199 @@ export function cancelRun(runId: number): Promise<{ ok: boolean; message?: strin
   return request.post(`/workflows/runs/${runId}/cancel`, {}, '/api')
 }
 
-/**
- * 连接工作流运行事件流（SSE）
- * @param runId 运行 ID
- * @param onMessage 消息回调
- * @param onError 错误回调
- * @param onOpen 连接成功回调
- * @returns EventSource 实例，用于关闭连接
- */
-export function connectRunEvents(
-  runId: number,
-  onMessage: (data: any) => void,
-  onError?: (error: Event) => void,
-  onOpen?: () => void
-): EventSource {
-  const url = `${API_BASE_URL}/workflows/runs/${runId}/events`
-  console.log('[API] 连接 SSE 事件流:', url)
+// ============================================================
+// 代码式工作流 API
+// ============================================================
 
+export interface WorkflowStatement {
+  variable: string
+  code: string
+}
+
+export interface ProgressEvent {
+  type: 'progress'
+  statement: WorkflowStatement
+  percent: number
+  message: string
+  stage?: string
+}
+
+export interface CompleteEvent {
+  type: 'complete'
+  statement: WorkflowStatement
+  result: any
+}
+
+export interface ErrorEvent {
+  type: 'error'
+  statement: WorkflowStatement
+  error: string
+}
+
+export interface StartEvent {
+  type: 'start'
+  statement: WorkflowStatement
+}
+
+export type WorkflowStreamEvent = StartEvent | ProgressEvent | CompleteEvent | ErrorEvent
+
+export interface WorkflowStreamCallbacks {
+  onRunStarted?: (runId: number) => void
+  onStart?: (event: StartEvent) => void
+  onProgress?: (event: ProgressEvent) => void
+  onComplete?: (event: CompleteEvent) => void
+  onError?: (event: ErrorEvent) => void
+  onEnd?: () => void
+}
+
+/**
+ * 执行代码式工作流（流式SSE推送）
+ * 
+ * @param workflowId 工作流ID
+ * @param callbacks 事件回调
+ * @param resume 是否恢复执行（默认 false）
+ * @param runId 恢复执行时的 run ID（resume=true 时必须提供）
+ * @returns 包含 runId 和 EventSource 的对象
+ */
+export async function runCodeWorkflowStream(
+  workflowId: number,
+  callbacks: WorkflowStreamCallbacks,
+  resume: boolean = false,
+  runId?: number
+): Promise<{ runId: { value: number }; eventSource: EventSource }> {
+  console.log('[API] 开始执行工作流:', workflowId, 'resume:', resume, 'runId:', runId)
+  
+  // 构建 URL
+  let url = `${API_BASE_URL}/workflows/${workflowId}/execute-stream`
+  if (resume && runId) {
+    url += `?resume=true&run_id=${runId}`
+  }
+  
+  console.log('[API] 连接 SSE:', url)
+
+  // EventSource 不支持 AbortController，直接使用 close() 方法中断
   const eventSource = new EventSource(url)
+  // 使用对象包装 runId，使其可以被外部引用更新
+  const runIdRef = { value: runId || 0 }
 
   eventSource.onopen = () => {
     console.log('[API] SSE 连接成功')
-    onOpen?.()
   }
 
   eventSource.onmessage = (event) => {
-    console.log('[API] SSE 收到消息')
     try {
-      const status = JSON.parse(event.data)
-
-      // 检查错误
-      if (status.error) {
-        console.error('[API] SSE 错误:', status.error)
-        return
+      const data = JSON.parse(event.data)
+      console.log('[API] 收到消息:', data)
+      
+      // 处理不同类型的事件
+      switch (data.type) {
+        case 'run_started':
+          // 保存 run_id
+          runIdRef.value = data.run_id
+          console.log('[API] 运行已启动, run_id:', runIdRef.value)
+          // 调用回调
+          callbacks.onRunStarted?.(runIdRef.value)
+          break
+          
+        case 'start':
+          callbacks.onStart?.(data as StartEvent)
+          break
+          
+        case 'progress':
+          callbacks.onProgress?.(data as ProgressEvent)
+          break
+          
+        case 'complete':
+          callbacks.onComplete?.(data as CompleteEvent)
+          break
+          
+        case 'error':
+          callbacks.onError?.(data as ErrorEvent)
+          break
+          
+        case 'paused':
+          console.log('[API] 工作流已暂停')
+          callbacks.onEnd?.()
+          eventSource.close()
+          break
+          
+        case 'end':
+          callbacks.onEnd?.()
+          eventSource.close()
+          break
+          
+        default:
+          console.warn('[API] 未知事件类型:', data.type)
       }
-
-      // 直接传递状态对象
-      onMessage(status)
-    } catch (e) {
-      console.error('[API] SSE 解析消息失败:', e)
+    } catch (error) {
+      console.error('[API] 解析消息失败:', error)
     }
   }
 
   eventSource.onerror = (error) => {
-    console.error('[API] SSE 连接错误:', error)
-    onError?.(error)
+    console.error('[API] SSE 错误:', error)
+    
+    // 检查 readyState 判断是否是正常关闭
+    if (eventSource.readyState === EventSource.CLOSED) {
+      console.log('[API] SSE 连接已关闭（可能是暂停或完成）')
+      // 不调用 onError，避免误报错误
+      return
+    }
+    
+    // 立即关闭连接，防止自动重连
+    eventSource.close()
+    
+    callbacks.onError?.({
+      type: 'error',
+      statement: { variable: 'unknown', code: 'unknown' },
+      error: 'SSE connection error'
+    })
+    callbacks.onEnd?.()
   }
 
-  return eventSource
+  return { runId: runIdRef, eventSource }
+}
+
+/**
+ * 解析工作流代码（验证语法）
+ * @param code 工作流代码
+ * @returns 解析结果
+ */
+export async function parseWorkflowCode(code: string): Promise<{
+  success: boolean
+  statements?: WorkflowStatement[]
+  errors?: string[]
+}> {
+  return request.post('/workflows/parse', { code }, '/api', { showLoading: false })
+}
+
+/**
+ * 保存代码式工作流
+ * @param name 工作流名称
+ * @param code 工作流代码
+ * @returns 保存的工作流
+ */
+export async function saveCodeWorkflow(name: string, code: string): Promise<WorkflowRead> {
+  return request.post('/workflows/code', { name, code }, '/api')
+}
+
+/**
+ * 获取代码式工作流
+ * @param id 工作流 ID
+ * @returns 工作流代码
+ */
+export async function getCodeWorkflow(id: number): Promise<{ id: number; name: string; code: string }> {
+  return request.get(`/workflows/${id}/code`, undefined, '/api', { showLoading: false })
+}
+
+// 获取项目创建模板列表
+export interface ProjectTemplate {
+  workflow_id: number
+  workflow_name: string
+  template: string | null
+  description?: string
+}
+
+export function getProjectTemplates(): Promise<{ templates: ProjectTemplate[] }> {
+  return request.get('/workflows/project-templates', undefined, '/api', { showLoading: false })
 }

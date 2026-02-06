@@ -26,10 +26,12 @@ backend/alembic/versions/*.py
 
 primitive_models/
 docs/
+.pytest_cache/
 
 .windsurf/
 .windsurfrules
 .agent/
+.kiro/
 
 # IDE配置
 .vscode/
