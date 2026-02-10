@@ -21,6 +21,7 @@ def create_default_card_types(session: Session) -> None:
         session: 数据库会话
     """
     default_types = {
+        "通用文本": {"editor_component": "MarkdownTextEditor", "is_singleton": False, "is_ai_enabled": False, "default_ai_context_template": None},
         "作品标签": {"editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
         "金手指": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content"},
         "一句话梗概": {"is_singleton": True, "default_ai_context_template": "作品标签: @作品标签.content\n金手指/特殊能力: @金手指.content.special_abilities"},
@@ -113,6 +114,7 @@ def create_default_card_types(session: Session) -> None:
 
     # 类型名称到内置响应模型的映射（直接用于生成 json_schema）
     TYPE_TO_MODEL_KEY = {
+        "通用文本" : "Text",
         "作品标签": "Tags",
         "金手指": "SpecialAbilityResponse",
         "一句话梗概": "OneSentence",
@@ -131,6 +133,7 @@ def create_default_card_types(session: Session) -> None:
 
     existing_types = session.exec(select(CardType)).all()
     existing_type_names = {ct.name for ct in existing_types}
+    existing_type_by_name = {ct.name: ct for ct in existing_types}
 
     # 默认 llm_config_id：取第一个可用 LLM 配置（若存在）
     default_llm = session.exec(select(LLMConfig)).first()
@@ -166,7 +169,7 @@ def create_default_card_types(session: Session) -> None:
             logger.info(f"Created default card type: {name}")
         else:
             # 增量更新：刷新类型结构与元信息
-            ct = next(ct for ct in existing_types if ct.name == name)
+            ct = existing_type_by_name[name]
             try:
                 model_class = RESPONSE_MODEL_MAP.get(TYPE_TO_MODEL_KEY.get(name))
                 if model_class:
@@ -188,6 +191,56 @@ def create_default_card_types(session: Session) -> None:
             ct.description = details.get("description", f"{name}的默认卡片类型")
             ct.default_ai_context_template = details.get("default_ai_context_template")
             ct.built_in = True
+
+    # 自动同步：将未映射到默认卡片类型的内置响应模型写入 CardType
+    # 目的：避免新增响应模型后，前端“设置-卡片类型”看不到对应模型定义。
+    # mapped_model_keys = set(TYPE_TO_MODEL_KEY.values())
+    # for model_key, model_class in RESPONSE_MODEL_MAP.items():
+    #     # 已由 default_types 显式管理的模型，不重复创建
+    #     if model_key in mapped_model_keys:
+    #         continue
+
+    #     existing = next(
+    #         (
+    #             ct for ct in existing_types
+    #             if ct.name == model_key or ct.model_name == model_key
+    #         ),
+    #         None
+    #     )
+
+    #     schema = None
+    #     try:
+    #         schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
+    #     except Exception:
+    #         schema = None
+
+    #     if existing:
+    #         # 仅对内置类型做增量修复，避免覆盖用户自定义类型
+    #         if getattr(existing, "built_in", False):
+    #             existing.model_name = model_key
+    #             if schema is not None:
+    #                 existing.json_schema = schema
+    #             if not (existing.description or "").strip():
+    #                 existing.description = f"{model_key}（内置响应模型）"
+    #         continue
+
+    #     auto_type = CardType(
+    #         name=model_key,
+    #         model_name=model_key,
+    #         description=f"{model_key}（内置响应模型）",
+    #         json_schema=schema,
+    #         ai_params=None,
+    #         editor_component=None,
+    #         is_ai_enabled=False,
+    #         is_singleton=False,
+    #         default_ai_context_template=None,
+    #         built_in=True,
+    #     )
+    #     session.add(auto_type)
+    #     existing_types.append(auto_type)
+    #     existing_type_names.add(model_key)
+    #     existing_type_by_name[model_key] = auto_type
+    #     logger.info(f"Created builtin response model card type: {model_key}")
 
     session.commit()
     logger.info("Default card types committed.")

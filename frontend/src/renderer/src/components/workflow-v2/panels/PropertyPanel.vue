@@ -175,12 +175,12 @@
                       clearable
                     >
                       <el-option-group label="内置模型">
-                        <el-option value="OneSentence" label="一句话梗概" />
-                        <el-option value="ChapterOutline" label="章节大纲" />
-                        <el-option value="VolumeOutline" label="分卷大纲" />
-                        <el-option value="WorldBuilding" label="世界观设定" />
-                        <el-option value="WritingGuide" label="写作指南" />
-                        <el-option value="ParagraphOverview" label="段落概览" />
+                        <el-option
+                          v-for="model in builtinResponseModels"
+                          :key="model"
+                          :value="model"
+                          :label="model"
+                        />
                       </el-option-group>
                       <el-option-group label="自定义卡片类型">
                          <el-option
@@ -390,6 +390,7 @@ import SchemaField from '@/components/workflow-v2/schema/SchemaField.vue'
 import PropertyFieldWrapper from '@/components/workflow-v2/panels/PropertyFieldWrapper.vue'
 import TemplateInput from '@/components/workflow-v2/panels/TemplateInput.vue'
 import { listLLMConfigs, listPrompts, type LLMConfigRead, type Prompt } from '@/api/setting'
+import { getContentModels } from '@/api/cards'
 
 const props = defineProps<{
   selectedNode: any
@@ -410,6 +411,7 @@ const projectListStore = useProjectListStore()
 // LLM 配置和提示词数据
 const llmConfigs = ref<LLMConfigRead[]>([])
 const prompts = ref<Prompt[]>([])
+const builtinResponseModels = ref<string[]>([])
 const availableTools = ref<string[]>([
   'search_cards',
   'create_card',
@@ -441,6 +443,23 @@ onMounted(async () => {
     prompts.value = await listPrompts()
   } catch (error) {
     console.error('加载提示词失败:', error)
+  }
+
+  // 加载内置响应模型（用于 ResponseModelSelect）
+  try {
+    builtinResponseModels.value = await getContentModels()
+  } catch (error) {
+    console.error('加载内置响应模型失败:', error)
+    builtinResponseModels.value = [
+      'OneSentence',
+      'ChapterOutline',
+      'VolumeOutline',
+      'WorldBuilding',
+      'WritingGuide',
+      'ParagraphOverview',
+      'BookStageChunkPlan',
+      'BookStageFinalPlan'
+    ]
   }
 })
 

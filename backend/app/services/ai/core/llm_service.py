@@ -3,7 +3,7 @@
 提供ChatModel构建、结构化生成和续写功能。
 """
 
-from typing import Type, Optional, AsyncGenerator
+from typing import Any, Dict, Type, Optional, AsyncGenerator
 from pydantic import BaseModel
 from sqlmodel import Session
 from loguru import logger
@@ -11,123 +11,13 @@ import asyncio
 import json
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_qwq import ChatQwen
-
-from app.db.models import LLMConfig
-from app.services import llm_config_service
+from app.services.ai.generation.structured_runtime import (
+    generate_structured_via_instruction_flow_model,
+)
 from app.schemas.ai import ContinuationRequest
+from .chat_model_factory import build_chat_model
 from .token_utils import calc_input_tokens, estimate_tokens
 from .quota_manager import precheck_quota, record_usage
-
-
-def _get_llm_config(session: Session, llm_config_id: int) -> LLMConfig:
-    """获取LLM配置"""
-    cfg = llm_config_service.get_llm_config(session, llm_config_id)
-    if not cfg:
-        raise ValueError(f"LLM配置不存在，ID: {llm_config_id}")
-    if not cfg.api_key:
-        raise ValueError(f"未找到LLM配置 {cfg.display_name or cfg.model_name} 的API密钥")
-    return cfg
-
-
-def build_chat_model(
-    session: Session,
-    llm_config_id: int,
-    *,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    timeout: Optional[float] = None,
-    thinking_enabled: Optional[bool] = None,
-):
-    """构建LangChain ChatModel实例
-    
-    所有LLM调用的底层入口，不包含业务逻辑。
-    
-    Args:
-        session: 数据库会话
-        llm_config_id: LLM配置ID
-        temperature: 温度参数
-        max_tokens: 最大token数
-        timeout: 超时时间（秒）
-        thinking_enabled: 是否启用思考模式（部分模型支持）
-        
-    Returns:
-        LangChain ChatModel实例
-    """
-    cfg = _get_llm_config(session, llm_config_id)
-    provider = (cfg.provider or "").lower()
-
-    common_kwargs: dict = {}
-    if temperature is not None:
-        common_kwargs["temperature"] = float(temperature)
-    if max_tokens is not None:
-        common_kwargs["max_tokens"] = int(max_tokens)
-    if timeout is not None:
-        common_kwargs["timeout"] = float(timeout)
-
-    logger.info(
-        f"[LangChain] build_chat_model provider={provider}, model={cfg.model_name}, "
-        f"temperature={temperature}, max_tokens={max_tokens}, timeout={timeout}"
-    )
-
-    # OpenAI兼容（使用ChatQwen以更好支持推理模型）
-    if provider == "openai_compatible":
-        model_kwargs: dict = {
-            "model": cfg.model_name,
-            "api_key": cfg.api_key,
-        }
-        if cfg.api_base:
-            model_kwargs["base_url"] = cfg.api_base
-        # 根据前端开关控制 thinking 模式
-        if thinking_enabled is not None:
-            model_kwargs["extra_body"] = {"enable_thinking": thinking_enabled}
-        model_kwargs.update(common_kwargs)
-        return ChatQwen(**model_kwargs)
-
-    # 原生OpenAI
-    if provider == "openai":
-        model_kwargs = {
-            "model": cfg.model_name,
-            "api_key": cfg.api_key,
-        }
-        model_kwargs.update(common_kwargs)
-        return ChatOpenAI(**model_kwargs)
-
-    # Anthropic
-    if provider == "anthropic":
-        model_kwargs = {
-            "model": cfg.model_name,
-            "api_key": cfg.api_key,
-        }
-        # 根据前端开关控制 thinking 模式
-        if thinking_enabled is True:
-            model_kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2048}
-        elif thinking_enabled is False:
-            # Anthropic 默认关闭，无需显式设置
-            pass
-        model_kwargs.update(common_kwargs)
-        return ChatAnthropic(**model_kwargs)
-
-    # Google Gemini
-    if provider == "google":
-        model_kwargs = {
-            "model": cfg.model_name,
-            "api_key": cfg.api_key,
-        }
-        # 根据前端开关控制 thinking 模式
-        if thinking_enabled is not None:
-            model_kwargs["include_thoughts"] = thinking_enabled
-        if max_tokens is not None:
-            model_kwargs["max_output_tokens"] = int(max_tokens)
-            model_kwargs.pop("max_tokens", None)
-        if temperature is not None:
-            model_kwargs["temperature"] = float(temperature)
-        return ChatGoogleGenerativeAI(**model_kwargs)
-
-    raise ValueError(f"不支持的LLM提供商: {cfg.provider}")
 
 
 async def generate_structured(
@@ -142,7 +32,9 @@ async def generate_structured(
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
     track_stats: bool = True,
-) -> BaseModel:
+    use_instruction_flow: bool = False,
+    return_logs: bool = False,
+) -> BaseModel | Dict[str, Any]:
     """结构化输出生成
     
     使用LangChain ChatModel的structured output能力。
@@ -163,6 +55,59 @@ async def generate_structured(
     Returns:
         结构化输出对象
     """
+    if use_instruction_flow:
+        return await generate_structured_via_instruction_flow_model(
+            session=session,
+            llm_config_id=llm_config_id,
+            user_prompt=user_prompt,
+            output_type=output_type,
+            system_prompt=system_prompt,
+            deps=deps,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+            temperature=temperature,
+            timeout=timeout,
+            track_stats=track_stats,
+            return_logs=return_logs,
+        )
+
+    native_result = await _generate_structured_native(
+        session=session,
+        llm_config_id=llm_config_id,
+        user_prompt=user_prompt,
+        output_type=output_type,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
+        max_retries=max_retries,
+        temperature=temperature,
+        timeout=timeout,
+        track_stats=track_stats,
+    )
+
+    if return_logs:
+        return {
+            "result": native_result,
+            "logs": [],
+        }
+
+    return native_result
+
+
+async def _generate_structured_native(
+    *,
+    session: Session,
+    llm_config_id: int,
+    user_prompt: str,
+    output_type: Type[BaseModel],
+    system_prompt: Optional[str],
+    max_tokens: Optional[int],
+    max_retries: int,
+    temperature: Optional[float],
+    timeout: Optional[float],
+    track_stats: bool,
+) -> BaseModel:
+    """原生结构化输出实现（LangChain with_structured_output）。"""
+
     # 配额预检
     if track_stats:
         ok, reason = precheck_quota(
@@ -173,13 +118,9 @@ async def generate_structured(
         if not ok:
             raise ValueError(f"LLM配额不足: {reason}")
 
-    # logger.info(f"[LangChain-Structured] system_prompt: {system_prompt}")
-    # logger.info(f"[LangChain-Structured] user_prompt: {user_prompt}")
-
     last_exception = None
     for attempt in range(max_retries):
         try:
-            # 构造底层ChatModel
             model = build_chat_model(
                 session=session,
                 llm_config_id=llm_config_id,
@@ -188,7 +129,6 @@ async def generate_structured(
                 timeout=timeout or 150,
             )
 
-            # 结构化输出模型
             structured_llm = model.with_structured_output(output_type)
 
             messages = []
@@ -203,7 +143,6 @@ async def generate_structured(
 
             logger.info(f"[LangChain-Structured] response: {response}")
 
-            # 统计
             if track_stats:
                 in_tokens = calc_input_tokens(system_prompt, user_prompt)
                 try:
@@ -238,10 +177,9 @@ async def generate_structured(
             logger.warning(
                 f"[LangChain-Structured] 调用失败，重试 {attempt + 1}/{max_retries}，llm_config_id={llm_config_id}: {e}"
             )
-            
-            # ⚠️ 关键：重试前等待，避免立即重试触发限流
-            if attempt < max_retries - 1:  # 最后一次失败不需要等待
-                retry_delay = min(2 ** attempt,4)  # 指数退避：1秒、2秒、4秒...
+
+            if attempt < max_retries - 1:
+                retry_delay = min(2 ** attempt, 4)
                 logger.info(f"[LangChain-Structured] 等待 {retry_delay} 秒后重试...")
                 await asyncio.sleep(retry_delay)
 

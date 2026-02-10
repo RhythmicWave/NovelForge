@@ -1,6 +1,5 @@
 import asyncio
 import os
-import json
 from typing import Any, Dict, List, Optional, AsyncIterator, Union, TYPE_CHECKING
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -8,10 +7,12 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from ...engine.async_executor import ProgressEvent
 
-from app.services.ai.core.llm_service import build_chat_model, generate_structured
+from app.services.ai.core.model_builder import build_model_from_json_schema
+from app.services.ai.core.llm_service import generate_structured
 from ...registry import register_node
 from ..base import BaseNode
 from app.db.models import CardType
+from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from sqlmodel import select
 
 
@@ -20,9 +21,17 @@ class BatchStructuredInput(BaseModel):
     items: List[Any] = Field(..., description="数据列表 (包含元数据)")
     llm_config_id: int = Field(..., description="LLM 配置 ID", json_schema_extra={"x-component": "LLMSelect"})
     prompt_template: str = Field(..., description="提示词模板，支持 {{content}} 和 {{item.field}}", json_schema_extra={"x-component": "Textarea"})
-    response_model_id: str = Field(..., description="响应模型 (CardType或内置)", json_schema_extra={"x-component": "ResponseModelSelect"})
+    response_model_id: str = Field(..., description="响应模型", json_schema_extra={"x-component": "ResponseModelSelect"})
     concurrency: int = Field(30, description="最大并发数", ge=1)
     max_retries: int = Field(3, description="最大重试次数")
+    temperature: float = Field(0.7, description="温度参数")
+    max_tokens: Optional[int] = Field(None, description="最大 token 数")
+    timeout: Optional[float] = Field(150, description="超时时间(秒)")
+    fail_soft: bool = Field(False, description="单项失败时是否降级返回部分结果")
+    use_instruction_flow: bool = Field(
+        False,
+        description="是否使用指令流模式（复杂结构推荐开启，简单结构可关闭以使用原生结构化）",
+    )
     cache_key: Optional[str] = Field(None, description="缓存Key (用于断点续传)，若为空则使用 item.path 或 index")
 
 
@@ -97,6 +106,14 @@ class BatchStructuredNode(BaseNode[BatchStructuredInput, BatchStructuredOutput])
             f"[BatchStructured] 待处理 {len(pending_indices)} 个项目 "
             f"(已完成 {len(processed_indices)} 个, 并发限制: {inputs.concurrency})"
         )
+
+        schema = self._get_schema(self.context.session, inputs)
+        if not schema:
+            raise ValueError(f"无法加载模型 Schema: {inputs.response_model_id}")
+        dynamic_output = build_model_from_json_schema(
+            f"BatchStructured_{inputs.response_model_id}",
+            schema,
+        )
         
         # === 2. 进度队列 ===
         progress_queue = asyncio.Queue()
@@ -130,26 +147,29 @@ class BatchStructuredNode(BaseNode[BatchStructuredInput, BatchStructuredOutput])
                 
                 # LLM 调用
                 logger.info(f"[BatchStructured] Item {index}: 开始 LLM 调用")
-                
-                schema = self._get_schema(self.context.session, inputs)
-                
-                # 构建简单的 system_prompt（不使用指令流）
-                system_prompt =current_prompt+"\n\n"+ f"请严格按照以下 JSON Schema 格式进行输出:\n{json.dumps(schema, ensure_ascii=False, indent=2)}"
 
-                llm_result = await generate_structured(
+                generated = await generate_structured(
                     session=self.context.session,
                     llm_config_id=inputs.llm_config_id,
-                    user_prompt="",
-                    system_prompt=system_prompt,
-                    output_type=schema,
-                    max_retries=inputs.max_retries
+                    user_prompt=current_prompt,
+                    output_type=dynamic_output,
+                    system_prompt=None,
+                    deps="",
+                    temperature=inputs.temperature,
+                    max_tokens=inputs.max_tokens,
+                    timeout=inputs.timeout or 150,
+                    max_retries=inputs.max_retries,
+                    use_instruction_flow=inputs.use_instruction_flow,
+                    track_stats=True,
+                    return_logs=True,
                 )
                 
                 logger.info(f"[BatchStructured] Item {index}: ✅ LLM 调用完成")
                 
                 # 保存结果
                 results[index] = {
-                    "ai_result": llm_result,
+                    "ai_result": generated["result"].model_dump(mode="json"),
+                    "logs": generated["logs"],
                     "meta": item
                 }
                 
@@ -235,5 +255,9 @@ class BatchStructuredNode(BaseNode[BatchStructuredInput, BatchStructuredOutput])
         ct = session.exec(stmt).first()
         if ct and ct.json_schema:
             return ct.json_schema
+
+        builtin_model = RESPONSE_MODEL_MAP.get(inputs.response_model_id)
+        if builtin_model is not None:
+            return builtin_model.model_json_schema(ref_template="#/$defs/{model}")
                 
         return None

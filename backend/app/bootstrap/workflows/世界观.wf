@@ -2,37 +2,36 @@
 # 功能：世界观设定卡片保存时，自动提取组织列表并批量创建组织卡片
 # 触发器：世界观设定卡片保存时自动触发
 
-# 触发器：监听世界观设定卡片保存
-<node name="trigger">
-  Trigger.CardSaved(card_type="世界观设定")
-</node>
+#@node(description="触发器：监听世界观设定卡片保存")
+trigger = Trigger.CardSaved(card_type="世界观设定")
+#</node>
 
-# 读取当前卡片
-<node name="card">
-  Card.Read(card_id=trigger.card_id)
-</node>
 
-# 使用表达式节点提取组织列表
-<node name="organizations">
-  Logic.Expression(
+#@node(description="读取当前卡片")
+card = Card.Read(card_id=trigger.card_id)
+#</node>
+
+
+#@node(description="使用表达式节点提取组织列表")
+organizations = Logic.Expression(
     expression="card.content.world_view.social_system.major_power_camps or []"
   )
-</node>
+#</node>
 
-# 批量创建组织卡片（父卡片为当前世界观卡片）
-<node name="org_cards">
-  Card.BatchUpsert(
+
+#@node(description="批量创建组织卡片（父卡片为当前世界观卡片）")
+org_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="组织卡",
     title_template="{item.name}",
     items=organizations.result
   )
-</node>
+#</node>
 
-# 清空来源列表（避免重复创建）
-<node name="update_result">
-  Card.Update(
+
+#@node(description="清空来源列表（避免重复创建）")
+update_result = Card.Update(
     card_id=trigger.card_id,
     content_merge={
       "world_view": {
@@ -42,4 +41,4 @@
       }
     }
   )
-</node>
+#</node>

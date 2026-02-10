@@ -127,6 +127,7 @@ export const useAppStore = defineStore('app', () => {
     goToEditor,
     goToIdeas,
     goToWorkflows,
+    goToCodeWorkflows,
     goToTriggers,
     toggleTheme,
     setTheme,

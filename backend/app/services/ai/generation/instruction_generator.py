@@ -12,7 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Base
 from pydantic import ValidationError
 from loguru import logger
 
-from app.services.ai.core.llm_service import build_chat_model
+from app.services.ai.core.chat_model_factory import build_chat_model
 from app.services.ai.core.model_builder import build_model_from_json_schema
 from app.services.ai.generation.instruction_validator import (
     validate_instruction, 
@@ -120,13 +120,13 @@ async def generate_instruction_stream(
                 messages.append(HumanMessage(content=current_data_info))
     
     # 打印完整的消息上下文（用于调试）
-    logger.info("=" * 80)
-    logger.info(f"[指令生成] 开始生成，共 {len(messages)} 条消息")
-    for idx, msg in enumerate(messages):
-        msg_type = type(msg).__name__
-        content_preview = msg.content
-        logger.info(f"  [{idx}] {msg_type}: {content_preview}")
-    logger.info("=" * 80)
+    # logger.info("=" * 80)
+    # logger.info(f"[指令生成] 开始生成，共 {len(messages)} 条消息")
+    # for idx, msg in enumerate(messages):
+    #     msg_type = type(msg).__name__
+    #     content_preview = msg.content
+    #     logger.info(f"  [{idx}] {msg_type}: {content_preview}")
+    # logger.info("=" * 80)
     
     # 开始生成循环（支持自动修复）
     failed_instructions = []  # 累积失败的指令

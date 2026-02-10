@@ -20,7 +20,7 @@ def extract_triggers_from_code(code: str) -> List[Dict[str, Any]]:
           参数: card_type (可选), on_create (默认true), on_update (默认true)
     
     Args:
-        code: 工作流代码（XML 格式）
+        code: 工作流代码（注释标记 DSL）
         
     Returns:
         触发器配置列表，格式：
@@ -34,14 +34,14 @@ def extract_triggers_from_code(code: str) -> List[Dict[str, Any]]:
     
     Example:
         >>> code = '''
-        ... <node name="trigger">
-        ...   Trigger.ProjectCreated(template="snowflake")
-        ... </node>
+        ... #@node()
+        ... trigger = Trigger.ProjectCreated(template="snowflake")
+        ... #</node>
         ... '''
         >>> extract_triggers_from_code(code)
         [{"event": "project.created", "match": {"template": "snowflake"}}]
     """
-    from app.services.workflow.parser.xml_parser import XMLWorkflowParser
+    from app.services.workflow.parser.marker_parser import WorkflowParser
     
     if not code or not code.strip():
         return []
@@ -54,7 +54,7 @@ def extract_triggers_from_code(code: str) -> List[Dict[str, Any]]:
     
     try:
         # 解析工作流代码
-        parser = XMLWorkflowParser()
+        parser = WorkflowParser()
         plan = parser.parse(code)
         
         triggers = []

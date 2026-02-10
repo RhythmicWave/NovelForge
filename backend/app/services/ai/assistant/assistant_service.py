@@ -29,7 +29,7 @@ from .tools import (
     ASSISTANT_TOOL_DESCRIPTIONS,
     set_assistant_deps,
 )
-from app.services.ai.core.llm_service import build_chat_model
+from app.services.ai.core.chat_model_factory import build_chat_model
 from app.services.ai.core.token_utils import calc_input_tokens, estimate_tokens
 from app.services.ai.core.quota_manager import precheck_quota, record_usage
 
@@ -326,8 +326,8 @@ async def stream_chat_with_react(
         request.user_prompt or "",
     )
 
-    logger.info(f"[React-Agent] system_prompt: {system_prompt[:200]}...")
-    logger.info(f"[React-Agent] user_prompt: {final_user_prompt[:200]}...")
+    # logger.info(f"[React-Agent] system_prompt: {system_prompt[:200]}...")
+    # logger.info(f"[React-Agent] user_prompt: {final_user_prompt[:200]}...")
 
     ok, reason = precheck_quota(
         session,
@@ -523,8 +523,8 @@ async def stream_chat_with_tools(
         parts.append("\nUser: " + request.user_prompt)
     final_user_prompt = "\n\n".join(parts) if parts else "（用户未输入文字，可能是想查看项目信息或需要帮助）"
 
-    logger.info(f"[LangChain+Agent] system_prompt: {system_prompt[:200]}...")
-    logger.info(f"[LangChain+Agent] final_user_prompt: {final_user_prompt[:200]}...")
+    # logger.info(f"[LangChain+Agent] system_prompt: {system_prompt[:200]}...")
+    # logger.info(f"[LangChain+Agent] final_user_prompt: {final_user_prompt[:200]}...")
 
     ok, reason = precheck_quota(
         session,

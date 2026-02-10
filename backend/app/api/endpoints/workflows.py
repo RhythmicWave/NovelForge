@@ -457,7 +457,7 @@ async def execute_code_workflow_stream(
         run_id: 恢复执行时的 run ID（resume=True 时必须提供）
     """
     import json
-    from app.services.workflow.parser.xml_parser import XMLWorkflowParser
+    from app.services.workflow.parser.marker_parser import WorkflowParser
     from app.services.workflow.engine.async_executor import AsyncExecutor
     from app.services.workflow.engine.state_manager import StateManager
     from app.services.workflow.registry import NodeRegistry
@@ -523,8 +523,8 @@ async def execute_code_workflow_stream(
         executor = None
         try:
             # 解析代码
-            from app.services.workflow.parser.xml_parser import XMLWorkflowParser
-            parser = XMLWorkflowParser()
+            from app.services.workflow.parser.marker_parser import WorkflowParser
+            parser = WorkflowParser()
             plan = parser.parse(code)
 
             logger.info(f"[CodeWorkflow] 开始流式执行: run_id={run_id}, 语句数={len(plan.statements)}, resume={resume}")
@@ -575,7 +575,8 @@ async def execute_code_workflow_stream(
                     "statement": {
                         "variable": event.statement.variable,
                         "code": event.statement.code or f"{event.statement.variable} = {event.statement.node_type or 'expression'}(...)",
-                        "line": event.statement.line_number
+                        "line": event.statement.line_number,
+                        "description": getattr(event.statement, 'description', '') or "",
                     }
                 }
 
@@ -738,19 +739,19 @@ def parse_workflow_code(payload: Dict[str, Any]):
     """解析工作流代码（验证语法）
     
     Args:
-        payload: 包含 code 字段的字典
+        payload: 包含 code 字段的字典（注释标记 DSL）
         
     Returns:
         解析结果
     """
-    from app.services.workflow.parser.xml_parser import XMLWorkflowParser
+    from app.services.workflow.parser.marker_parser import WorkflowParser
     
     code = payload.get("code", "")
     if not code:
         return {"success": False, "errors": ["代码不能为空"]}
 
     try:
-        parser = XMLWorkflowParser()
+        parser = WorkflowParser()
         plan = parser.parse(code)
 
         # 提取语句信息
@@ -766,7 +767,8 @@ def parse_workflow_code(payload: Dict[str, Any]):
                 "node_type": stmt.node_type,
                 "config": cleaned_config,
                 "is_async": stmt.is_async,  # 添加异步标记
-                "disabled": stmt.disabled   # 添加禁用标记
+                "disabled": stmt.disabled,   # 添加禁用标记
+                "description": getattr(stmt, 'description', '') or "",
             })
 
         return {
@@ -791,7 +793,7 @@ def rename_variable(payload: Dict[str, Any]):
     Returns:
         重命名结果
     """
-    from app.services.workflow.parser.xml_renamer import rename_variable as xml_rename
+    from app.services.workflow.parser.marker_renamer import rename_variable as marker_rename
     
     code = payload.get("code", "")
     old_name = payload.get("old_name", "")
@@ -803,8 +805,8 @@ def rename_variable(payload: Dict[str, Any]):
         return {"success": False, "error": "缺少必要参数"}
     
     try:
-        # 使用 XML 重命名器
-        new_code = xml_rename(code, old_name, new_name)
+        # 使用注释标记 DSL 重命名器
+        new_code = marker_rename(code, old_name, new_name)
         
         logger.info(f"[重命名] 新代码:\n{new_code}")
         
@@ -865,7 +867,3 @@ def get_code_workflow(workflow_id: int, session: Session = Depends(get_session))
         "code": wf.definition_code or "",
         "keep_run_history": wf.keep_run_history or False
     }
-
-
-
-

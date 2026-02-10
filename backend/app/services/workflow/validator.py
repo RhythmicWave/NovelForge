@@ -3,13 +3,13 @@
 在工作流保存时进行静态检查，提前发现错误。
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterable, Tuple
 from dataclasses import dataclass
 from loguru import logger
 
-from .parser.xml_parser import XMLWorkflowParser
 from .registry import NodeRegistry
-from .expressions.evaluator import ExpressionEvaluator
+from .expressions import validate_expression
+from .expressions.evaluator import get_expression_dependencies
 
 
 @dataclass
@@ -68,7 +68,7 @@ class WorkflowValidator:
         """校验工作流代码
         
         Args:
-            code: XML 格式的工作流代码
+            code: 工作流 DSL 代码（注释标记 DSL）
             
         Returns:
             校验结果
@@ -78,8 +78,8 @@ class WorkflowValidator:
         
         try:
             # 解析代码
-            from .parser.xml_parser import XMLWorkflowParser
-            parser = XMLWorkflowParser()
+            from .parser.marker_parser import WorkflowParser
+            parser = WorkflowParser()
             
             # 1. 解析代码（会检查语法错误）
             plan = parser.parse(code)
@@ -206,23 +206,87 @@ class WorkflowValidator:
             ))
     
     def _validate_expressions(self, statements):
-        """检查表达式语法"""
+        """检查表达式语法与变量依赖"""
+        defined_vars = set()
+
         for stmt in statements:
+            # 1) Logic.Expression 节点 expression 参数
             if stmt.node_type == "Logic.Expression":
                 expression = stmt.config.get('expression', '')
                 if expression:
-                    try:
-                        # 尝试解析表达式（不执行）
-                        import ast
-                        ast.parse(expression, mode='eval')
-                    except SyntaxError as e:
-                        self.errors.append(ValidationError(
-                            line=stmt.line_number,
-                            variable=stmt.variable,
-                            error_type='expression',
-                            message=f"表达式语法错误: {str(e)}",
-                            suggestion="检查表达式语法是否正确"
-                        ))
+                    self._validate_single_expression(
+                        stmt=stmt,
+                        expression=expression,
+                        source="expression",
+                        defined_vars=defined_vars
+                    )
+
+            # 2) 通用内联表达式：${...}
+            for source, inline_expr in self._extract_inline_expressions(stmt.config):
+                self._validate_single_expression(
+                    stmt=stmt,
+                    expression=inline_expr,
+                    source=source,
+                    defined_vars=defined_vars
+                )
+
+            # 当前节点定义的变量在本语句结束后可用
+            defined_vars.add(stmt.variable)
+
+    def _validate_single_expression(
+        self,
+        stmt,
+        expression: str,
+        source: str,
+        defined_vars: set[str]
+    ) -> None:
+        """校验单个表达式"""
+        expression_errors = validate_expression(expression)
+        if expression_errors:
+            for expression_error in expression_errors:
+                self.errors.append(ValidationError(
+                    line=stmt.line_number,
+                    variable=stmt.variable,
+                    error_type='expression',
+                    message=f"表达式语法错误 ({source}): {expression_error}",
+                    suggestion="检查表达式语法是否正确"
+                ))
+            return
+
+        dependencies = get_expression_dependencies(expression)
+        undefined_vars = sorted(var for var in dependencies if var not in defined_vars)
+        if undefined_vars:
+            defined_preview = ", ".join(sorted(defined_vars)) if defined_vars else "（当前无可用变量）"
+            self.errors.append(ValidationError(
+                line=stmt.line_number,
+                variable=stmt.variable,
+                error_type='expression',
+                message=f"表达式引用了未定义变量 ({source}): {', '.join(undefined_vars)}",
+                suggestion=f"请先定义这些变量，或检查变量名拼写。当前可用变量: {defined_preview}"
+            ))
+
+    def _extract_inline_expressions(
+        self,
+        value: Any,
+        path: str = ""
+    ) -> Iterable[Tuple[str, str]]:
+        """递归提取配置中的内联表达式 ${...}"""
+        if isinstance(value, str):
+            if value.startswith("${") and value.endswith("}"):
+                source = path if path else "config"
+                yield source, value[2:-1]
+            return
+
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                child_path = f"{path}[{index}]" if path else f"[{index}]"
+                yield from self._extract_inline_expressions(item, child_path)
+            return
+
+        if isinstance(value, dict):
+            for key, item in value.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                yield from self._extract_inline_expressions(item, child_path)
     
     def _validate_type_matching(self, statements):
         """检查类型匹配"""
@@ -320,14 +384,13 @@ class WorkflowValidator:
             
             expression = stmt.config.get('expression', '')
             if not expression:
-                continue
-            
-            # 检查表达式语法
-            try:
-                import ast
-                ast.parse(expression, mode='eval')
-            except SyntaxError:
-                pass  # 语法错误已经在 _validate_expressions 中检查过了
+                self.errors.append(ValidationError(
+                    line=stmt.line_number,
+                    variable=stmt.variable,
+                    error_type='expression',
+                    message="Expression 节点缺少 expression 参数",
+                    suggestion="请填写表达式内容"
+                ))
     
     def _validate_async_dependencies(self, statements):
         """检查异步节点依赖
@@ -378,16 +441,7 @@ class WorkflowValidator:
             if stmt.node_type == "Logic.Expression":
                 expression = stmt.config.get('expression', '')
                 if expression:
-                    # 简单的变量提取：查找所有标识符
-                    import re
-                    # 匹配变量名（字母开头，后跟字母数字下划线）
-                    var_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
-                    found_vars = re.findall(var_pattern, expression)
-                    # 过滤掉 Python 关键字和内置函数
-                    keywords = {'for', 'in', 'if', 'else', 'and', 'or', 'not', 'True', 'False', 'None', 'item'}
-                    for var in found_vars:
-                        if var not in keywords:
-                            all_deps.add(var)
+                    all_deps.update(get_expression_dependencies(expression))
             
             # 找出依赖的异步节点
             async_deps = all_deps & async_nodes
@@ -414,9 +468,11 @@ class WorkflowValidator:
                         variable=stmt.variable,
                         error_type='async_dependency',
                         message=f"同步节点 '{stmt.variable}' 依赖异步节点 '{async_dep}'，但没有使用 wait 节点等待",
-                        suggestion=f"在使用 '{async_dep}' 之前添加 wait 节点并在表达式中引用它：\n"
-                                  f"<node name=\"wait_{async_dep}\">Logic.Wait(tasks={async_dep})</node>\n"
-                                  f"然后在表达式中引用 wait_{async_dep} 以确保等待完成"
+                        suggestion=(
+                            f"在使用 '{async_dep}' 之前添加 wait 节点并在表达式中引用它，例如：\n"
+                            f"#@node()\nwait_{async_dep} = Logic.Wait(tasks={async_dep})\n#</node>\n"
+                            f"然后在表达式中引用 wait_{async_dep} 以确保等待完成"
+                        )
                     ))
     
     def _validate_parameter_values(self, statements):

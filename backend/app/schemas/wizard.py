@@ -7,6 +7,12 @@ from .entity import OrganizationCard as OrganizationCard
 from .entity import EntityType as EntityType
 
 
+class Text(BaseModel):
+    '''
+    通用的文本模型，自由存储各种内容
+    '''
+    content: str = Field(description="任意文本内容")
+
 # --- Schemas for Tags ---
 
 class Tags(BaseModel):

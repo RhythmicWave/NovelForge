@@ -11,14 +11,13 @@
 # 4. Card.Create - 创建两张卡片保存辩论结果
 # ============================================================
 
-# 1. 选择项目（请修改 project_id 为你的实际项目ID）
-<node name="project">
-  Logic.SelectProject(project_id=11)
-</node>
+#@node(description="1. 选择项目（请修改 project_id 为你的实际项目ID）")
+project = Logic.SelectProject(project_id=11)
+#</node>
 
-# 2. AI 辩论：金钱是否是万能的（异步执行）
-<node name="debate" async="true">
-  AI.Debate(
+
+#@node(async=true, description="2. AI 辩论：金钱是否是万能的（异步执行）")
+debate = AI.Debate(
     topic="金钱是否是万能的",
     context="这是一个经典的哲学辩论话题。请从多个角度深入分析，包括物质层面、精神层面、社会关系等。",
     max_rounds=3,
@@ -31,30 +30,30 @@
     temperature=0.8,
     max_tokens=3000
   )
-</node>
+#</node>
 
-# 3. 等待辩论完成（必须等待异步节点）
-<node name="wait_debate">
-  Logic.Wait(tasks=debate)
-</node>
 
-# 4. 格式化辩论完整记录为文本
-<node name="format_full_log">
-  Logic.Expression(
+#@node(description="3. 等待辩论完成（必须等待异步节点）")
+wait_debate = Logic.Wait(tasks=debate)
+#</node>
+
+
+#@node(description="4. 格式化辩论完整记录为文本")
+format_full_log = Logic.Expression(
     expression="'\\n\\n'.join([f\"=== 第 {log['round']} 轮 - {log['role']} ===\\n\\n【思考】\\n{log['thought']}\\n\\n【发言】\\n{log['content']}\" for log in debate.full_log]) if wait_debate.count > 0 else '辩论未完成'"
   )
-</node>
+#</node>
 
-# 5. 格式化辩论摘要为文本
-<node name="format_summary">
-  Logic.Expression(
+
+#@node(description="5. 格式化辩论摘要为文本")
+format_summary = Logic.Expression(
     expression="f\"辩论主题：金钱是否是万能的\\n\\n总结：\\n{debate.summary}\\n\\n完整对话记录：\\n\\n\" + '\\n\\n'.join([f\"{msg['role']}：\\n{msg['content']}\" for msg in debate.history]) if wait_debate.count > 0 else '辩论未完成'"
   )
-</node>
+#</node>
 
-# 6. 创建卡片1：辩论完整记录（包含思考过程）
-<node name="card_full_log">
-  Card.Create(
+
+#@node(description="6. 创建卡片1：辩论完整记录（包含思考过程）")
+card_full_log = Card.Create(
     project_id=project.project_id,
     card_type="章节正文",
     title="AI辩论完整记录 - 金钱是否万能",
@@ -67,11 +66,11 @@
       "content": format_full_log.result
     }
   )
-</node>
+#</node>
 
-# 7. 创建卡片2：辩论摘要（仅公开发言）
-<node name="card_summary">
-  Card.Create(
+
+#@node(description="7. 创建卡片2：辩论摘要（仅公开发言）")
+card_summary = Card.Create(
     project_id=project.project_id,
     card_type="章节正文",
     title="AI辩论摘要 - 金钱是否万能",
@@ -84,4 +83,4 @@
       "content": format_summary.result
     }
   )
-</node>
+#</node>

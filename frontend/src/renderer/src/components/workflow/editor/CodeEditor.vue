@@ -73,21 +73,28 @@ const createTheme = () => {
 onMounted(() => {
   if (!editorRef.value) return
 
+  const updateListener = EditorView.updateListener.of((update) => {
+    if (update.docChanged) {
+      const newValue = update.state.doc.toString()
+      emit('update:modelValue', newValue)
+      emit('change', newValue)
+    }
+  })
+
+  const baseExtensions = [
+    lineNumbers(),
+    history(),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+    markdown(),
+    EditorView.lineWrapping,
+    updateListener
+  ]
+
   const startState = EditorState.create({
     doc: props.modelValue,
     extensions: [
-      lineNumbers(),
-      history(),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
-      markdown(),
       createTheme(),
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
-          const newValue = update.state.doc.toString()
-          emit('update:modelValue', newValue)
-          emit('change', newValue)
-        }
-      })
+      ...baseExtensions
     ]
   })
 
@@ -102,18 +109,8 @@ onMounted(() => {
       // 重新配置主题
       view.dispatch({
         effects: EditorView.reconfigure.of([
-          lineNumbers(),
-          history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
-          markdown(),
           createTheme(),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              const newValue = update.state.doc.toString()
-              emit('update:modelValue', newValue)
-              emit('change', newValue)
-            }
-          })
+          ...baseExtensions
         ])
       })
     }

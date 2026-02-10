@@ -124,7 +124,7 @@ class RunManager:
         workflow: Workflow
     ) -> None:
         """执行运行（内部方法）"""
-        from ..parser.xml_parser import XMLWorkflowParser
+        from ..parser.marker_parser import WorkflowParser
         from .async_executor import AsyncExecutor
         
         run_id = run.id
@@ -143,7 +143,7 @@ class RunManager:
             logger.info(f"[RunManager] 解析代码式工作流: run_id={run_id}")
 
             # 解析代码
-            parser = XMLWorkflowParser()
+            parser = WorkflowParser()
             plan = parser.parse(code)
 
             logger.info(f"[RunManager] 执行代码式工作流: run_id={run_id}, 语句数={len(plan.statements)}")

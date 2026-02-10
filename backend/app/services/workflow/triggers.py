@@ -255,7 +255,7 @@ async def _execute_code_workflow(
     与 API 的流式执行不同，这里是后台执行，不需要推送事件。
     """
     from .engine.async_executor import AsyncExecutor
-    from .parser.xml_parser import XMLWorkflowParser
+    from .parser.marker_parser import WorkflowParser
     
     run_id = run.id
     code = workflow.definition_code or ""
@@ -266,7 +266,7 @@ async def _execute_code_workflow(
     logger.info(f"[Trigger] 解析代码式工作流: run_id={run_id}")
     
     # 解析代码
-    parser = XMLWorkflowParser()
+    parser = WorkflowParser()
     plan = parser.parse(code)
     
     logger.info(f"[Trigger] 执行代码式工作流: run_id={run_id}, 语句数={len(plan.statements)}")

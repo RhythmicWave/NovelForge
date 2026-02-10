@@ -18,6 +18,7 @@ class Statement:
     depends_on: List[str]      # 依赖的变量列表
     code: Optional[str] = None # 原始代码
     disabled: bool = False     # 是否禁用（从元数据注释中提取）
+    description: str = ""      # 节点描述（来自 #@node(description=...) 元数据）
 
     def __repr__(self):
         return f"Statement(line={self.line_number}, var={self.variable}, type={self.node_type}, disabled={self.disabled})"

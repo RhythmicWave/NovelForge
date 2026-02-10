@@ -9,7 +9,7 @@ from loguru import logger
 
 from ...registry import register_node
 from ..base import BaseNode
-from app.services.ai.core.llm_service import build_chat_model
+from app.services.ai.core.chat_model_factory import build_chat_model
 from app.services.ai.core.agent_builder import build_agent
 from app.services.ai.assistant.tools import (
     ASSISTANT_TOOL_REGISTRY,

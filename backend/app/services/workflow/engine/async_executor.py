@@ -581,14 +581,14 @@ class AsyncExecutor:
     def _resolve_value(self, value: Any) -> Any:
         """递归解析值，处理变量引用"""
         if isinstance(value, str):
-            if value.startswith("$"):
-                # 变量引用，如 $novel.chapter_list
-                ref = value[1:]  # 去掉 $ 前缀
-                return self._resolve_variable_reference(ref)
-            elif value.startswith("${") and value.endswith("}"):
+            if value.startswith("${") and value.endswith("}"):
                 # 表达式引用，如 ${len(items)}
                 expression = value[2:-1]
                 return evaluate_expression(expression, self.execution_state.context)
+            elif value.startswith("$"):
+                # 变量引用，如 $novel.chapter_list
+                ref = value[1:]  # 去掉 $ 前缀
+                return self._resolve_variable_reference(ref)
             else:
                 return value
         elif isinstance(value, list):

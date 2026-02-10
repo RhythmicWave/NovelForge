@@ -365,13 +365,21 @@ const onWorkflowChange = async (workflowId) => {
     currentWorkflowId.value = null
     currentWorkflowName.value = '未命名工作流'
     code.value = `# 示例工作流
+#@node(description="选择项目")
 project = Logic.SelectProject(project_id=1)
+#</node>
+
+#@node(description="加载小说目录")
 novel = Novel.Load(root_path="E:\\\\Novels\\\\book")
+#</node>
+
+#@node(description="批量创建分卷卡片")
 cards = Card.BatchUpsert(
     items=novel.volume_list,
     card_type="volume",
     title_template="{item}"
-)`
+)
+#</node>`
     notebookCells.length = 0
     return
   }
@@ -411,8 +419,11 @@ const createNewWorkflow = async () => {
       }
     })
 
-    // 创建新工作流，使用空代码模板
-    const initialCode = '# 新工作流\n'
+    // 创建新工作流，使用 marker DSL 模板
+    const initialCode = `# 新工作流
+#@node(description="选择项目")
+project = Logic.SelectProject(project_id=1)
+#</node>`
     const workflow = await saveCodeWorkflow(name, initialCode)
     currentWorkflowId.value = workflow.id
     currentWorkflowName.value = workflow.name
@@ -455,13 +466,21 @@ const deleteWorkflow = async () => {
     currentWorkflowId.value = null
     currentWorkflowName.value = '未命名工作流'
     code.value = `# 示例工作流
+#@node(description="选择项目")
 project = Logic.SelectProject(project_id=1)
+#</node>
+
+#@node(description="加载小说目录")
 novel = Novel.Load(root_path="E:\\\\Novels\\\\book")
+#</node>
+
+#@node(description="批量创建分卷卡片")
 cards = Card.BatchUpsert(
     items=novel.volume_list,
     card_type="volume",
     title_template="{item}"
-)`
+)
+#</node>`
     notebookCells.length = 0
 
     // 刷新列表
@@ -547,6 +566,7 @@ const runWorkflow = async () => {
             id: event.statement?.variable || 'unknown',
             type: 'execution',
             content: event.statement?.code || '',
+            description: event.statement?.description || '',
             status: 'running',
             outputs: []
           })
@@ -717,6 +737,7 @@ const resumeCurrentRun = async () => {
               id: event.statement?.variable || 'unknown',
               type: 'execution',
               content: event.statement?.code || '',
+              description: event.statement?.description || '',
               status: 'completed',
               outputs: [event.result],
               resumed: true
@@ -733,6 +754,7 @@ const resumeCurrentRun = async () => {
               id: 'error-' + Date.now(),
               type: 'execution',
               content: event.statement?.code || '代码解析失败',
+              description: event.statement?.description || '',
               status: 'error',
               error: event.error || '未知错误',
               outputs: []
@@ -883,10 +905,10 @@ const onAddNode = (nodeType) => {
   const baseName = generateVariableName(nodeType)
   const variableName = generateUniqueVariableName(baseName)
 
-  // 生成 XML 格式的节点代码
-  const nodeCode = `<node name="${variableName}">
-  ${nodeType}()
-</node>`
+  // 生成注释标记 DSL 的节点代码
+  const nodeCode = `#@node()
+${variableName} = ${nodeType}()
+#</node>`
 
   // 添加到代码末尾
   const newCode = code.value.trim()
@@ -922,16 +944,10 @@ function generateUniqueVariableName(baseName) {
   const usedVariables = new Set()
 
   allLines.forEach(line => {
-    // 匹配 XML 格式：<node name="variable">
-    const xmlMatch = line.match(/<node\s+name="(\w+)"/)
-    if (xmlMatch) {
-      usedVariables.add(xmlMatch[1])
-    }
-    
-    // 兼容旧格式：variable = ...（如果还有遗留代码）
-    const oldMatch = line.match(/^(\w+)\s*=\s*/)
-    if (oldMatch) {
-      usedVariables.add(oldMatch[1])
+    // 赋值形式：variable = ...
+    const assignMatch = line.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*/)
+    if (assignMatch) {
+      usedVariables.add(assignMatch[1])
     }
   })
 
@@ -976,6 +992,7 @@ const onResumeRun = async (run) => {
             id: event.statement?.variable || 'unknown',
             type: 'execution',
             content: event.statement?.code || '',
+            description: event.statement?.description || '',
             status: 'running',
             outputs: []
           })
@@ -1007,6 +1024,7 @@ const onResumeRun = async (run) => {
               id: event.statement?.variable || 'unknown',
               type: 'execution',
               content: event.statement?.code || '',
+              description: event.statement?.description || '',
               status: 'completed',
               outputs: [event.result],
               resumed: true
@@ -1023,6 +1041,7 @@ const onResumeRun = async (run) => {
               id: 'error-' + Date.now(),
               type: 'execution',
               content: event.statement?.code || '代码解析失败',
+              description: event.statement?.description || '',
               status: 'error',
               error: event.error || '未知错误',
               outputs: []

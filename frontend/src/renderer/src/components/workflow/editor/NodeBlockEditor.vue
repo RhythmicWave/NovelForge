@@ -82,6 +82,10 @@
           </div>
         </div>
 
+        <div v-if="node.description" class="node-description" @click.stop>
+          {{ node.description }}
+        </div>
+
         <!-- 节点参数编辑器 -->
         <div class="node-params" v-if="node.fields && node.fields.length > 0">
           <div class="params-header">
@@ -182,12 +186,12 @@
                   @change="saveParamEdit"
                 >
                   <el-option-group label="内置模型">
-                    <el-option value="OneSentence" label="一句话梗概" />
-                    <el-option value="ChapterOutline" label="章节大纲" />
-                    <el-option value="VolumeOutline" label="分卷大纲" />
-                    <el-option value="WorldBuilding" label="世界观设定" />
-                    <el-option value="WritingGuide" label="写作指南" />
-                    <el-option value="ParagraphOverview" label="段落概览" />
+                    <el-option
+                      v-for="model in builtinResponseModels"
+                      :key="model"
+                      :value="model"
+                      :label="model"
+                    />
                   </el-option-group>
                   <el-option-group label="自定义卡片类型">
                     <el-option
@@ -208,6 +212,19 @@
                   size="small"
                   placeholder="输入内容"
                   @blur="saveParamEdit"
+                />
+
+                <!-- CodeEditor (x-component: CodeEditor) -->
+                <el-input
+                  v-else-if="field.rawSchema?.['x-component'] === 'CodeEditor'"
+                  v-model="editingParam.value"
+                  type="textarea"
+                  :rows="6"
+                  size="small"
+                  class="code-expression-input"
+                  placeholder="输入 Python 表达式"
+                  @blur="saveParamEdit"
+                  @keydown.ctrl.enter.stop="saveParamEdit"
                 />
 
                 <!-- ToolMultiSelect (x-component: ToolMultiSelect) -->
@@ -290,6 +307,16 @@
               </div>
 
               <!-- 显示模式 -->
+              <el-input
+                v-else-if="field.rawSchema?.['x-component'] === 'CodeEditor'"
+                :model-value="formatDisplayValue(field)"
+                type="textarea"
+                :rows="3"
+                readonly
+                resize="none"
+                class="param-code-preview"
+                @click.stop="startParamEdit(index, fieldIndex)"
+              />
               <span
                 v-else
                 class="param-value editable"
@@ -397,6 +424,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Delete, Loading, CircleCheck, CircleClose, EditPen, Folder, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import request from '@/api/request'
+import { getContentModels } from '@/api/cards'
 import { storeToRefs } from 'pinia'
 import { useProjectListStore } from '@/stores/useProjectListStore'
 import { useLLMConfigStore } from '@/stores/useLLMConfigStore'
@@ -445,6 +473,7 @@ const variableInputRef = ref(null)
 // 智能选择器数据
 const variableList = ref([]) // 所有的变量列表
 const fileDialogVisible = ref(false)
+const builtinResponseModels = ref([])
 // 内部更新标记
 const isInternalUpdate = ref(false)
 
@@ -495,6 +524,7 @@ async function parseCodeToNodes(code) {
           category: category,
           method: method,
           nodeType: stmt.node_type,
+          description: stmt.description || '',
           params: stmt.config || {},
           code: stmt.code,
           outputs: [],
@@ -512,6 +542,7 @@ async function parseCodeToNodes(code) {
           category: 'Raw',
           method: 'Code',
           nodeType: stmt.node_type || 'Raw.Code',
+          description: stmt.description || '',
           params: stmt.config || {},
           code: stmt.code,
           outputs: [],
@@ -693,74 +724,121 @@ function parseParams(paramsStr) {
   return params
 }
 
-// 将节点块转换为XML格式代码
+// 将节点块转换为注释标记 DSL 代码
+function buildNodeBlockCode(node, idx = -1) {
+  if (!node?.variable || !node?.nodeType) {
+    console.warn(`[buildNodeBlockCode] 节点 ${idx} 缺少必要信息`)
+    return ''
+  }
+
+  const paramParts = (node.fields || [])
+    .filter(f => f.value !== undefined && f.value !== null && f.value !== '')
+    .map(f => {
+      let paramValue = f.value
+
+      if (typeof paramValue === 'object' && paramValue !== null) {
+        try {
+          paramValue = ParameterFormatter.format({
+            type: f.type || 'object',
+            value: paramValue
+          })
+        } catch {
+          paramValue = JSON.stringify(paramValue)
+        }
+      }
+
+      const paramStr = String(paramValue)
+      if (paramStr === '[object Object]') {
+        try {
+          paramValue = JSON.stringify(f.value)
+        } catch {
+          paramValue = '""'
+        }
+      }
+
+      return `${f.name}=${paramValue}`
+    })
+
+  const callExpr = `${node.variable} = ${node.nodeType}(${paramParts.join(', ')})`
+
+  const metaParts = []
+  if (node.isAsync) metaParts.push('async=true')
+  if (node.disabled) metaParts.push('disabled=true')
+  if (node.description && String(node.description).trim()) {
+    metaParts.push(`description=${JSON.stringify(String(node.description))}`)
+  }
+
+  const metaLine = `#@node(${metaParts.join(', ')})`
+  return `${metaLine}
+${callExpr}
+#</node>`
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildNodeBlockRegex(nodeVariable) {
+  const namePattern = escapeRegex(nodeVariable)
+  return new RegExp(
+    `(^|\\n)\\s*#@node(?:\\([^\\n]*\\))?\\s*\\n[\\s\\S]*?^\\s*${namePattern}\\s*=\\s*[^\\n]*\\n[\\s\\S]*?^\\s*#<\\/node>\\s*(?=\\n|$)`,
+    'm'
+  )
+}
+
+function updateSingleNodeCode(node) {
+  const currentCode = props.modelValue || ''
+  const nodeBlock = buildNodeBlockCode(node)
+  if (!currentCode.trim() || !nodeBlock) {
+    return nodesToCode()
+  }
+
+  const blockRegex = buildNodeBlockRegex(node.variable)
+  if (!blockRegex.test(currentCode)) {
+    return nodesToCode()
+  }
+
+  return currentCode.replace(blockRegex, `$1${nodeBlock}`)
+}
+
+function removeSingleNodeCode(nodeVariable) {
+  const currentCode = props.modelValue || ''
+  if (!currentCode.trim() || !nodeVariable) {
+    return nodesToCode()
+  }
+
+  const blockRegex = buildNodeBlockRegex(nodeVariable)
+  if (!blockRegex.test(currentCode)) {
+    return nodesToCode()
+  }
+
+  const removed = currentCode.replace(blockRegex, '$1')
+  const normalized = removed
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+/, '')
+    .replace(/\s+$/, '')
+
+  return normalized
+}
+
+function appendSingleNodeCode(node) {
+  const currentCode = props.modelValue || ''
+  const nodeBlock = buildNodeBlockCode(node)
+  if (!nodeBlock) return currentCode || ''
+
+  if (!currentCode.trim()) {
+    return nodeBlock
+  }
+
+  const trimmedEnd = currentCode.replace(/\s+$/, '')
+  return `${trimmedEnd}\n\n${nodeBlock}`
+}
+
 function nodesToCode() {
-  const xmlNodes = nodes.value.map((node, idx) => {
-    if (!node.variable || !node.nodeType) {
-      console.warn(`[nodesToCode] 节点 ${idx} 缺少必要信息`)
-      return ''
-    }
-    
-    // 构建参数列表
-    const paramParts = (node.fields || [])
-      .filter(f => f.value !== undefined && f.value !== null && f.value !== '')
-      .map(f => {
-        console.log(`[nodesToCode] 节点 ${idx} 字段 ${f.name}:`, {
-          type: f.type,
-          value: f.value,
-          valueType: typeof f.value
-        })
-        
-        // field.value 应该已经在 fetchNodeOutputs 中格式化为字符串
-        let paramValue = f.value
-        
-        // 安全检查：如果仍然是对象，强制转换
-        if (typeof paramValue === 'object' && paramValue !== null) {
-          console.error(`[nodesToCode] 字段 ${f.name} 的值仍然是对象！强制转换:`, paramValue)
-          try {
-            paramValue = ParameterFormatter.format({
-              type: f.type || 'object',
-              value: paramValue
-            })
-          } catch (e) {
-            console.error(`[nodesToCode] 格式化失败，使用 JSON.stringify:`, e)
-            paramValue = JSON.stringify(paramValue)
-          }
-        }
-        
-        // 最终检查：确保不是 [object Object]
-        const paramStr = String(paramValue)
-        if (paramStr === '[object Object]') {
-          console.error(`[nodesToCode] 检测到 [object Object]！字段: ${f.name}, 原始值:`, f.value)
-          // 尝试修复
-          try {
-            paramValue = JSON.stringify(f.value)
-          } catch (e) {
-            paramValue = '""'  // 降级为空字符串
-          }
-        }
-        
-        return `${f.name}=${paramValue}`
-      })
-    
-    // 构建节点调用表达式（不包含变量赋值）
-    const callExpr = `${node.nodeType}(${paramParts.join(', ')})`
-    
-    // 构建XML节点
-    const attrs = [`name="${node.variable}"`]
-    if (node.isAsync) attrs.push('async="true"')
-    if (node.disabled) attrs.push('disabled="true"')
-    
-    const xmlNode = `<node ${attrs.join(' ')}>
-  ${callExpr}
-</node>`
-    
-    console.log(`[nodesToCode] 节点 ${idx} (${node.variable}):`, xmlNode)
-    return xmlNode
-  }).filter(code => code.trim() !== '')
+  const nodeBlocks = nodes.value.map((node, idx) => buildNodeBlockCode(node, idx)).filter(code => code.trim() !== '')
   
-  const result = xmlNodes.join('\n\n')
-  console.log('[nodesToCode] 生成XML代码，节点数:', nodes.value.length)
+  const result = nodeBlocks.join('\n\n')
+  console.log('[nodesToCode] 生成节点代码，节点数:', nodes.value.length)
   console.log('[nodesToCode] 最终代码:\n', result)
   return result
 }
@@ -773,6 +851,7 @@ function selectNode(index) {
 
 // 删除节点
 function deleteNode(index) {
+  const removedNode = nodes.value[index]
   nodes.value.splice(index, 1)
   if (selectedIndex.value === index) {
     selectedIndex.value = -1
@@ -782,7 +861,7 @@ function deleteNode(index) {
   }
   
   // 触发代码更新
-  emit('update:modelValue', nodesToCode())
+  emit('update:modelValue', removeSingleNodeCode(removedNode?.variable))
 }
 
 // 切换节点禁用状态
@@ -794,8 +873,8 @@ async function toggleNodeDisabled(index) {
   // 标记为内部更新，避免 watch 重新解析
   isInternalUpdate.value = true
   
-  // 重新生成XML代码（disabled属性会自动包含在XML中）
-  emit('update:modelValue', nodesToCode())
+  // 仅更新当前节点代码块，避免重排整个工作流代码格式
+  emit('update:modelValue', updateSingleNodeCode(node))
   
   const message = targetDisabledState ? '节点已禁用' : '节点已启用'
   ElMessage.success(message)
@@ -813,8 +892,8 @@ async function toggleAsync(index) {
   // 标记为内部更新，避免 watch 重新解析
   isInternalUpdate.value = true
   
-  // 重新生成XML代码（async属性会自动包含在XML中）
-  const newCode = nodesToCode()
+  // 仅更新当前节点代码块，避免重排整个工作流代码格式
+  const newCode = updateSingleNodeCode(node)
   
   // 发送代码更新事件
   emit('update:modelValue', newCode)
@@ -858,12 +937,12 @@ async function addNode() {
   }
 
   try {
-    // 生成XML格式的节点代码
-    const code = `<node name="${newNodeVariable.value}">
-  ${selectedNodeType.value}()
-</node>`
+    // 生成注释标记 DSL 节点代码
+    const code = `#@node()
+${newNodeVariable.value} = ${selectedNodeType.value}()
+#</node>`
     
-    console.log('[addNode] 生成的XML代码:\n', code)
+    console.log('[addNode] 生成的节点代码:\n', code)
     
     const parsed = await parseCodeToNodes(code)
 
@@ -875,7 +954,7 @@ async function addNode() {
       
       nodes.value.push(parsed[0])
       
-      const finalCode = nodesToCode()
+      const finalCode = appendSingleNodeCode(parsed[0])
       console.log('[addNode] 最终生成的代码:\n', finalCode)
       
       emit('update:modelValue', finalCode)
@@ -1063,8 +1142,8 @@ async function saveParamEdit() {
       // 标记为内部更新，避免触发 watch 重新解析
       isInternalUpdate.value = true
       
-      // 重新生成XML代码（不包含该字段）
-      const allCode = nodesToCode()
+      // 重新生成节点代码（不包含该字段）
+      const allCode = updateSingleNodeCode(node)
       console.log('[saveParamEdit] 完整代码:\n', allCode)
       emit('update:modelValue', allCode)
       ElMessage.success('参数已清除')
@@ -1092,9 +1171,9 @@ async function saveParamEdit() {
     // 标记为内部更新，避免触发 watch 重新解析
     isInternalUpdate.value = true
     
-    // 重新生成XML代码
-    const allCode = nodesToCode()
-    console.log('[saveParamEdit] 完整XML代码:\n', allCode)
+    // 重新生成节点代码
+    const allCode = updateSingleNodeCode(node)
+    console.log('[saveParamEdit] 完整节点代码:\n', allCode)
     
     // 验证生成的代码是否有效
     if (!allCode || allCode.trim() === '') {
@@ -1147,7 +1226,7 @@ function showAvailableParams(nodeIndex) {
   })
   
   // 触发更新
-  emit('update:modelValue', nodesToCode())
+  emit('update:modelValue', updateSingleNodeCode(node))
 }
 
 // 格式化参数值
@@ -1321,7 +1400,7 @@ async function saveVariableEdit() {
   
   console.log('[saveVariableEdit] 开始更新变量名和引用...')
   
-  const allCode = nodesToCode()
+  const allCode = props.modelValue || nodesToCode()
   console.log('[saveVariableEdit] 原始代码:\n', allCode)
   
   try {
@@ -1408,7 +1487,12 @@ function formatDisplayValue(field) {
     }
   }
   
-  // 截断过长的值
+  // CodeEditor / Textarea 不截断，保留多行展示
+  if (xComponent === 'CodeEditor' || xComponent === 'Textarea') {
+    return displayValue
+  }
+
+  // 其他字段截断过长的值
   return displayValue.length > 50 ? displayValue.substring(0, 50) + '...' : displayValue
 }
 
@@ -1425,12 +1509,29 @@ onMounted(async () => {
       cardStore.fetchInitialData() // 这会加载 cardTypes
     ])
 
+    try {
+      builtinResponseModels.value = await getContentModels()
+    } catch (e) {
+      console.warn('[NodeBlockEditor] 加载内置响应模型失败，使用回退列表', e)
+      builtinResponseModels.value = [
+        'OneSentence',
+        'ChapterOutline',
+        'VolumeOutline',
+        'WorldBuilding',
+        'WritingGuide',
+        'ParagraphOverview',
+        'BookStageChunkPlan',
+        'BookStageFinalPlan'
+      ]
+    }
+
     // 调试日志
     console.log('[NodeBlockEditor] 数据加载完成:')
     console.log('  - 项目列表:', projectList.value.length, '个')
     console.log('  - LLM配置:', llmConfigList.value.length, '个')
     console.log('  - 提示词:', promptList.value.length, '个')
     console.log('  - 卡片类型:', cardTypeList.value.length, '个')
+    console.log('  - 内置响应模型:', builtinResponseModels.value.length, '个')
   } catch (error) {
     console.error('加载数据失败:', error)
   }
@@ -1529,6 +1630,17 @@ onMounted(async () => {
   color: var(--el-text-color-regular);
 }
 
+.node-description {
+  margin: -4px 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  border-left: 3px solid var(--el-color-primary-light-5);
+}
+
 .node-actions {
   display: flex;
   gap: 4px;
@@ -1607,6 +1719,27 @@ onMounted(async () => {
 
 .param-value.editable:hover .edit-icon {
   display: inline-flex;
+}
+
+.code-expression-input :deep(.el-textarea__inner),
+.param-code-preview :deep(.el-textarea__inner) {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Monaco', 'Menlo', 'Courier New', monospace;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.param-code-preview {
+  width: 100%;
+}
+
+.param-code-preview :deep(.el-textarea__inner) {
+  cursor: text;
+  background-color: var(--el-fill-color-lighter);
+}
+
+.param-code-preview:hover :deep(.el-textarea__inner) {
+  border-color: var(--el-color-primary);
 }
 
 .add-param-hint {

@@ -2,26 +2,25 @@
 # 功能：核心蓝图保存时，批量创建分卷、角色卡、场景卡
 # 触发器：核心蓝图卡片保存时自动触发
 
-# 触发器：监听核心蓝图卡片保存
-<node name="trigger">
-  Trigger.CardSaved(card_type="核心蓝图")
-</node>
+#@node(description="触发器：监听核心蓝图卡片保存")
+trigger = Trigger.CardSaved(card_type="核心蓝图")
+#</node>
 
-# 读取核心蓝图
-<node name="blueprint">
-  Card.Read(card_id=trigger.card_id)
-</node>
 
-# 生成分卷列表（使用表达式节点）
-<node name="volumes">
-  Logic.Expression(
+#@node(description="读取核心蓝图")
+blueprint = Card.Read(card_id=trigger.card_id)
+#</node>
+
+
+#@node(description="生成分卷列表（使用表达式节点）")
+volumes = Logic.Expression(
     expression="[{'index': i} for i in range(1, (blueprint.content.volume_count or 0) + 1)]"
   )
-</node>
+#</node>
 
-# 批量创建分卷大纲（异步）
-<node name="vol_cards" async="true">
-  Card.BatchUpsert(
+
+#@node(async=true, description="批量创建分卷大纲（异步）")
+vol_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     card_type="分卷大纲",
     title_template="第{item.index}卷",
@@ -29,18 +28,18 @@
     match_by="title",
     items=volumes.result
   )
-</node>
+#</node>
 
-# 提取角色列表
-<node name="characters">
-  Logic.Expression(
+
+#@node(description="提取角色列表")
+characters = Logic.Expression(
     expression="blueprint.content.character_cards or []"
   )
-</node>
+#</node>
 
-# 批量创建角色卡（异步）
-<node name="char_cards" async="true">
-  Card.BatchUpsert(
+
+#@node(async=true, description="批量创建角色卡（异步）")
+char_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="角色卡",
@@ -48,18 +47,18 @@
     match_by="title",
     items=characters.result
   )
-</node>
+#</node>
 
-# 提取场景列表
-<node name="scenes">
-  Logic.Expression(
+
+#@node(description="提取场景列表")
+scenes = Logic.Expression(
     expression="blueprint.content.scene_cards or []"
   )
-</node>
+#</node>
 
-# 批量创建场景卡（异步）
-<node name="scene_cards" async="true">
-  Card.BatchUpsert(
+
+#@node(async=true, description="批量创建场景卡（异步）")
+scene_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="场景卡",
@@ -67,20 +66,20 @@
     match_by="title",
     items=scenes.result
   )
-</node>
+#</node>
 
-# 等待所有异步任务完成
-<node name="wait_result">
-  Logic.Wait(tasks=[vol_cards, char_cards, scene_cards])
-</node>
 
-# 清空来源列表
-<node name="update_result">
-  Card.Update(
+#@node(description="等待所有异步任务完成")
+wait_result = Logic.Wait(tasks=[vol_cards, char_cards, scene_cards])
+#</node>
+
+
+#@node(description="清空来源列表")
+update_result = Card.Update(
     card_id=trigger.card_id,
     content_merge={
       "character_cards": [],
       "scene_cards": []
     }
   )
-</node>
+#</node>

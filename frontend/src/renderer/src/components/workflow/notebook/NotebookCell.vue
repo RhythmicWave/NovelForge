@@ -19,6 +19,10 @@
         <pre><code>{{ cell.content }}</code></pre>
       </div>
 
+      <div v-if="cell.description" class="cell-description">
+        {{ cell.description }}
+      </div>
+
       <div class="cell-output" v-if="hasOutput">
         <!-- 成功输出 -->
         <div v-if="cell.status === 'completed'" class="output-success">
@@ -186,6 +190,16 @@ const formatOutput = (outputs) => {
 
 .cell-code code {
   font-family: inherit;
+}
+
+.cell-description {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--el-color-primary-light-9);
+  border-radius: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .cell-output {

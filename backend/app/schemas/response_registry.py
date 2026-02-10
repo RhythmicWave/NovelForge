@@ -4,6 +4,7 @@ from typing import Dict, Any
 
 # 统一集中导出所有需要在 OpenAPI 中暴露的响应/嵌套模型
 from app.schemas.wizard import (
+    Text,
 	WorldBuilding, Blueprint,
 	VolumeOutline, ChapterOutline,
 	SpecialAbilityResponse, OneSentence, ParagraphOverview,
@@ -12,9 +13,11 @@ from app.schemas.wizard import (
  WritingGuide
 )
 from app.schemas.entity import OrganizationCard
+from app.schemas.workflow_models import BookStageChunkPlan, BookStageFinalPlan
 
 
 RESPONSE_MODEL_MAP: Dict[str, Any] = {
+    "Text": Text,
 	'Tags': Tags,
 	'SpecialAbilityResponse': SpecialAbilityResponse,
 	'OneSentence': OneSentence,
@@ -34,4 +37,7 @@ RESPONSE_MODEL_MAP: Dict[str, Any] = {
 	# 显式导出嵌套类型，便于前端字段树解析
 	'StageLine': StageLine,
 	'StoryLine': StoryLine,
+	# 工作流专用结构模型
+	'BookStageChunkPlan': BookStageChunkPlan,
+	'BookStageFinalPlan': BookStageFinalPlan,
 } 
