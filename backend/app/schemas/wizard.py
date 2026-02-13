@@ -11,7 +11,7 @@ class Text(BaseModel):
     '''
     通用的文本模型，自由存储各种内容
     '''
-    content: str = Field(description="任意文本内容")
+    content: str = Field(description="任意文本内容，需使用/转换为markdown格式文本")
 
 # --- Schemas for Tags ---
 

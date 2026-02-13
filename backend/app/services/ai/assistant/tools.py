@@ -12,6 +12,7 @@ from langchain_core.tools import tool
 from app.services.card_service import CardService
 from app.db.models import Card, CardType
 from app.services.ai.generation.instruction_validator import InstructionExecutor
+from app.services.ai.card_type_schema import get_card_type_schema_payload
 from app.schemas.tool_result import (
     ToolResult,
     ToolResultStatus,
@@ -55,14 +56,20 @@ def _get_deps() -> AssistantDeps:
 
 def _get_card_type_schema(session, card_type_name: str) -> Dict[str, Any]:
     """获取卡片类型的 JSON Schema"""
-    card_type = session.query(CardType).filter_by(name=card_type_name).first()
-    if not card_type:
-        raise ValueError(f"卡片类型 '{card_type_name}' 不存在")
-    
-    if not card_type.json_schema:
-        raise ValueError(f"卡片类型 '{card_type_name}' 没有定义 Schema")
-    
-    return card_type.json_schema
+    result = get_card_type_schema_payload(
+        session,
+        card_type_name,
+        allow_model_name=False,
+        require_schema=True,
+    )
+    if not result.get("success"):
+        error = result.get("error")
+        if error == "not_found":
+            raise ValueError(f"卡片类型 '{card_type_name}' 不存在")
+        if error == "schema_not_defined":
+            raise ValueError(f"卡片类型 '{card_type_name}' 没有定义 Schema")
+        raise ValueError("获取卡片类型 Schema 失败")
+    return result.get("schema") or {}
 
 
 def _create_empty_card(session, card_type_name: str, title: str, parent_card_id: Optional[int], project_id: int) -> Card:
@@ -445,13 +452,14 @@ def get_card_type_schema(
 
     logger.info(f" [Assistant.get_card_type_schema] card_type={card_type_name}")
 
-    card_type = (
-        deps.session.query(CardType)
-        .filter(CardType.name == card_type_name)
-        .first()
+    result = get_card_type_schema_payload(
+        deps.session,
+        card_type_name,
+        allow_model_name=False,
+        require_schema=False,
     )
-    
-    if not card_type:
+
+    if not result.get("success"):
         logger.warning(
             f"⚠️ [Assistant.get_card_type_schema] 卡片类型 '{card_type_name}' 不存在"
         )
@@ -459,16 +467,16 @@ def get_card_type_schema(
             "success": False,
             "error": f"卡片类型 '{card_type_name}' 不存在"
         }
-    
-    result = {
+
+    output = {
         "success": True,
-        "card_type": card_type_name,
-        "schema": card_type.json_schema or {},
+        "card_type": result.get("card_type") or card_type_name,
+        "schema": result.get("schema") or {},
         "description": f"卡片类型 '{card_type_name}' 的完整结构定义"
     }
-    
-    logger.info(f"✅ [Assistant.get_card_type_schema] 已返回 Schema：{result}")
-    return result
+
+    logger.info(f"✅ [Assistant.get_card_type_schema] 已返回 Schema：{output}")
+    return output
 
 
 @tool

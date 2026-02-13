@@ -3,12 +3,136 @@
 初始化默认卡片类型及其Schema定义。
 """
 
+import re
+from typing import Any, Dict
+
 from sqlmodel import Session, select
 from loguru import logger
 
 from app.db.models import CardType, LLMConfig
 from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from .registry import initializer
+
+
+FIELD_TITLE_ZH_MAP: Dict[str, str] = {
+    "content": "内容",
+    "theme": "主题",
+    "audience": "目标读者",
+    "narrative_person": "叙事人称",
+    "story_tags": "故事标签",
+    "affection": "情感关系",
+    "name": "名称",
+    "description": "描述",
+    "special_abilities_thinking": "金手指设计思考",
+    "special_abilities": "金手指",
+    "one_sentence_thinking": "一句话梗概思考",
+    "one_sentence": "一句话梗概",
+    "overview_thinking": "大纲扩展思考",
+    "overview": "概述",
+    "power_structure": "权力结构",
+    "currency_system": "货币体系",
+    "background": "背景",
+    "major_power_camps": "主要势力阵营",
+    "world_view_thinking": "世界观设计思考",
+    "world_view": "世界观",
+    "volume_count": "总卷数",
+    "character_thinking": "角色设计思考",
+    "character_cards": "角色卡",
+    "scene_thinking": "场景设计思考",
+    "scene_cards": "场景卡",
+    "organization_thinking": "组织设计思考",
+    "organization_cards": "组织卡",
+    "volume_number": "卷号",
+    "title": "标题",
+    "main_target": "主线目标",
+    "branch_line": "辅线",
+    "new_character_cards": "新增角色卡",
+    "new_scene_cards": "新增场景卡",
+    "stage_count": "阶段数量",
+    "character_action_list": "角色行动列表",
+    "entity_snapshot": "实体状态快照",
+    "stage_number": "阶段号",
+    "chapter_number": "章节号",
+    "entity_list": "实体列表",
+    "stage_name": "阶段名称",
+    "reference_chapter": "参考章节范围",
+    "analysis": "分析",
+    "chapter_outline_list": "章节大纲列表",
+    "entity_type": "实体类型",
+    "life_span": "生命周期",
+    "role_type": "角色类型",
+    "born_scene": "出生场景",
+    "personality": "性格",
+    "core_drive": "核心驱动力",
+    "character_arc": "角色弧光",
+    "influence": "影响力",
+    "relationship": "关系",
+    "dynamic_info": "动态信息",
+}
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _contains_cjk(text: str) -> bool:
+    return bool(_CJK_RE.search(text or ""))
+
+
+def _derive_title_from_description(description: Any) -> str | None:
+    if not isinstance(description, str):
+        return None
+    desc = description.strip()
+    if not desc or not _contains_cjk(desc):
+        return None
+
+    candidate = re.split(r"[，。；;：:（(\n]", desc, maxsplit=1)[0].strip()
+    if not candidate:
+        return None
+    if len(candidate) > 16:
+        candidate = candidate[:16].strip()
+    return candidate or None
+
+
+def _localize_schema_titles(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                for field_name, field_schema in properties.items():
+                    if not isinstance(field_schema, dict):
+                        continue
+                    current_title = str(field_schema.get("title") or "")
+                    if not _contains_cjk(current_title):
+                        localized = FIELD_TITLE_ZH_MAP.get(field_name) or _derive_title_from_description(
+                            field_schema.get("description")
+                        )
+                        if localized:
+                            field_schema["title"] = localized
+                    visit(field_schema)
+
+            defs = node.get("$defs")
+            if isinstance(defs, dict):
+                for def_schema in defs.values():
+                    visit(def_schema)
+
+            items = node.get("items")
+            if isinstance(items, dict):
+                visit(items)
+
+            for union_key in ("anyOf", "oneOf", "allOf"):
+                variants = node.get(union_key)
+                if isinstance(variants, list):
+                    for variant in variants:
+                        visit(variant)
+
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(schema)
+    return schema
 
 
 @initializer(name="卡片类型", order=20)
@@ -146,6 +270,7 @@ def create_default_card_types(session: Session) -> None:
                 model_class = RESPONSE_MODEL_MAP.get(TYPE_TO_MODEL_KEY.get(name))
                 if model_class:
                     schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
+                    schema = _localize_schema_titles(schema)
             except Exception:
                 schema = None
             # AI 参数预设（llm_config_id 由前端选择，不在此指定）
@@ -174,6 +299,7 @@ def create_default_card_types(session: Session) -> None:
                 model_class = RESPONSE_MODEL_MAP.get(TYPE_TO_MODEL_KEY.get(name))
                 if model_class:
                     schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
+                    schema = _localize_schema_titles(schema)
                     ct.json_schema = schema
             except Exception:
                 pass

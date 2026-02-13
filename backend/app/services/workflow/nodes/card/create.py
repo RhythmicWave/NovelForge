@@ -30,6 +30,17 @@ class CardCreateOutput(BaseModel):
 
 @register_node
 class CardCreateNode(BaseNode[CardCreateInput, CardCreateOutput]):
+    """创建卡片节点。
+
+    严格约束（给工作流编写 Agent）：
+    1) `content` 必须是字面量 dict（可静态校验），不要把整个 content 写成字符串、`${...}` 或 `Logic.Expression.result`。
+    2) 写入前应先确认目标卡片类型 schema（字段名、必填项、字段类型），禁止臆造字段。
+    3) 若需要动态内容，请在字段值层面引用已知输出字段，避免整体对象动态拼装。
+
+    推荐流程：
+    - 先查询卡片类型 schema
+    - 再按 schema 构造 `content={...}`
+    """
     node_type = "Card.Create"
     category = "card"
     label = "创建卡片"

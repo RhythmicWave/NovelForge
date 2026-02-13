@@ -7,7 +7,9 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { markdown } from '@codemirror/lang-markdown'
+import { syntaxHighlighting, HighlightStyle } from '@codemirror/language'
+import { python } from '@codemirror/lang-python'
+import { tags } from '@lezer/highlight'
 
 const props = defineProps({
   modelValue: {
@@ -45,10 +47,10 @@ const createTheme = () => {
     },
     ".cm-content": {
       caretColor: dark ? '#ffffff' : '#000000',
-      color: dark ? '#d4d4d4' : '#303133'
+      color: dark ? '#d4d4d4' : '#24292f'
     },
     ".cm-line": {
-      color: dark ? '#d4d4d4' : '#303133'
+      color: dark ? '#d4d4d4' : '#24292f'
     },
     ".cm-gutters": {
       backgroundColor: dark ? '#252526' : '#f5f7fa',
@@ -70,6 +72,30 @@ const createTheme = () => {
   }, { dark })
 }
 
+const createSyntaxHighlighting = () => {
+  const dark = isDark.value
+
+  const highlightStyle = HighlightStyle.define([
+    { tag: tags.comment, color: dark ? '#6A9955' : '#008000', fontStyle: 'italic' },
+    { tag: [tags.string, tags.special(tags.string)], color: dark ? '#CE9178' : '#A31515' },
+    { tag: [tags.number, tags.float, tags.integer], color: dark ? '#B5CEA8' : '#098658' },
+    { tag: [tags.bool, tags.null], color: dark ? '#569CD6' : '#0000FF', fontWeight: '600' },
+
+    { tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword], color: dark ? '#C586C0' : '#AF00DB', fontWeight: '600' },
+
+    { tag: tags.definition(tags.variableName), color: dark ? '#4FC1FF' : '#007ACC', fontWeight: '600' },
+    { tag: tags.variableName, color: dark ? '#9CDCFE' : '#001080' },
+    { tag: [tags.propertyName, tags.attributeName], color: dark ? '#4EC9B0' : '#795E26' },
+
+    { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: dark ? '#DCDCAA' : '#795E26' },
+    { tag: [tags.className, tags.typeName], color: dark ? '#4EC9B0' : '#267F99', fontWeight: '600' },
+
+    { tag: [tags.operator, tags.punctuation], color: dark ? '#D4D4D4' : '#303133' }
+  ])
+
+  return syntaxHighlighting(highlightStyle, { fallback: true })
+}
+
 onMounted(() => {
   if (!editorRef.value) return
 
@@ -85,7 +111,8 @@ onMounted(() => {
     lineNumbers(),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
-    markdown(),
+    python(),
+    createSyntaxHighlighting(),
     EditorView.lineWrapping,
     updateListener
   ]

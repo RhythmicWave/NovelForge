@@ -54,7 +54,7 @@ class DebateInput(BaseModel):
 class DebateOutput(BaseModel):
     """辩论节点输出"""
     summary: str = Field(..., description="辩论总结/最终发言")
-    history: List[Dict[str, Any]] = Field(..., description="公开对话历史 (不含思考)")
+    history: List[Dict[str, Any]] = Field(..., description="公开对话历史 (不含思考)，格式为[{'role': '正方'/'反方', 'content': '发言内容'}, ...]，如需展示，建议进行格式处理")
     full_log: List[Dict[str, Any]] = Field(..., description="完整日志 (包含思考)")
     total_rounds: int = Field(..., description="实际完成的辩论轮数")
 

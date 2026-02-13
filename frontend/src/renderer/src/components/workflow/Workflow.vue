@@ -139,6 +139,9 @@
               v-if="viewMode === 'visual'"
               v-model="code"
               :is-running="isRunning"
+              :workflow-id="currentWorkflowId"
+              :revision="currentWorkflowRevision"
+              @revision-changed="handleVisualRevisionChanged"
             />
             <code-editor
               v-else
@@ -166,6 +169,12 @@
       v-model="showRunsDialog" 
       :workflow-id="currentWorkflowId"
       @resume-run="onResumeRun"
+    />
+
+    <workflow-agent-dialog
+      :workflow-id="currentWorkflowId"
+      :revision="currentWorkflowRevision"
+      @applied="handleWorkflowAgentApplied"
     />
 
     <!-- 校验结果对话框 -->
@@ -250,6 +259,7 @@ import CodeEditor from './editor/CodeEditor.vue'
 import WorkflowNotebook from './notebook/WorkflowNotebook.vue'
 import NodeLibrary from './panels/NodeLibrary.vue'
 import WorkflowRunsDialog from './dialogs/WorkflowRunsDialog.vue'
+import WorkflowAgentDialog from './WorkflowAgentDialog.vue'
 import { useWorkflowExecution } from '@/composables/useWorkflowExecution'
 import { useWorkflowProgress } from '@/composables/useWorkflowProgress'
 import {
@@ -292,6 +302,7 @@ const viewMode = ref('visual') // 'visual' | 'code'
 const notebookCells = reactive([])
 let currentWorkflowId = ref(null) // 当前工作流ID
 let currentWorkflowName = ref('未命名工作流') // 当前工作流名称
+const currentWorkflowRevision = ref('')
 const keepRunHistory = ref(false) // 是否持久化保存运行记录
 const workflowList = ref([]) // 工作流列表
 
@@ -389,6 +400,7 @@ cards = Card.BatchUpsert(
     currentWorkflowId.value = workflow.id
     currentWorkflowName.value = workflow.name
     code.value = workflow.code || ''
+    currentWorkflowRevision.value = workflow.revision || ''
     keepRunHistory.value = workflow.keep_run_history || false // 加载持久化设置
     notebookCells.length = 0 // 清空输出
   } catch (error) {
@@ -428,6 +440,7 @@ project = Logic.SelectProject(project_id=1)
     currentWorkflowId.value = workflow.id
     currentWorkflowName.value = workflow.name
     code.value = initialCode  // 更新代码
+    currentWorkflowRevision.value = ''
 
     // 刷新列表
     await loadWorkflowList()
@@ -465,6 +478,7 @@ const deleteWorkflow = async () => {
     // 清空当前选择
     currentWorkflowId.value = null
     currentWorkflowName.value = '未命名工作流'
+    currentWorkflowRevision.value = ''
     code.value = `# 示例工作流
 #@node(description="选择项目")
 project = Logic.SelectProject(project_id=1)
@@ -545,6 +559,7 @@ const runWorkflow = async () => {
       await updateWorkflow(currentWorkflowId.value, {
         definition_code: code.value
       })
+      currentWorkflowRevision.value = ''
     } else {
       // 创建新工作流
       const workflow = await saveCodeWorkflow(currentWorkflowName.value, code.value)
@@ -831,6 +846,7 @@ const saveWorkflow = async () => {
       const workflow = await saveCodeWorkflow(name, code.value)
       currentWorkflowId.value = workflow.id
       currentWorkflowName.value = workflow.name
+      currentWorkflowRevision.value = ''
       ElMessage.success(`工作流"${workflow.name}"已保存`)
     }
   } catch (error) {
@@ -976,6 +992,7 @@ const onResumeRun = async (run) => {
     code.value = workflowData.code || ''
     currentWorkflowName.value = workflowData.name
     currentWorkflowId.value = run.workflow_id
+    currentWorkflowRevision.value = workflowData.revision || ''
   } catch (error) {
     console.error('[Workflow] 加载工作流失败:', error)
     ElMessage.error('加载工作流失败')
@@ -1080,6 +1097,19 @@ onUnmounted(() => {
 onMounted(() => {
   loadWorkflowList()
 })
+
+const handleWorkflowAgentApplied = (payload) => {
+  code.value = payload.newCode || code.value
+  if (payload.newRevision) {
+    currentWorkflowRevision.value = payload.newRevision
+  }
+}
+
+const handleVisualRevisionChanged = (revision) => {
+  if (typeof revision === 'string' && revision.trim()) {
+    currentWorkflowRevision.value = revision
+  }
+}
 </script>
 
 <style scoped>

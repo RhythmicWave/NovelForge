@@ -39,9 +39,9 @@ const assistantTimeout = computed({
 
 <template>
   <div class="assistant-settings-root">
-    <h3 class="section-title">灵感助手</h3>
+    <h3 class="section-title">Agent 设置</h3>
     <p class="section-desc">
-      配置灵感助手的高级能力，目前仅开放 React 工具解析协议。上下文摘要功能尚未启用。
+      配置通用 Agent 的高级能力，灵感助手与工作流 Agent 共享这些参数与模式。
     </p>
 
     <el-form label-width="160px" class="assistant-form" size="small">

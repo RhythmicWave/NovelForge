@@ -157,15 +157,23 @@ def _evaluate_filter(card: Card, filter_config: Dict, old_content: Dict | None =
 
 def _match_triggers_for_card(session: Session, event: str, card: Card, is_created: bool = False, old_content: Dict | None = None) -> List[Dict[str, Any]]:
     """匹配卡片相关的触发器（使用 triggers_cache）"""
-    from app.services.workflow.trigger_extractor import get_active_triggers
+    from app.services.workflow.trigger_extractor import get_active_triggers_by_event
     
     if card.card_type is None and card.card_type_id:
         session.refresh(card, ["card_type"])
     
     card_type_name = card.card_type.name if card.card_type else None
-    
+
     # 从 triggers_cache 中获取触发器（性能优化）
-    all_triggers = get_active_triggers(session, event, card_type_name)
+    # 新版触发器匹配接口基于 event_name + event_data
+    event_name = "card.saved" if event == "onsave" else event
+    event_data = {
+        "card_id": card.id,
+        "project_id": card.project_id,
+        "card_type": card_type_name,
+        "is_created": bool(is_created),
+    }
+    all_triggers = get_active_triggers_by_event(session, event_name, event_data)
     
     matched: List[Dict[str, Any]] = []
     current_event = "create" if is_created else "update"
@@ -349,6 +357,20 @@ def _execute_triggers(session: Session, event_name: str, triggers: List[Dict[str
                         continue
                     if isinstance(value, (str, int, float, bool, list, dict, type(None))):
                         serializable_payload[key] = value
+
+            if "card_type" not in serializable_payload:
+                resolved_card_type = payload.get("card_type") if payload else None
+                if resolved_card_type is None and card is not None:
+                    card_type = getattr(card, "card_type", None)
+                    if card_type is None and getattr(card, "card_type_id", None):
+                        try:
+                            session.refresh(card, ["card_type"])
+                            card_type = getattr(card, "card_type", None)
+                        except Exception:
+                            card_type = None
+                    resolved_card_type = getattr(card_type, "name", None) if card_type else None
+                if isinstance(resolved_card_type, str):
+                    serializable_payload["card_type"] = resolved_card_type
             
             # 创建运行记录
             run = run_manager.create_run(
@@ -389,9 +411,25 @@ def handle_card_saved(event: Event):
         return
     
     is_created = event.data.get("is_created", False)
+
+    card_type_name = event.data.get("card_type")
+    if card_type_name is None:
+        card_type = getattr(card, "card_type", None)
+        if card_type is None and getattr(card, "card_type_id", None):
+            try:
+                session.refresh(card, ["card_type"])
+                card_type = getattr(card, "card_type", None)
+            except Exception:
+                card_type = None
+        card_type_name = getattr(card_type, "name", None) if card_type else None
     
     triggers = _match_triggers_for_card(session, "onsave", card, is_created=is_created)
-    scope = {"card_id": card.id, "project_id": card.project_id}
+    scope = {
+        "card_id": card.id,
+        "project_id": card.project_id,
+        "card_type": card_type_name,
+        "is_created": bool(is_created),
+    }
     # 传递 event.data 作为 payload
     run_ids = _execute_triggers(session, "onsave", triggers, scope, card, card.project_id, payload=event.data)
     

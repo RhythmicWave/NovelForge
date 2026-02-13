@@ -125,6 +125,19 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
     # 输入/输出模型（子类必须定义）
     input_model: ClassVar[Type[TInput]]
     output_model: ClassVar[Type[TOutput]]
+
+    @classmethod
+    def get_output_schema_contract(
+        cls,
+        config: Dict[str, Any],
+        session: Optional[Session] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """返回节点输出的结构化 schema 契约（可选）。
+
+        用于静态校验“节点输出对象直传到卡片 content”这类场景。
+        默认无契约，具体节点可按需覆盖。
+        """
+        return None
     
     def __init__(self, context: ExecutionContext):
         """初始化节点

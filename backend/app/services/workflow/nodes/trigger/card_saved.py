@@ -26,7 +26,7 @@ class TriggerCardSavedOutput(BaseModel):
     """卡片保存触发器输出"""
     card_id: int = Field(..., description="卡片ID")
     project_id: int = Field(..., description="项目ID")
-    card_type: str = Field(..., description="卡片类型名称")
+    card_type: Optional[str] = Field(None, description="卡片类型名称")
     is_created: bool = Field(..., description="是否是新创建的卡片（true=创建，false=更新）")
 
 
@@ -84,10 +84,14 @@ class TriggerCardSavedNode(BaseNode):
         """
         # 从上下文的 variables 中获取触发器数据
         trigger_data = self.context.variables.get("__trigger_data__", {})
+
+        card_type = trigger_data.get("card_type")
+        if card_type is None:
+            card_type = inputs.card_type
         
         yield TriggerCardSavedOutput(
             card_id=trigger_data.get("card_id"),
             project_id=trigger_data.get("project_id"),
-            card_type=trigger_data.get("card_type"),
+            card_type=card_type,
             is_created=trigger_data.get("is_created", False)
         )

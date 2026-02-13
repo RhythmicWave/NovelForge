@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from ..engine.execution_plan import ExecutionPlan, Statement
+from ..expressions.builtins import get_safe_global_names
 
 
 class WorkflowParser:
@@ -345,16 +346,25 @@ class WorkflowParser:
 
         dependencies = set()
         exclude_parts = set(exclude_node_type.split(".")) if exclude_node_type else set()
+        safe_names = get_safe_global_names()
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
-                if node.id not in ["True", "False", "None"] and node.id not in exclude_parts:
+                if (
+                    node.id not in ["True", "False", "None"]
+                    and node.id not in exclude_parts
+                    and node.id not in safe_names
+                ):
                     dependencies.add(node.id)
             elif isinstance(node, ast.Attribute):
                 root = node
                 while isinstance(root, ast.Attribute):
                     root = root.value
-                if isinstance(root, ast.Name) and root.id not in exclude_parts:
+                if (
+                    isinstance(root, ast.Name)
+                    and root.id not in exclude_parts
+                    and root.id not in safe_names
+                ):
                     dependencies.add(root.id)
 
         return sorted(list(dependencies))

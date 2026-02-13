@@ -18,6 +18,12 @@ from app.schemas.workflow import (
     RunStatus,
     NodeTypesResponse,
 )
+from app.schemas.workflow_agent import WorkflowPatchRequest, WorkflowPatchResponse
+from app.services.workflow.patcher import (
+    compute_code_revision,
+    execute_patch_with_validation,
+    parse_workflow_code_to_result,
+)
 
 
 def _clean_dollar_prefix(value: Any) -> Any:
@@ -378,7 +384,7 @@ def validate_workflow_endpoint(workflow_id: int, session: Session = Depends(get_
         }
     
     # 执行完整校验
-    result = validate_workflow(code)
+    result = validate_workflow(code, session=session)
     
     return result.to_dict()
 
@@ -744,43 +750,38 @@ def parse_workflow_code(payload: Dict[str, Any]):
     Returns:
         解析结果
     """
-    from app.services.workflow.parser.marker_parser import WorkflowParser
-    
     code = payload.get("code", "")
     if not code:
         return {"success": False, "errors": ["代码不能为空"]}
 
-    try:
-        parser = WorkflowParser()
-        plan = parser.parse(code)
-
-        # 提取语句信息
-        statements = []
-        for stmt in plan.statements:
-            # 清理 config 中的 $ 前缀（前端不需要知道内部表示）
-            cleaned_config = _clean_dollar_prefix(stmt.config)
-            
-            statements.append({
-                "variable": stmt.variable,
-                "code": stmt.code if getattr(stmt, 'code', None) else f"{stmt.variable} = ...",
-                "line": stmt.line_number,
-                "node_type": stmt.node_type,
-                "config": cleaned_config,
-                "is_async": stmt.is_async,  # 添加异步标记
-                "disabled": stmt.disabled,   # 添加禁用标记
-                "description": getattr(stmt, 'description', '') or "",
-            })
-
-        return {
-            "success": True,
-            "statements": statements
-        }
-    except Exception as e:
-        logger.error(f"代码解析失败: {e}")
+    parsed = parse_workflow_code_to_result(code)
+    if not parsed.get("ok"):
+        error = str(parsed.get("error") or "parse_failed")
+        logger.error(f"代码解析失败: {error}")
         return {
             "success": False,
-            "errors": [str(e)]
+            "errors": [error],
         }
+
+    statements = []
+    for stmt in parsed.get("statements", []):
+        variable = stmt.get("variable")
+        cleaned_config = _clean_dollar_prefix(stmt.get("config"))
+        statements.append({
+            "variable": variable,
+            "code": stmt.get("code") or (f"{variable} = ..." if variable else "..."),
+            "line": stmt.get("line"),
+            "node_type": stmt.get("node_type"),
+            "config": cleaned_config,
+            "is_async": bool(stmt.get("is_async")),
+            "disabled": bool(stmt.get("disabled")),
+            "description": stmt.get("description", "") or "",
+        })
+
+    return {
+        "success": True,
+        "statements": statements,
+    }
 
 
 @router.post("/workflows/rename-variable")
@@ -865,5 +866,108 @@ def get_code_workflow(workflow_id: int, session: Session = Depends(get_session))
         "id": wf.id,
         "name": wf.name,
         "code": wf.definition_code or "",
+        "revision": compute_code_revision(wf.definition_code or ""),
         "keep_run_history": wf.keep_run_history or False
     }
+
+
+@router.post("/workflows/{workflow_id}/patch", response_model=WorkflowPatchResponse)
+def patch_workflow_code(
+    workflow_id: int,
+    payload: WorkflowPatchRequest,
+    session: Session = Depends(get_session),
+):
+    wf = session.get(Workflow, workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    old_code = wf.definition_code or ""
+    current_revision = compute_code_revision(old_code)
+    if payload.base_revision != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "revision_mismatch",
+                "message": "代码已更新，请刷新后重试",
+                "current_revision": current_revision,
+            },
+        )
+
+    try:
+        execution = execute_patch_with_validation(old_code, payload.patch_ops, session=session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    new_code = execution.new_code
+    changed_nodes = execution.changed_nodes
+    applied_ops = execution.applied_ops
+    parse_result = execution.parse_result
+    validation = execution.validation
+    diff = execution.diff
+
+    if payload.dry_run:
+        return WorkflowPatchResponse(
+            success=bool(parse_result.get("ok")) and bool(validation.get("is_valid")),
+            workflow_id=workflow_id,
+            base_revision=current_revision,
+            new_revision=compute_code_revision(new_code),
+            applied_ops=applied_ops,
+            changed_nodes=changed_nodes,
+            diff=diff,
+            new_code=new_code,
+            parse_result=parse_result,
+            validation=validation,
+            error=parse_result.get("error") if not parse_result.get("ok") else None,
+        )
+
+    if not parse_result.get("ok"):
+        return WorkflowPatchResponse(
+            success=False,
+            workflow_id=workflow_id,
+            base_revision=current_revision,
+            applied_ops=applied_ops,
+            changed_nodes=changed_nodes,
+            diff=diff,
+            new_code=new_code,
+            parse_result=parse_result,
+            validation=validation,
+            error=str(parse_result.get("error") or "parse_failed"),
+        )
+
+    if not validation.get("is_valid"):
+        return WorkflowPatchResponse(
+            success=False,
+            workflow_id=workflow_id,
+            base_revision=current_revision,
+            applied_ops=applied_ops,
+            changed_nodes=changed_nodes,
+            diff=diff,
+            new_code=new_code,
+            parse_result=parse_result,
+            validation=validation,
+            error="validate_failed",
+        )
+
+    wf.definition_code = new_code
+    wf.updated_at = datetime.utcnow()
+    session.add(wf)
+    session.commit()
+    session.refresh(wf)
+
+    from app.services.workflow.trigger_extractor import sync_triggers_cache
+
+    sync_triggers_cache(wf, session)
+    session.commit()
+
+    return WorkflowPatchResponse(
+        success=True,
+        workflow_id=workflow_id,
+        base_revision=current_revision,
+        new_revision=compute_code_revision(wf.definition_code or ""),
+        applied_ops=applied_ops,
+        changed_nodes=changed_nodes,
+        diff=diff,
+        new_code=wf.definition_code or "",
+        parse_result=parse_result,
+        validation=validation,
+    )

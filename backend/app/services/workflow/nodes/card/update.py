@@ -37,6 +37,13 @@ class CardUpdateNode(BaseNode):
     1. 清空列表字段：content_merge={"items": []}
     2. 更新嵌套字段：content_merge={"world_view": {"social_system": {"major_power_camps": []}}}
     3. 更新标题：title="新标题"
+
+    严格约束（给工作流编写 Agent）：
+    - `content_merge` 必须是可静态校验的字面量 dict。
+    - 禁止把整个 `content_merge` 写成 `${...}`、`$expr.result` 或字符串拼接结果。
+    - 更新字段必须符合目标卡片 schema，禁止写入 schema 不存在字段。
+
+    建议先确定目标卡片类型 schema，再构造 `content_merge`。
     """
     
     node_type = "Card.Update"

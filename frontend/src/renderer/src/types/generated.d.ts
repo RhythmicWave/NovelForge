@@ -325,6 +325,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflow-agent/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Workflow Agent Chat */
+        post: operations["workflow_agent_chat_api_workflow_agent_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prompts/": {
         parameters: {
             query?: never;
@@ -1276,7 +1293,7 @@ export interface paths {
          * @description 解析工作流代码（验证语法）
          *
          *     Args:
-         *         payload: 包含 code 字段的字典
+         *         payload: 包含 code 字段的字典（注释标记 DSL）
          *
          *     Returns:
          *         解析结果
@@ -1348,6 +1365,23 @@ export interface paths {
         get: operations["get_code_workflow_api_workflows__workflow_id__code_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Patch Workflow Code */
+        post: operations["patch_workflow_code_api_workflows__workflow_id__patch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2857,6 +2891,77 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WorkflowAgentChatRequest */
+        WorkflowAgentChatRequest: {
+            /**
+             * Workflow Id
+             * @description 当前编辑工作流 ID
+             */
+            workflow_id: number;
+            /**
+             * Llm Config Id
+             * @description 用于对话的 LLM 配置 ID
+             */
+            llm_config_id: number;
+            /**
+             * User Prompt
+             * @description 用户输入
+             * @default
+             */
+            user_prompt: string;
+            /**
+             * @description 工作模式
+             * @default suggest
+             */
+            mode: components["schemas"]["WorkflowAgentMode"];
+            /**
+             * Conversation Id
+             * @description 会话 ID
+             */
+            conversation_id?: string | null;
+            /**
+             * Temperature
+             * @description 采样温度
+             */
+            temperature?: number | null;
+            /**
+             * Max Tokens
+             * @description 最大输出 token
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 超时时间（秒）
+             */
+            timeout?: number | null;
+            /**
+             * Thinking Enabled
+             * @description 是否启用推理输出
+             */
+            thinking_enabled?: boolean | null;
+            /**
+             * React Mode Enabled
+             * @description 是否启用 React 文本协议模式
+             */
+            react_mode_enabled?: boolean | null;
+            /**
+             * History Messages
+             * @description 前端传入的会话历史（简化版），每项包含 role/content
+             */
+            history_messages?: {
+                [key: string]: string;
+            }[] | null;
+            /**
+             * Pending Code
+             * @description 前端当前未应用补丁对应的候选工作流代码（若有）
+             */
+            pending_code?: string | null;
+        };
+        /**
+         * WorkflowAgentMode
+         * @enum {string}
+         */
+        WorkflowAgentMode: "suggest" | "auto_apply";
         /** WorkflowCreate */
         WorkflowCreate: {
             /** Name */
@@ -2897,6 +3002,113 @@ export interface components {
             triggers_cache?: {
                 [key: string]: unknown;
             }[] | null;
+        };
+        /** WorkflowPatchOp */
+        WorkflowPatchOp: {
+            /**
+             * Op
+             * @description 补丁操作类型
+             */
+            op: string;
+            /**
+             * Target Node
+             * @description 目标节点变量名
+             */
+            target_node?: string | null;
+            /**
+             * New Code
+             * @description 整份工作流代码（replace_code 时使用）
+             */
+            new_code?: string | null;
+            /**
+             * New Block
+             * @description 插入的新节点块
+             */
+            new_block?: string | null;
+            /**
+             * New Meta
+             * @description 更新后的节点元数据字段
+             */
+            new_meta?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * New Call
+             * @description 更新后的节点调用表达式
+             */
+            new_call?: string | null;
+            /**
+             * Old Name
+             * @description 重命名前旧变量
+             */
+            old_name?: string | null;
+            /**
+             * New Name
+             * @description 重命名后新变量
+             */
+            new_name?: string | null;
+            /**
+             * Reason
+             * @description 操作原因
+             */
+            reason?: string | null;
+        };
+        /** WorkflowPatchRequest */
+        WorkflowPatchRequest: {
+            /**
+             * Base Revision
+             * @description 补丁基线版本
+             */
+            base_revision: string;
+            /**
+             * Patch Ops
+             * @description 补丁操作列表
+             */
+            patch_ops?: components["schemas"]["WorkflowPatchOp"][];
+            /**
+             * Dry Run
+             * @description 是否仅预览不落库
+             * @default false
+             */
+            dry_run: boolean;
+        };
+        /** WorkflowPatchResponse */
+        WorkflowPatchResponse: {
+            /** Success */
+            success: boolean;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Base Revision */
+            base_revision: string;
+            /** New Revision */
+            new_revision?: string | null;
+            /**
+             * Applied Ops
+             * @default 0
+             */
+            applied_ops: number;
+            /** Changed Nodes */
+            changed_nodes?: string[];
+            /**
+             * Diff
+             * @default
+             */
+            diff: string;
+            /**
+             * New Code
+             * @default
+             */
+            new_code: string;
+            /** Parse Result */
+            parse_result?: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation?: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: string | null;
         };
         /** WorkflowRead */
         WorkflowRead: {
@@ -3612,6 +3824,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workflow_agent_chat_api_workflow_agent_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowAgentChatRequest"];
             };
         };
         responses: {
@@ -5848,6 +6093,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_workflow_code_api_workflows__workflow_id__patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowPatchResponse"];
                 };
             };
             /** @description Validation Error */

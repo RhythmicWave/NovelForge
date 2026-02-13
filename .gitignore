@@ -22,6 +22,10 @@ backend/alembic/versions/*.py
 !README.md
 !README.MD
 !CLA.md
+!贡献指南.md
+!后续规划.md
+!rules/**/*.md
+!rules/**/*.mdc
 
 
 primitive_models/

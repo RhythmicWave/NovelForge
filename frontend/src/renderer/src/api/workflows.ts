@@ -279,7 +279,7 @@ export async function saveCodeWorkflow(name: string, code: string): Promise<Work
  * @param id 工作流 ID
  * @returns 工作流代码
  */
-export async function getCodeWorkflow(id: number): Promise<{ id: number; name: string; code: string }> {
+export async function getCodeWorkflow(id: number): Promise<{ id: number; name: string; code: string; revision?: string; keep_run_history?: boolean }> {
   return request.get(`/workflows/${id}/code`, undefined, '/api', { showLoading: false })
 }
 

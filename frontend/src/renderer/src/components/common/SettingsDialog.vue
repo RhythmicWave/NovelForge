@@ -60,7 +60,7 @@ watch(() => props.modelValue, async (open) => { if (open) { await nextTick(); em
         <el-tab-pane label="卡片类型" name="card-types">
           <CardTypeManager />
         </el-tab-pane>
-        <el-tab-pane label="灵感助手" name="assistant">
+        <el-tab-pane label="Agent 设置" name="assistant">
           <AssistantSettings />
         </el-tab-pane>
         <el-tab-pane name="about">

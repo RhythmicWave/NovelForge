@@ -10,6 +10,15 @@ export interface ParameterFormatOptions {
 }
 
 export class ParameterFormatter {
+  private static escapeString(value: any): string {
+    const text = String(value)
+    return text
+      .replace(/\\/g, '\\\\')
+      .replace(/\r/g, '\\r')
+      .replace(/\n/g, '\\n')
+      .replace(/\t/g, '\\t')
+      .replace(/"/g, '\\"')
+  }
   /**
    * 检测是否是变量引用
    * 格式：变量名.属性名 (例如: text.content, novel.chapter_list)
@@ -63,19 +72,19 @@ export class ParameterFormatter {
 
       case 'string':
         // 字符串：加引号，转义特殊字符
-        result = `"${String(value).replace(/"/g, '\\"')}"`
+        result = `"${this.escapeString(value)}"`
         break
 
       case 'array':
         // 数组类型：支持数组或逗号分隔的字符串
         if (Array.isArray(value)) {
           // 直接是数组
-          const items = value.map(item => `"${String(item)}"`)
+          const items = value.map(item => `"${this.escapeString(item)}"`)
           result = `[${items.join(', ')}]`
         } else if (typeof value === 'string') {
           // 逗号分隔的字符串，转换为数组
           const items = value.split(',').map(item => item.trim()).filter(item => item)
-          result = `[${items.map(item => `"${item}"`).join(', ')}]`
+          result = `[${items.map(item => `"${this.escapeString(item)}"`).join(', ')}]`
         } else {
           result = this.formatComplexType(value)
         }
@@ -92,7 +101,7 @@ export class ParameterFormatter {
           result = this.formatComplexType(value)
         } else {
           // 默认当作字符串处理
-          result = `"${String(value).replace(/"/g, '\\"')}"`
+          result = `"${this.escapeString(value)}"`
         }
         break
     }
@@ -116,13 +125,13 @@ export class ParameterFormatter {
         if (typeof item === 'object' && item !== null) {
           return this.formatComplexType(item)
         } else if (typeof item === 'string') {
-          return `"${item.replace(/"/g, '\\"')}"`
+          return `"${this.escapeString(item)}"`
         } else if (typeof item === 'number') {
           return String(item)
         } else if (typeof item === 'boolean') {
           return item ? 'True' : 'False'
         } else {
-          return `"${String(item).replace(/"/g, '\\"')}"`
+          return `"${this.escapeString(item)}"`
         }
       })
       return `[${items.join(', ')}]`
@@ -135,13 +144,13 @@ export class ParameterFormatter {
         if (typeof val === 'object' && val !== null) {
           formattedVal = this.formatComplexType(val)
         } else if (typeof val === 'string') {
-          formattedVal = `"${val.replace(/"/g, '\\"')}"`
+          formattedVal = `"${this.escapeString(val)}"`
         } else if (typeof val === 'number') {
           formattedVal = String(val)
         } else if (typeof val === 'boolean') {
           formattedVal = val ? 'True' : 'False'
         } else {
-          formattedVal = `"${String(val).replace(/"/g, '\\"')}"`
+          formattedVal = `"${this.escapeString(val)}"`
         }
         return `"${key}": ${formattedVal}`
       })

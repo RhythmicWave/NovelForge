@@ -164,6 +164,10 @@ interface NodeStatus {
   error?: string
 }
 
+interface RunStatusResponse {
+  nodes: NodeStatus[]
+}
+
 const props = defineProps<{
   modelValue: boolean
   workflowId?: number
@@ -239,7 +243,7 @@ async function loadRuns(silent = false) {
       ? `/workflows/${props.workflowId}/runs`
       : '/runs'
     
-    const response = await request.get(url, params, '/api')
+    const response = await request.get<WorkflowRun[]>(url, params, '/api')
     runs.value = response
 
     // 加载运行中任务的进度
@@ -261,7 +265,12 @@ async function loadRuns(silent = false) {
 
 async function loadProgress(runId: number) {
   try {
-    const status = await request.get(`/workflows/runs/${runId}/status`, {}, '/api', { showLoading: false })
+    const status = await request.get<RunStatusResponse>(
+      `/workflows/runs/${runId}/status`,
+      {},
+      '/api',
+      { showLoading: false }
+    )
     
     if (status.nodes && status.nodes.length > 0) {
       const totalProgress = status.nodes.reduce((sum: number, node: NodeStatus) => {
@@ -334,7 +343,7 @@ async function viewNodeStatus(runId: number) {
   loadingNodeStatus.value = true
 
   try {
-    const status = await request.get(`/workflows/runs/${runId}/status`, {}, '/api')
+    const status = await request.get<RunStatusResponse>(`/workflows/runs/${runId}/status`, {}, '/api')
     nodeStatuses.value = status.nodes || []
   } catch (error: any) {
     ElMessage.error(`加载节点状态失败：${error.message || error}`)

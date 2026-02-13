@@ -118,8 +118,9 @@ let flashTimer: any = null
 let lastCompletedCount = 0
 
 watch(() => completedRuns.value.length, (newVal, oldVal) => {
+  const previous = oldVal ?? 0
   console.log('[WorkflowStatusBar] completedRuns 变化:', oldVal, '->', newVal)
-  if (newVal > oldVal && newVal > lastCompletedCount) {
+  if (newVal > previous && newVal > lastCompletedCount) {
     console.log('[WorkflowStatusBar] 触发闪烁动画')
     isFlashing.value = true
     lastCompletedCount = newVal

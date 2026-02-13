@@ -58,6 +58,31 @@ class StructuredGenerateNode(BaseNode[StructuredGenerateInput, StructuredGenerat
     input_model = StructuredGenerateInput
     output_model = StructuredGenerateOutput
 
+    @classmethod
+    def get_output_schema_contract(
+        cls,
+        config: Dict[str, Any],
+        session=None,
+    ) -> Optional[Dict[str, Any]]:
+        """声明输出 `data` 字段的 schema 契约。
+
+        契约格式：
+        {
+            "kind": "structured_output",
+            "schema_id": "角色卡",
+            "data_path": "data"
+        }
+        """
+        model_id = config.get("response_model_id")
+        if not isinstance(model_id, str) or not model_id.strip():
+            return None
+
+        return {
+            "kind": "structured_output",
+            "schema_id": model_id.strip(),
+            "data_path": "data",
+        }
+
     async def execute(
         self,
         inputs: StructuredGenerateInput

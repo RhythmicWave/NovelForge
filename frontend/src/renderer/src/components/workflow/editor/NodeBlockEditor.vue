@@ -111,6 +111,8 @@
                   v-if="field.rawSchema?.['x-component'] === 'ProjectSelect'"
                   v-model="editingParam.value"
                   filterable
+                  :allow-create="field.name === 'project_name'"
+                  :default-first-option="field.name === 'project_name'"
                   placeholder="选择项目"
                   size="small"
                   @change="saveParamEdit"
@@ -119,7 +121,7 @@
                     v-for="p in projectList"
                     :key="p.id"
                     :label="p.name"
-                    :value="p.id"
+                    :value="getProjectOptionValue(field, p)"
                   />
                 </el-select>
 
@@ -128,6 +130,8 @@
                   v-else-if="field.rawSchema?.['x-component'] === 'LLMSelect'"
                   v-model="editingParam.value"
                   filterable
+                  :allow-create="field.name === 'llm_name'"
+                  :default-first-option="field.name === 'llm_name'"
                   placeholder="选择LLM配置"
                   size="small"
                   @change="saveParamEdit"
@@ -136,7 +140,7 @@
                     v-for="cfg in llmConfigList"
                     :key="cfg.id"
                     :label="cfg.display_name || cfg.model_name"
-                    :value="cfg.id"
+                    :value="getLlmOptionValue(field, cfg)"
                   />
                 </el-select>
 
@@ -431,6 +435,7 @@ import { useLLMConfigStore } from '@/stores/useLLMConfigStore'
 import { usePromptStore } from '@/stores/usePromptStore'
 import { useCardStore } from '@/stores/useCardStore'
 import { ParameterFormatter } from '@/utils/parameterFormatter'
+import { applyWorkflowPatch } from '@/api/workflowAgent'
 
 const props = defineProps({
   modelValue: {
@@ -440,10 +445,18 @@ const props = defineProps({
   isRunning: {
     type: Boolean,
     default: false
+  },
+  workflowId: {
+    type: Number,
+    default: null
+  },
+  revision: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'node-selected'])
+const emit = defineEmits(['update:modelValue', 'node-selected', 'revision-changed'])
 
 // 使用 stores
 const projectListStore = useProjectListStore()
@@ -476,6 +489,12 @@ const fileDialogVisible = ref(false)
 const builtinResponseModels = ref([])
 // 内部更新标记
 const isInternalUpdate = ref(false)
+const parseWatchSeq = ref(0)
+const revisionRef = ref(props.revision || '')
+
+watch(() => props.revision, value => {
+  revisionRef.value = value || ''
+})
 
 // 按分类组织的节点类型
 const nodeTypesByCategory = computed(() => {
@@ -583,7 +602,7 @@ async function fetchNodeOutputs(node) {
         let formattedValue = ''
         
         if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-          const fieldType = fieldDef.type
+          const fieldType = resolveFieldType(fieldDef)
           
           console.log(`[fetchNodeOutputs] 处理字段 ${fieldName}:`, {
             fieldType,
@@ -625,7 +644,7 @@ async function fetchNodeOutputs(node) {
         return {
           name: fieldName,
           label: fieldDef.description || fieldName,
-          type: fieldDef.type,
+          type: resolveFieldType(fieldDef),
           required: fieldDef.required || false,
           default: fieldDef.default,
           value: formattedValue,  // 确保是字符串
@@ -759,7 +778,9 @@ function buildNodeBlockCode(node, idx = -1) {
       return `${f.name}=${paramValue}`
     })
 
-  const callExpr = `${node.variable} = ${node.nodeType}(${paramParts.join(', ')})`
+  const callExpr = paramParts.length
+    ? `${node.variable} = ${node.nodeType}(\n${paramParts.map(p => `    ${p}`).join(',\n')}\n)`
+    : `${node.variable} = ${node.nodeType}()`
 
   const metaParts = []
   if (node.isAsync) metaParts.push('async=true')
@@ -778,47 +799,105 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function buildNodeBlockRegex(nodeVariable) {
-  const namePattern = escapeRegex(nodeVariable)
-  return new RegExp(
-    `(^|\\n)\\s*#@node(?:\\([^\\n]*\\))?\\s*\\n[\\s\\S]*?^\\s*${namePattern}\\s*=\\s*[^\\n]*\\n[\\s\\S]*?^\\s*#<\\/node>\\s*(?=\\n|$)`,
-    'm'
-  )
+function parseNodeBlocksFromCode(code) {
+  const normalized = String(code || '').replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const blocks = []
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    if (!line || !line.trim().startsWith('#@node')) continue
+
+    const startLine = index
+    let endLine = -1
+    let variable = null
+
+    for (let cursor = index + 1; cursor < lines.length; cursor++) {
+      const current = lines[cursor]
+      if (!variable) {
+        const assignMatch = current.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=/)
+        if (assignMatch) {
+          variable = assignMatch[1]
+        }
+      }
+
+      if (current.trim() === '#</node>') {
+        endLine = cursor
+        break
+      }
+    }
+
+    if (endLine >= 0) {
+      blocks.push({
+        variable,
+        startLine,
+        endLine,
+      })
+      index = endLine
+    }
+  }
+
+  return { lines, blocks }
+}
+
+function normalizeEditorCode(code) {
+  return String(code || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+$/, '')
 }
 
 function updateSingleNodeCode(node) {
   const currentCode = props.modelValue || ''
   const nodeBlock = buildNodeBlockCode(node)
-  if (!currentCode.trim() || !nodeBlock) {
-    return nodesToCode()
+  if (!nodeBlock) {
+    return currentCode
   }
 
-  const blockRegex = buildNodeBlockRegex(node.variable)
-  if (!blockRegex.test(currentCode)) {
-    return nodesToCode()
+  if (!currentCode.trim()) {
+    return normalizeEditorCode(nodesToCode())
   }
 
-  return currentCode.replace(blockRegex, `$1${nodeBlock}`)
+  const { lines, blocks } = parseNodeBlocksFromCode(currentCode)
+  const target = blocks.find(block => block.variable === node.variable)
+  if (!target) {
+    console.warn(`[updateSingleNodeCode] 未找到节点块，跳过整文件重排: ${node.variable}`)
+    return currentCode
+  }
+
+  const newBlockLines = String(nodeBlock).replace(/\r\n/g, '\n').split('\n')
+  const newLines = [
+    ...lines.slice(0, target.startLine),
+    ...newBlockLines,
+    ...lines.slice(target.endLine + 1),
+  ]
+
+  return normalizeEditorCode(newLines.join('\n'))
 }
 
 function removeSingleNodeCode(nodeVariable) {
   const currentCode = props.modelValue || ''
-  if (!currentCode.trim() || !nodeVariable) {
-    return nodesToCode()
+  if (!nodeVariable) {
+    return currentCode
   }
 
-  const blockRegex = buildNodeBlockRegex(nodeVariable)
-  if (!blockRegex.test(currentCode)) {
-    return nodesToCode()
+  if (!currentCode.trim()) {
+    return ''
   }
 
-  const removed = currentCode.replace(blockRegex, '$1')
-  const normalized = removed
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/^\s+/, '')
-    .replace(/\s+$/, '')
+  const { lines, blocks } = parseNodeBlocksFromCode(currentCode)
+  const target = blocks.find(block => block.variable === nodeVariable)
+  if (!target) {
+    console.warn(`[removeSingleNodeCode] 未找到节点块，跳过整文件重排: ${nodeVariable}`)
+    return currentCode
+  }
 
-  return normalized
+  const newLines = [
+    ...lines.slice(0, target.startLine),
+    ...lines.slice(target.endLine + 1),
+  ]
+
+  return normalizeEditorCode(newLines.join('\n'))
 }
 
 function appendSingleNodeCode(node) {
@@ -827,11 +906,11 @@ function appendSingleNodeCode(node) {
   if (!nodeBlock) return currentCode || ''
 
   if (!currentCode.trim()) {
-    return nodeBlock
+    return normalizeEditorCode(nodeBlock)
   }
 
   const trimmedEnd = currentCode.replace(/\s+$/, '')
-  return `${trimmedEnd}\n\n${nodeBlock}`
+  return normalizeEditorCode(`${trimmedEnd}\n\n${nodeBlock}`)
 }
 
 function nodesToCode() {
@@ -841,6 +920,68 @@ function nodesToCode() {
   console.log('[nodesToCode] 生成节点代码，节点数:', nodes.value.length)
   console.log('[nodesToCode] 最终代码:\n', result)
   return result
+}
+
+function emitCodeUpdate(newCode, options = { internal: true }) {
+  const normalized = typeof newCode === 'string' ? newCode : ''
+  const current = typeof props.modelValue === 'string' ? props.modelValue : ''
+  if (normalized === current) {
+    return false
+  }
+
+  if (options.internal !== false) {
+    isInternalUpdate.value = true
+  }
+
+  emit('update:modelValue', normalized)
+  return true
+}
+
+async function applyCodeUpdateSafely(newCode, options = {}) {
+  const normalized = typeof newCode === 'string' ? newCode : ''
+  const current = typeof props.modelValue === 'string' ? props.modelValue : ''
+  if (normalized === current) {
+    return true
+  }
+
+  try {
+    if (props.workflowId && revisionRef.value) {
+      const result = await applyWorkflowPatch(props.workflowId, {
+        base_revision: revisionRef.value,
+        patch_ops: [
+          {
+            op: 'replace_code',
+            new_code: normalized,
+            reason: 'node_block_editor_safe_apply',
+          },
+        ],
+        dry_run: false,
+      })
+
+      if (!result?.success) {
+        throw new Error(result?.error || '后端补丁应用失败')
+      }
+
+      const finalCode = typeof result.new_code === 'string' ? result.new_code : normalized
+      const parsedNodes = await parseCodeToNodes(finalCode)
+      nodes.value = parsedNodes
+      revisionRef.value = result.new_revision || revisionRef.value
+      emit('revision-changed', revisionRef.value)
+      emitCodeUpdate(finalCode)
+      return true
+    }
+
+    const parsedNodes = await parseCodeToNodes(normalized)
+    nodes.value = parsedNodes
+    emitCodeUpdate(normalized)
+    return true
+  } catch (error) {
+    console.error('[applyCodeUpdateSafely] 校验失败，拒绝写回:', error)
+    if (!options.silent) {
+      ElMessage.error(`代码更新失败：${error?.message || error}`)
+    }
+    return false
+  }
 }
 
 // 选择节点
@@ -861,20 +1002,23 @@ function deleteNode(index) {
   }
   
   // 触发代码更新
-  emit('update:modelValue', removeSingleNodeCode(removedNode?.variable))
+  emitCodeUpdate(removeSingleNodeCode(removedNode?.variable))
 }
 
 // 切换节点禁用状态
 async function toggleNodeDisabled(index) {
   const node = nodes.value[index]
   const targetDisabledState = node.disabled
+  const previousDisabledState = !targetDisabledState
   console.log(`[toggleNodeDisabled] 节点 ${node.variable} 禁用状态: ${targetDisabledState}`)
-  
-  // 标记为内部更新，避免 watch 重新解析
-  isInternalUpdate.value = true
-  
+
   // 仅更新当前节点代码块，避免重排整个工作流代码格式
-  emit('update:modelValue', updateSingleNodeCode(node))
+  const applied = await applyCodeUpdateSafely(updateSingleNodeCode(node), { silent: true })
+  if (!applied) {
+    node.disabled = previousDisabledState
+    ElMessage.error('节点状态更新失败，已回滚')
+    return
+  }
   
   const message = targetDisabledState ? '节点已禁用' : '节点已启用'
   ElMessage.success(message)
@@ -883,39 +1027,21 @@ async function toggleNodeDisabled(index) {
 // 切换异步/同步
 async function toggleAsync(index) {
   const node = nodes.value[index]
+  const previousAsyncState = node.isAsync
   
   // 切换 isAsync 状态
   node.isAsync = !node.isAsync
   
   const targetAsyncState = node.isAsync
-  
-  // 标记为内部更新，避免 watch 重新解析
-  isInternalUpdate.value = true
-  
+
   // 仅更新当前节点代码块，避免重排整个工作流代码格式
   const newCode = updateSingleNodeCode(node)
-  
-  // 发送代码更新事件
-  emit('update:modelValue', newCode)
-  
-  // 重新解析代码，确保可视化视图与代码同步
-  try {
-    const parsedNodes = await parseCodeToNodes(newCode)
-    
-    // 使用 splice 逐个替换节点，触发 Vue 响应式更新
-    parsedNodes.forEach((parsedNode, idx) => {
-      if (idx < nodes.value.length) {
-        nodes.value.splice(idx, 1, parsedNode)
-      } else {
-        nodes.value.push(parsedNode)
-      }
-    })
-    
-    if (parsedNodes.length < nodes.value.length) {
-      nodes.value.splice(parsedNodes.length)
-    }
-  } catch (error) {
-    console.error('[toggleAsync] 重新解析失败:', error)
+
+  const applied = await applyCodeUpdateSafely(newCode, { silent: true })
+  if (!applied) {
+    node.isAsync = previousAsyncState
+    ElMessage.error('异步状态更新失败，已回滚')
+    return
   }
   
   const message = targetAsyncState ? '已切换为异步节点' : '已切换为同步节点'
@@ -949,15 +1075,12 @@ ${newNodeVariable.value} = ${selectedNodeType.value}()
     if (parsed && parsed.length > 0) {
       console.log('[addNode] 解析后的节点:', parsed[0])
       
-      // 标记为内部更新，避免触发 watch 重新解析
-      isInternalUpdate.value = true
-      
       nodes.value.push(parsed[0])
       
       const finalCode = appendSingleNodeCode(parsed[0])
       console.log('[addNode] 最终生成的代码:\n', finalCode)
       
-      emit('update:modelValue', finalCode)
+      emitCodeUpdate(finalCode)
       selectedIndex.value = nodes.value.length - 1
       emit('node-selected', nodes.value[selectedIndex.value])
       ElMessage.success('节点已添加')
@@ -1099,7 +1222,7 @@ function removeArrayItem(index) {
 async function saveParamEdit() {
   if (!editingParam.value) return
   
-  const { nodeIndex, fieldIndex, fieldName, fieldType, value, arrayItems } = editingParam.value
+  const { nodeIndex, fieldIndex, fieldName, value, arrayItems } = editingParam.value
   const node = nodes.value[nodeIndex]
   
   if (!node || !node.fields || !node.fields[fieldIndex]) {
@@ -1110,6 +1233,8 @@ async function saveParamEdit() {
   }
   
   const field = node.fields[fieldIndex]
+  const fieldType = field.type || editingParam.value.fieldType || 'string'
+  const previousFieldValue = field.value
   
   console.log('[saveParamEdit] 保存参数:', { 
     nodeIndex, 
@@ -1139,13 +1264,16 @@ async function saveParamEdit() {
       console.log('[saveParamEdit] 值为空，清除字段值')
       field.value = undefined
       
-      // 标记为内部更新，避免触发 watch 重新解析
-      isInternalUpdate.value = true
-      
       // 重新生成节点代码（不包含该字段）
       const allCode = updateSingleNodeCode(node)
       console.log('[saveParamEdit] 完整代码:\n', allCode)
-      emit('update:modelValue', allCode)
+      const applied = await applyCodeUpdateSafely(allCode, { silent: true })
+      if (!applied) {
+        field.value = previousFieldValue
+        ElMessage.error('参数清除失败，已回滚')
+        editingParam.value = null
+        return
+      }
       ElMessage.success('参数已清除')
       
       editingParam.value = null
@@ -1157,9 +1285,14 @@ async function saveParamEdit() {
       type: fieldType,
       value: finalValue
     })
-    
+
     console.log('[saveParamEdit] 格式化后的值:', formattedValue)
-    
+
+    if (String(formattedValue) === String(field.value ?? '')) {
+      editingParam.value = null
+      return
+    }
+
     // 更新字段值
     field.value = formattedValue
     
@@ -1167,9 +1300,6 @@ async function saveParamEdit() {
     nodes.value.forEach((n, idx) => {
       console.log(`  [${idx}] ${n.variable}: fields=`, n.fields?.map(f => `${f.name}=${f.value}`))
     })
-    
-    // 标记为内部更新，避免触发 watch 重新解析
-    isInternalUpdate.value = true
     
     // 重新生成节点代码
     const allCode = updateSingleNodeCode(node)
@@ -1180,7 +1310,13 @@ async function saveParamEdit() {
       throw new Error('生成的代码为空')
     }
     
-    emit('update:modelValue', allCode)
+    const applied = await applyCodeUpdateSafely(allCode, { silent: true })
+    if (!applied) {
+      field.value = previousFieldValue
+      ElMessage.error('参数更新失败，已回滚')
+      editingParam.value = null
+      return
+    }
     ElMessage.success('参数已更新')
     
     editingParam.value = null
@@ -1226,7 +1362,7 @@ function showAvailableParams(nodeIndex) {
   })
   
   // 触发更新
-  emit('update:modelValue', updateSingleNodeCode(node))
+  emitCodeUpdate(updateSingleNodeCode(node))
 }
 
 // 格式化参数值
@@ -1281,6 +1417,10 @@ async function loadNodeTypes() {
 
 // 监听代码变化
 watch(() => props.modelValue, async (newCode, oldCode) => {
+  if (newCode === oldCode) {
+    return
+  }
+
   // 如果是内部更新（saveParamEdit/saveVariableEdit 触发），跳过重新解析
   if (isInternalUpdate.value) {
     console.log('[watch] 内部更新，跳过重新解析')
@@ -1291,12 +1431,20 @@ watch(() => props.modelValue, async (newCode, oldCode) => {
   console.log('[watch] 外部代码变化，重新解析')
   console.log('[watch] 新代码长度:', newCode?.length, '旧代码长度:', oldCode?.length)
   console.log('[watch] 新代码:\n', newCode)
+
+  const requestSeq = ++parseWatchSeq.value
   
   try {
     const parsedNodes = await parseCodeToNodes(newCode)
+    if (requestSeq !== parseWatchSeq.value) {
+      return
+    }
     console.log('[watch] 解析成功，节点数:', parsedNodes.length)
     nodes.value = parsedNodes
   } catch (error) {
+    if (requestSeq !== parseWatchSeq.value) {
+      return
+    }
     console.error('[watch] 代码解析失败:', error)
     console.error('[watch] 失败的代码:\n', newCode)
     // 解析失败时保持当前节点列表不变
@@ -1329,6 +1477,20 @@ function isSmartSelectorField(field) {
   if (!field || !field.rawSchema) return false
   const xComponent = field.rawSchema['x-component']
   return ['ProjectSelect', 'LLMSelect', 'PromptSelect', 'CardTypeSelect', 'ResponseModelSelect', 'ToolMultiSelect'].includes(xComponent)
+}
+
+function getProjectOptionValue(field, project) {
+  if (field?.name === 'project_name') {
+    return project?.name ?? ''
+  }
+  return project?.id
+}
+
+function getLlmOptionValue(field, llmConfig) {
+  if (field?.name === 'llm_name') {
+    return llmConfig?.display_name || llmConfig?.model_name || ''
+  }
+  return llmConfig?.id
 }
 
 // 切换节点折叠状态
@@ -1424,7 +1586,7 @@ async function saveVariableEdit() {
       console.log('[saveVariableEdit] 新代码:\n', response.new_code)
       
       // 发送更新事件
-      emit('update:modelValue', response.new_code)
+      emitCodeUpdate(response.new_code)
       
       // 强制重新解析代码以更新显示
       try {
@@ -1494,6 +1656,37 @@ function formatDisplayValue(field) {
 
   // 其他字段截断过长的值
   return displayValue.length > 50 ? displayValue.substring(0, 50) + '...' : displayValue
+}
+
+function resolveFieldType(fieldDef) {
+  if (!fieldDef || typeof fieldDef !== 'object') {
+    return 'string'
+  }
+
+  if (typeof fieldDef.type === 'string' && fieldDef.type.trim()) {
+    return fieldDef.type
+  }
+
+  if (Array.isArray(fieldDef.type)) {
+    const picked = fieldDef.type.find(t => typeof t === 'string' && t !== 'null')
+    if (picked) return picked
+  }
+
+  if (Array.isArray(fieldDef.anyOf)) {
+    const picked = fieldDef.anyOf
+      .map(item => item?.type)
+      .find(t => typeof t === 'string' && t !== 'null')
+    if (picked) return picked
+  }
+
+  if (Array.isArray(fieldDef.oneOf)) {
+    const picked = fieldDef.oneOf
+      .map(item => item?.type)
+      .find(t => typeof t === 'string' && t !== 'null')
+    if (picked) return picked
+  }
+
+  return 'string'
 }
 
 // 组件挂载时加载节点类型和数据

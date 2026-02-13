@@ -36,6 +36,15 @@ class CardBatchUpsertOutput(BaseModel):
 
 @register_node
 class CardBatchUpsertNode(BaseNode[CardBatchUpsertInput, CardBatchUpsertOutput]):
+    """批量创建/更新卡片节点。
+
+    严格约束（给工作流编写 Agent）：
+    1) `content_template` 必须是字面量 dict，且字段与目标卡片 schema 对齐。
+    2) 允许在字段值中使用 `{item.xxx}` 占位符；禁止将整个 `content_template` 设为表达式结果。
+    3) 不能臆造字段，必须先确认该卡片类型可写字段。
+
+    推荐：先查询卡片类型 schema，再编写 `title_template/content_template`。
+    """
     node_type = "Card.BatchUpsert"
     category = "card"
     label = "批量更新卡片"

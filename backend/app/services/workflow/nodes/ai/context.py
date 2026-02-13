@@ -29,7 +29,8 @@ class ContextAssembleOutput(BaseModel):
     context_data: Dict[str, Any] = Field(default_factory=dict, description="结构化上下文数据")
 
 
-@register_node
+#未经校验，暂时不显示
+# @register_node
 class ContextAssembleNode(BaseNode):
     """上下文组装节点"""
     
