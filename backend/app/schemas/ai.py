@@ -62,6 +62,8 @@ class GeneralAIRequest(BaseModel):
     timeout: Optional[float] = Field(default=None, description="生成超时(秒)，留空使用默认")
     # 前端直接传入的依赖（JSON 字符串，例如 {\"all_entity_names\":[...]}")
     deps: Optional[str] = Field(default=None, description="依赖注入数据(JSON字符串)，例如实体名称列表等")
+    # 是否过滤 AI 字段（基于 x-ai-exclude 标记）
+    exclude_ai_fields: Optional[bool] = Field(default=True, description="是否过滤标记为 x-ai-exclude 的字段")
 
     class Config:
         extra = 'ignore'

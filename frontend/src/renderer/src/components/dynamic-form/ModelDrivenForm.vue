@@ -5,7 +5,7 @@
         <template v-for="(propSchema, propName) in visibleProperties" :key="propName">
           <component
             :is="getFieldComponent(propSchema)"
-            :label="(displayNameMap && displayNameMap[propName]) || propSchema.title || String(propName)"
+            :label="getFieldLabel(String(propName), propSchema)"
             :prop="String(propName)"
             :schema="resolveActualSchema(propSchema)"
             :display-name-map="displayNameMap"
@@ -102,6 +102,14 @@ function getFieldComponent(propSchema: JSONSchema) {
       console.warn(`不支持的字段类型: ${actualSchema.type} (属性: ${actualSchema.title}). 已使用回退组件。`)
       return FallbackField
   }
+}
+
+function getFieldLabel(propName: string, propSchema: JSONSchema): string {
+  const actualSchema = resolveActualSchema(propSchema)
+  return (props.displayNameMap && props.displayNameMap[propName])
+    || (propSchema as any).title
+    || (actualSchema as any).title
+    || propName
 }
 
 function updateModel(propName: string, value: any) {

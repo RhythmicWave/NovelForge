@@ -94,6 +94,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm-configs/get-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 获取模型列表 */
+        post: operations["get_models_endpoint_api_llm_configs_get_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm-configs/test": {
         parameters: {
             query?: never;
@@ -105,7 +122,7 @@ export interface paths {
         put?: never;
         /**
          * 测试 LLM 连接
-         * @description 使用传入参数临时构造一个 Agent 并发起一次最小调用以验证连通性。
+         * @description 使用传入参数临时构造一个 LangChain ChatModel 并发起一次最小调用以验证连通性。
          */
         post: operations["test_llm_connection_endpoint_api_llm_configs_test_post"];
         delete?: never;
@@ -259,6 +276,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/generate/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 指令流式生成端点
+         * @description 指令流式生成端点
+         *
+         *     实时返回 LLM 生成的指令流，前端逐条执行并更新 UI。
+         *     支持自动校验和修复，用户可以在生成过程中与 AI 交互。
+         */
+        post: operations["generate_with_instruction_stream_api_ai_generate_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ai/assistant/chat": {
         parameters: {
             query?: never;
@@ -279,6 +319,23 @@ export interface paths {
          *     - 支持工具调用结果返回
          */
         post: operations["assistant_chat_api_ai_assistant_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-agent/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Workflow Agent Chat */
+        post: operations["workflow_agent_chat_api_workflow_agent_chat_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -442,6 +499,32 @@ export interface paths {
         post?: never;
         /** Delete Card */
         delete: operations["delete_card_api_cards__card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cards/batch-reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Reorder Cards
+         * @description 批量更新卡片排序
+         *
+         *     Args:
+         *         request: 包含要更新的卡片列表，每个卡片包含 card_id, display_order, parent_id
+         *
+         *     Returns:
+         *         更新的卡片数量和成功状态
+         */
+        post: operations["batch_reorder_cards_api_cards_batch_reorder_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -796,6 +879,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/nodes/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Types Api
+         * @description 获取所有已注册的工作流节点类型（含完整元数据）
+         *
+         *     用于前端动态生成节点库和属性面板。
+         *     包含了基于 Pydantic 生成的 JSON Schema。
+         */
+        get: operations["get_node_types_api_api_nodes_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-node-types/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Categories
+         * @description 获取节点分类列表
+         */
+        get: operations["get_node_categories_api_workflow_node_types_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/nodes/{node_type}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Metadata Api
+         * @description 获取单个节点的完整元数据
+         *
+         *     Args:
+         *         node_type: 节点类型，如 "Novel.Load" 或 "Card.BatchUpsert"
+         *
+         *     Returns:
+         *         节点的完整元数据，包括：
+         *         - type: 节点类型
+         *         - category: 分类
+         *         - label: 显示名称
+         *         - description: 描述
+         *         - input_schema: 输入字段的 JSON Schema（从 input_model 生成）
+         *         - output_schema: 输出字段的 JSON Schema（从 output_model 生成）
+         *         - outputs: 输出字段列表（从 output_schema 提取）
+         */
+        get: operations["get_node_metadata_api_api_nodes__node_type__metadata_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows": {
         parameters: {
             query?: never;
@@ -814,7 +973,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/workflow-triggers": {
+    "/api/workflows/project-templates": {
         parameters: {
             query?: never;
             header?: never;
@@ -822,32 +981,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Triggers
-         * @description 返回所有工作流触发器列表（独立资源路径，避免与 /workflows/{workflow_id} 冲突）。
+         * Get Project Templates
+         * @description 获取项目创建模板列表
+         *
+         *     返回所有包含 Trigger.ProjectCreated 触发器的工作流，
+         *     以及它们的模板标识（template 参数）。
+         *
+         *     前端可以根据这些信息渲染项目创建对话框的模板选择下拉框。
          */
-        get: operations["list_triggers_api_workflow_triggers_get"];
+        get: operations["get_project_templates_api_workflows_project_templates_get"];
         put?: never;
-        /** Create Trigger */
-        post: operations["create_trigger_api_workflow_triggers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workflow-triggers/{trigger_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Trigger */
-        put: operations["update_trigger_api_workflow_triggers__trigger_id__put"];
         post?: never;
-        /** Delete Trigger */
-        delete: operations["delete_trigger_api_workflow_triggers__trigger_id__delete"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -862,28 +1007,14 @@ export interface paths {
         };
         /** Get Workflow */
         get: operations["get_workflow_api_workflows__workflow_id__get"];
-        /** Update Workflow */
+        /**
+         * Update Workflow
+         * @description 更新工作流
+         */
         put: operations["update_workflow_api_workflows__workflow_id__put"];
         post?: never;
         /** Delete Workflow */
         delete: operations["delete_workflow_api_workflows__workflow_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workflows/{workflow_id}/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run Workflow */
-        post: operations["run_workflow_api_workflows__workflow_id__run_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -898,6 +1029,69 @@ export interface paths {
         };
         /** Get Run */
         get: operations["get_run_api_workflows_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Run
+         * @description 删除运行记录
+         *
+         *     删除指定的运行记录及其相关的节点状态。
+         */
+        delete: operations["delete_run_api_workflows_runs__run_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflow Runs
+         * @description 获取指定工作流的运行列表
+         *
+         *     Args:
+         *         workflow_id: 工作流 ID
+         *         limit: 返回数量限制（默认 50）
+         *         offset: 偏移量（默认 0）
+         *         status: 过滤状态（可选）：running, paused, succeeded, failed, cancelled
+         *
+         *     Returns:
+         *         运行列表，按创建时间倒序
+         */
+        get: operations["list_workflow_runs_api_workflows__workflow_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Runs
+         * @description 获取所有工作流的运行列表
+         *
+         *     Args:
+         *         limit: 返回数量限制（默认 50）
+         *         offset: 偏移量（默认 0）
+         *         status: 过滤状态（可选）：running, paused, succeeded, failed, cancelled
+         *
+         *     Returns:
+         *         运行列表，按创建时间倒序
+         */
+        get: operations["list_all_runs_api_runs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -915,8 +1109,19 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Validate Workflow */
-        post: operations["validate_workflow_api_workflows__workflow_id__validate_post"];
+        /**
+         * Validate Workflow Endpoint
+         * @description 验证工作流定义（完整静态检查）
+         *
+         *     检查内容：
+         *     - 语法错误
+         *     - 节点类型错误
+         *     - 字段访问错误
+         *     - 表达式语法错误
+         *     - 类型不匹配
+         *     - Expression 节点特殊规则
+         */
+        post: operations["validate_workflow_endpoint_api_workflows__workflow_id__validate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -932,7 +1137,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Run */
+        /**
+         * Cancel Run
+         * @description 取消运行中的工作流
+         */
         post: operations["cancel_run_api_workflows_runs__run_id__cancel_post"];
         delete?: never;
         options?: never;
@@ -940,17 +1148,240 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/workflows/runs/{run_id}/events": {
+    "/api/workflows/runs/{run_id}/pause": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Stream Events */
-        get: operations["stream_events_api_workflows_runs__run_id__events_get"];
+        get?: never;
+        put?: never;
+        /**
+         * Pause Run
+         * @description 暂停运行中的工作流
+         *
+         *     立即取消所有异步任务并更新数据库状态。
+         */
+        post: operations["pause_run_api_workflows_runs__run_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Run
+         * @description 恢复暂停的工作流
+         *
+         *     如果服务器重启，会重新启动运行并自动恢复状态。
+         */
+        post: operations["resume_run_api_workflows_runs__run_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/execute-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Execute Code Workflow Stream
+         * @description 执行代码式工作流（流式SSE推送）
+         *
+         *     实时推送执行事件，同时创建 run 记录并保存状态（支持暂停/恢复）。
+         *
+         *     Args:
+         *         workflow_id: 工作流 ID
+         *         resume: 是否恢复执行（默认 False，从头开始）
+         *         run_id: 恢复执行时的 run ID（resume=True 时必须提供）
+         */
+        get: operations["execute_code_workflow_stream_api_workflows__workflow_id__execute_stream_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/runs/{run_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Status
+         * @description 获取运行状态（包含节点状态）
+         */
+        get: operations["get_run_status_api_workflows_runs__run_id__status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Templates
+         * @description 获取工作流模板列表
+         */
+        get: operations["list_templates_api_workflows_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/from-template/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create From Template
+         * @description 从模板创建工作流
+         */
+        post: operations["create_from_template_api_workflows_from_template__template_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Workflow Code
+         * @description 解析工作流代码（验证语法）
+         *
+         *     Args:
+         *         payload: 包含 code 字段的字典（注释标记 DSL）
+         *
+         *     Returns:
+         *         解析结果
+         */
+        post: operations["parse_workflow_code_api_workflows_parse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/rename-variable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename Variable
+         * @description 重命名变量并更新所有引用
+         *
+         *     Args:
+         *         payload: 包含 code, old_name, new_name 的字典
+         *
+         *     Returns:
+         *         重命名结果
+         */
+        post: operations["rename_variable_api_workflows_rename_variable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Code Workflow
+         * @description 保存代码式工作流
+         */
+        post: operations["save_code_workflow_api_workflows_code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Code Workflow
+         * @description 获取代码式工作流
+         */
+        get: operations["get_code_workflow_api_workflows__workflow_id__code_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Patch Workflow Code */
+        post: operations["patch_workflow_code_api_workflows__workflow_id__patch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1068,6 +1499,18 @@ export interface components {
             status: string;
             /** Data */
             data?: components["schemas"]["PromptRead"][] | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApiResponse[List[str]] */
+        ApiResponse_List_str__: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /** Data */
+            data?: string[] | null;
             /** Message */
             message?: string | null;
         };
@@ -1202,6 +1645,26 @@ export interface components {
              * @default true
              */
             stream: boolean;
+            /**
+             * Thinking Enabled
+             * @description 是否启用推理/Thinking 输出（仅部分模型支持）
+             */
+            thinking_enabled?: boolean | null;
+            /**
+             * Context Summarization Enabled
+             * @description 是否启用上下文摘要中间件（对过长对话做摘要压缩）
+             */
+            context_summarization_enabled?: boolean | null;
+            /**
+             * Context Summarization Threshold
+             * @description 触发上下文摘要的 token 阈值
+             */
+            context_summarization_threshold?: number | null;
+            /**
+             * React Mode Enabled
+             * @description 是否启用 React 文本协议工具调用模式
+             */
+            react_mode_enabled?: boolean | null;
         };
         /** CancelResponse */
         CancelResponse: {
@@ -1209,6 +1672,17 @@ export interface components {
             ok: boolean;
             /** Message */
             message?: string | null;
+        };
+        /**
+         * CardBatchReorderRequest
+         * @description 批量更新卡片排序请求
+         */
+        CardBatchReorderRequest: {
+            /**
+             * Updates
+             * @description 要更新的卡片排序列表
+             */
+            updates: components["schemas"]["CardOrderItem"][];
         };
         /** CardCopyOrMoveRequest */
         CardCopyOrMoveRequest: {
@@ -1239,6 +1713,18 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * CardOrderItem
+         * @description 单个卡片的排序信息
+         */
+        CardOrderItem: {
+            /** Card Id */
+            card_id: number;
+            /** Display Order */
+            display_order: number;
+            /** Parent Id */
+            parent_id?: number | null;
         };
         /** CardRead */
         CardRead: {
@@ -1276,6 +1762,18 @@ export interface components {
             card_type: components["schemas"]["CardTypeRead"];
             /** Ai Context Template */
             ai_context_template?: string | null;
+            /**
+             * Ai Modified
+             * @default false
+             */
+            ai_modified: boolean;
+            /**
+             * Needs Confirmation
+             * @default false
+             */
+            needs_confirmation: boolean;
+            /** Last Modified By */
+            last_modified_by?: string | null;
         };
         /** CardTypeCreate */
         CardTypeCreate: {
@@ -1407,6 +1905,8 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+            /** Needs Confirmation */
+            needs_confirmation?: boolean | null;
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -1471,6 +1971,23 @@ export interface components {
         /** ContinuationResponse */
         ContinuationResponse: {
             /** Content */
+            content: string;
+        };
+        /**
+         * ConversationMessage
+         * @description 对话消息
+         */
+        ConversationMessage: {
+            /**
+             * Role
+             * @description 消息角色
+             * @enum {string}
+             */
+            role: "system" | "user" | "assistant";
+            /**
+             * Content
+             * @description 消息内容
+             */
             content: string;
         };
         /** DeletionInfo */
@@ -1675,6 +2192,51 @@ export interface components {
              * @description 依赖注入数据(JSON字符串)，例如实体名称列表等
              */
             deps?: string | null;
+            /**
+             * Exclude Ai Fields
+             * @description 是否过滤标记为 x-ai-exclude 的字段
+             * @default true
+             */
+            exclude_ai_fields: boolean | null;
+        };
+        /**
+         * GenerationConfig
+         * @description 卡片生成配置
+         *
+         *     定义了如何生成卡片内容的策略和提示。
+         */
+        GenerationConfig: {
+            /**
+             * Mode
+             * @description 生成模式，当前仅支持指令流模式
+             * @default instruction_stream
+             * @constant
+             */
+            mode: "instruction_stream";
+            /**
+             * Prompt Template
+             * @description 全局提示词模板（可选）
+             */
+            prompt_template?: string | null;
+            /**
+             * Field Hints
+             * @description 字段级生成提示，键为字段路径，值为提示文本
+             */
+            field_hints?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Field Order
+             * @description 建议的字段生成顺序
+             */
+            field_order?: string[] | null;
+            /**
+             * Custom
+             * @description 自定义配置（扩展用）
+             */
+            custom?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1720,6 +2282,76 @@ export interface components {
         IngestRelationsLLMResponse: {
             /** Written */
             written: number;
+        };
+        /**
+         * InstructionGenerateRequest
+         * @description 指令流生成请求
+         */
+        InstructionGenerateRequest: {
+            /**
+             * Llm Config Id
+             * @description LLM 配置 ID
+             */
+            llm_config_id: number;
+            /**
+             * User Prompt
+             * @description 用户输入的提示词或回复
+             * @default
+             */
+            user_prompt: string;
+            /**
+             * Response Model Schema
+             * @description 目标数据结构的 JSON Schema
+             */
+            response_model_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Current Data
+             * @description 当前已生成的数据
+             */
+            current_data?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Conversation Context
+             * @description 对话历史（前端维护）
+             */
+            conversation_context?: components["schemas"]["ConversationMessage"][];
+            /** @description 生成配置，如果为空则使用默认配置 */
+            generation_config?: components["schemas"]["GenerationConfig"] | null;
+            /**
+             * Prompt Template
+             * @description 自定义提示词模板
+             */
+            prompt_template?: string | null;
+            /**
+             * Context Info
+             * @description 上下文注入信息（如相关实体、已有卡片等）
+             */
+            context_info?: string | null;
+            /**
+             * Temperature
+             * @description 采样温度
+             * @default 0.7
+             */
+            temperature: number | null;
+            /**
+             * Max Tokens
+             * @description 最大生成 token 数
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 超时时间（秒）
+             * @default 150
+             */
+            timeout: number | null;
+            /**
+             * Deps
+             * @description 依赖数据，用于校验
+             */
+            deps?: string | null;
         };
         /** KnowledgeCreate */
         KnowledgeCreate: {
@@ -1891,6 +2523,67 @@ export interface components {
             /** Api Key */
             api_key: string;
         };
+        /** LLMGetModelsRequest */
+        LLMGetModelsRequest: {
+            /** Provider */
+            provider: string;
+            /** Api Base */
+            api_base?: string | null;
+            /** Api Key */
+            api_key: string;
+        };
+        /**
+         * NodeExecutionStatus
+         * @description 节点执行状态
+         */
+        NodeExecutionStatus: {
+            /** Node Id */
+            node_id: string;
+            /** Node Type */
+            node_type: string;
+            /** Status */
+            status: string;
+            /** Progress */
+            progress: number;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * NodeTypeInfo
+         * @description 节点类型信息
+         */
+        NodeTypeInfo: {
+            /** Type */
+            type: string;
+            /** Category */
+            category: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /**
+             * Input Schema
+             * @default {}
+             */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Output Schema
+             * @default {}
+             */
+            output_schema: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * NodeTypesResponse
+         * @description 节点类型列表响应
+         */
+        NodeTypesResponse: {
+            /** Node Types */
+            node_types: components["schemas"]["NodeTypeInfo"][];
+        };
         /** ParticipantTyped */
         ParticipantTyped: {
             /** Name */
@@ -1904,8 +2597,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /** Workflow Id */
-            workflow_id?: number | null;
+            /** Template */
+            template?: string | null;
         };
         /** ProjectRead */
         ProjectRead: {
@@ -2063,18 +2756,29 @@ export interface components {
              */
             stance?: ("友好" | "中立" | "敌意") | null;
         };
-        /** RunRequest */
-        RunRequest: {
-            /** Scope Json */
-            scope_json?: {
+        /**
+         * RunStatus
+         * @description 工作流运行状态（包含节点状态）
+         */
+        RunStatus: {
+            /** Run Id */
+            run_id: number;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Error */
+            error?: {
                 [key: string]: unknown;
             } | null;
-            /** Params Json */
-            params_json?: {
-                [key: string]: unknown;
-            } | null;
-            /** Idempotency Key */
-            idempotency_key?: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["NodeExecutionStatus"][];
         };
         /** SuggestRequest */
         SuggestRequest: {
@@ -2187,6 +2891,77 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WorkflowAgentChatRequest */
+        WorkflowAgentChatRequest: {
+            /**
+             * Workflow Id
+             * @description 当前编辑工作流 ID
+             */
+            workflow_id: number;
+            /**
+             * Llm Config Id
+             * @description 用于对话的 LLM 配置 ID
+             */
+            llm_config_id: number;
+            /**
+             * User Prompt
+             * @description 用户输入
+             * @default
+             */
+            user_prompt: string;
+            /**
+             * @description 工作模式
+             * @default suggest
+             */
+            mode: components["schemas"]["WorkflowAgentMode"];
+            /**
+             * Conversation Id
+             * @description 会话 ID
+             */
+            conversation_id?: string | null;
+            /**
+             * Temperature
+             * @description 采样温度
+             */
+            temperature?: number | null;
+            /**
+             * Max Tokens
+             * @description 最大输出 token
+             */
+            max_tokens?: number | null;
+            /**
+             * Timeout
+             * @description 超时时间（秒）
+             */
+            timeout?: number | null;
+            /**
+             * Thinking Enabled
+             * @description 是否启用推理输出
+             */
+            thinking_enabled?: boolean | null;
+            /**
+             * React Mode Enabled
+             * @description 是否启用 React 文本协议模式
+             */
+            react_mode_enabled?: boolean | null;
+            /**
+             * History Messages
+             * @description 前端传入的会话历史（简化版），每项包含 role/content
+             */
+            history_messages?: {
+                [key: string]: string;
+            }[] | null;
+            /**
+             * Pending Code
+             * @description 前端当前未应用补丁对应的候选工作流代码（若有）
+             */
+            pending_code?: string | null;
+        };
+        /**
+         * WorkflowAgentMode
+         * @enum {string}
+         */
+        WorkflowAgentMode: "suggest" | "auto_apply";
         /** WorkflowCreate */
         WorkflowCreate: {
             /** Name */
@@ -2210,13 +2985,130 @@ export interface components {
             version: number | null;
             /**
              * Dsl Version
-             * @default 1
+             * @default 2
              */
             dsl_version: number | null;
-            /** Definition Json */
-            definition_json?: {
+            /**
+             * Definition Code
+             * @default
+             */
+            definition_code: string;
+            /**
+             * Keep Run History
+             * @default false
+             */
+            keep_run_history: boolean | null;
+            /** Triggers Cache */
+            triggers_cache?: {
+                [key: string]: unknown;
+            }[] | null;
+        };
+        /** WorkflowPatchOp */
+        WorkflowPatchOp: {
+            /**
+             * Op
+             * @description 补丁操作类型
+             */
+            op: string;
+            /**
+             * Target Node
+             * @description 目标节点变量名
+             */
+            target_node?: string | null;
+            /**
+             * New Code
+             * @description 整份工作流代码（replace_code 时使用）
+             */
+            new_code?: string | null;
+            /**
+             * New Block
+             * @description 插入的新节点块
+             */
+            new_block?: string | null;
+            /**
+             * New Meta
+             * @description 更新后的节点元数据字段
+             */
+            new_meta?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * New Call
+             * @description 更新后的节点调用表达式
+             */
+            new_call?: string | null;
+            /**
+             * Old Name
+             * @description 重命名前旧变量
+             */
+            old_name?: string | null;
+            /**
+             * New Name
+             * @description 重命名后新变量
+             */
+            new_name?: string | null;
+            /**
+             * Reason
+             * @description 操作原因
+             */
+            reason?: string | null;
+        };
+        /** WorkflowPatchRequest */
+        WorkflowPatchRequest: {
+            /**
+             * Base Revision
+             * @description 补丁基线版本
+             */
+            base_revision: string;
+            /**
+             * Patch Ops
+             * @description 补丁操作列表
+             */
+            patch_ops?: components["schemas"]["WorkflowPatchOp"][];
+            /**
+             * Dry Run
+             * @description 是否仅预览不落库
+             * @default false
+             */
+            dry_run: boolean;
+        };
+        /** WorkflowPatchResponse */
+        WorkflowPatchResponse: {
+            /** Success */
+            success: boolean;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Base Revision */
+            base_revision: string;
+            /** New Revision */
+            new_revision?: string | null;
+            /**
+             * Applied Ops
+             * @default 0
+             */
+            applied_ops: number;
+            /** Changed Nodes */
+            changed_nodes?: string[];
+            /**
+             * Diff
+             * @default
+             */
+            diff: string;
+            /**
+             * New Code
+             * @default
+             */
+            new_code: string;
+            /** Parse Result */
+            parse_result?: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation?: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: string | null;
         };
         /** WorkflowRead */
         WorkflowRead: {
@@ -2241,13 +3133,23 @@ export interface components {
             version: number | null;
             /**
              * Dsl Version
-             * @default 1
+             * @default 2
              */
             dsl_version: number | null;
-            /** Definition Json */
-            definition_json?: {
+            /**
+             * Definition Code
+             * @default
+             */
+            definition_code: string;
+            /**
+             * Keep Run History
+             * @default false
+             */
+            keep_run_history: boolean | null;
+            /** Triggers Cache */
+            triggers_cache?: {
                 [key: string]: unknown;
-            } | null;
+            }[] | null;
             /** Id */
             id: number;
         };
@@ -2279,57 +3181,13 @@ export interface components {
             error_json?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** WorkflowTriggerCreate */
-        WorkflowTriggerCreate: {
-            /** Workflow Id */
-            workflow_id: number;
-            /** Trigger On */
-            trigger_on: string;
-            /** Card Type Name */
-            card_type_name?: string | null;
-            /** Filter Json */
-            filter_json?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Is Active
-             * @default true
-             */
-            is_active: boolean | null;
-        };
-        /** WorkflowTriggerRead */
-        WorkflowTriggerRead: {
-            /** Workflow Id */
-            workflow_id: number;
-            /** Trigger On */
-            trigger_on: string;
-            /** Card Type Name */
-            card_type_name?: string | null;
-            /** Filter Json */
-            filter_json?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Is Active
-             * @default true
-             */
-            is_active: boolean | null;
-            /** Id */
-            id: number;
-        };
-        /** WorkflowTriggerUpdate */
-        WorkflowTriggerUpdate: {
-            /** Trigger On */
-            trigger_on?: string | null;
-            /** Card Type Name */
-            card_type_name?: string | null;
-            /** Filter Json */
-            filter_json?: {
-                [key: string]: unknown;
-            } | null;
-            /** Is Active */
-            is_active?: boolean | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            workflow?: components["schemas"]["WorkflowRead"] | null;
         };
         /** WorkflowUpdate */
         WorkflowUpdate: {
@@ -2343,10 +3201,10 @@ export interface components {
             version?: number | null;
             /** Dsl Version */
             dsl_version?: number | null;
-            /** Definition Json */
-            definition_json?: {
-                [key: string]: unknown;
-            } | null;
+            /** Definition Code */
+            definition_code?: string | null;
+            /** Keep Run History */
+            keep_run_history?: boolean | null;
         };
     };
     responses: never;
@@ -2646,6 +3504,39 @@ export interface operations {
             };
         };
     };
+    get_models_endpoint_api_llm_configs_get_models_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMGetModelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_List_str__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_llm_connection_endpoint_api_llm_configs_test_post: {
         parameters: {
             query?: never;
@@ -2890,6 +3781,39 @@ export interface operations {
             };
         };
     };
+    generate_with_instruction_stream_api_ai_generate_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstructionGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assistant_chat_api_ai_assistant_chat_post: {
         parameters: {
             query?: never;
@@ -2900,6 +3824,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workflow_agent_chat_api_workflow_agent_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowAgentChatRequest"];
             };
         };
         responses: {
@@ -3526,6 +4483,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_reorder_cards_api_cards_batch_reorder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardBatchReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {
@@ -4367,6 +5357,77 @@ export interface operations {
             };
         };
     };
+    get_node_types_api_api_nodes_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeTypesResponse"];
+                };
+            };
+        };
+    };
+    get_node_categories_api_workflow_node_types_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_node_metadata_api_api_nodes__node_type__metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_workflows_api_workflows_get: {
         parameters: {
             query?: never;
@@ -4420,101 +5481,11 @@ export interface operations {
             };
         };
     };
-    list_triggers_api_workflow_triggers_get: {
+    get_project_templates_api_workflows_project_templates_get: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTriggerRead"][];
-                };
-            };
-        };
-    };
-    create_trigger_api_workflow_triggers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkflowTriggerCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTriggerRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_trigger_api_workflow_triggers__trigger_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                trigger_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkflowTriggerUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTriggerRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_trigger_api_workflow_triggers__trigger_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                trigger_id: number;
-            };
             cookie?: never;
         };
         requestBody?: never;
@@ -4526,15 +5497,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4636,41 +5598,6 @@ export interface operations {
             };
         };
     };
-    run_workflow_api_workflows__workflow_id__run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workflow_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowRunRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_run_api_workflows_runs__run_id__get: {
         parameters: {
             query?: never;
@@ -4702,7 +5629,106 @@ export interface operations {
             };
         };
     };
-    validate_workflow_api_workflows__workflow_id__validate_post: {
+    delete_run_api_workflows_runs__run_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflow_runs_api_workflows__workflow_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                status?: string | null;
+            };
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_runs_api_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_workflow_endpoint_api_workflows__workflow_id__validate_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4764,7 +5790,7 @@ export interface operations {
             };
         };
     };
-    stream_events_api_workflows_runs__run_id__events_get: {
+    pause_run_api_workflows_runs__run_id__pause_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4782,6 +5808,326 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_run_api_workflows_runs__run_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_code_workflow_stream_api_workflows__workflow_id__execute_stream_get: {
+        parameters: {
+            query?: {
+                resume?: boolean;
+                run_id?: number | null;
+            };
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_status_api_workflows_runs__run_id__status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_workflows_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_from_template_api_workflows_from_template__template_id__post: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: never;
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_workflow_code_api_workflows_parse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_variable_api_workflows_rename_variable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_code_workflow_api_workflows_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_code_workflow_api_workflows__workflow_id__code_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_workflow_code_api_workflows__workflow_id__patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowPatchResponse"];
                 };
             };
             /** @description Validation Error */

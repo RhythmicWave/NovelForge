@@ -4,57 +4,38 @@ from typing import List, Dict, Any
 
 from app.db.session import get_session
 from app.services.card_service import CardService, CardTypeService
+from app.services.schema_service import compose_schema_with_card_types, localize_schema_titles
+from app.services.card_params_service import merge_effective_ai_params
 from app.schemas.card import (
     CardRead, CardCreate, CardUpdate, 
     CardTypeRead, CardTypeCreate, CardTypeUpdate,
     CardBatchReorderRequest
 )
-from app.db.models import Card, CardType, LLMConfig
+from app.db.models import Card, CardType
+from app.exceptions import BusinessException
 from loguru import logger
 
 from app.schemas.card import CardCopyOrMoveRequest
-from app.services.workflow_triggers import trigger_on_card_save
+from app.core import emit_event
 from fastapi import Response
 
 router = APIRouter()
 
-# --- helpers ---
-def _collect_ref_names(node: Any, refs: set):
-    if isinstance(node, dict):
-        if '$ref' in node and isinstance(node['$ref'], str) and node['$ref'].startswith('#/$defs/'):
-            name = node['$ref'].split('/')[-1]
-            if name:
-                refs.add(name)
-        for v in node.values():
-            _collect_ref_names(v, refs)
-    elif isinstance(node, list):
-        for v in node:
-            _collect_ref_names(v, refs)
 
-def _compose_schema_with_types(schema: dict, db: Session) -> dict:
-    if not isinstance(schema, dict):
-        return schema
-    result = dict(schema)
-    if '$defs' not in result or not isinstance(result.get('$defs'), dict):
-        result['$defs'] = {}
-    existing_defs = result['$defs']
-    ref_names: set = set()
-    _collect_ref_names(result, ref_names)
-    # 查询所有类型一次，建立 name/model_name -> schema 映射
-    all_types = db.query(CardType).all()
-    by_model = {}
-    for ct in all_types:
-        if ct and ct.json_schema:
-            if ct.model_name:
-                by_model[ct.model_name] = ct.json_schema
-            by_model[ct.name] = ct.json_schema
-    # 覆盖策略：对所有被引用的名称，若 CardType 有对应结构，则覆盖/写入到 $defs
-    for n in ref_names:
-        sch = by_model.get(n)
-        if sch:
-            existing_defs[n] = sch
-    result['$defs'] = existing_defs
-    return result
+def _resolve_card_type_name(db: Session, card: Card) -> str | None:
+    """Resolve card type name for event payloads reliably."""
+    card_type = getattr(card, "card_type", None)
+    if card_type and getattr(card_type, "name", None):
+        return str(card_type.name)
+
+    card_type_id = getattr(card, "card_type_id", None)
+    if not card_type_id:
+        return None
+
+    db_card_type = db.get(CardType, card_type_id)
+    if db_card_type and getattr(db_card_type, "name", None):
+        return str(db_card_type.name)
+    return None
 
 # --- CardType Endpoints ---
 # 说明：CardTypeRead 需包含 default_ai_context_template 字段（由 Pydantic schema 定义控制）。
@@ -62,12 +43,20 @@ def _compose_schema_with_types(schema: dict, db: Session) -> dict:
 @router.post("/card-types", response_model=CardTypeRead)
 def create_card_type(card_type: CardTypeCreate, db: Session = Depends(get_session)):
     service = CardTypeService(db)
-    return service.create(card_type)
+    created = service.create(card_type)
+    data = created.model_dump()
+    data["json_schema"] = localize_schema_titles(data.get("json_schema"))
+    return data
 
 @router.get("/card-types", response_model=List[CardTypeRead])
 def get_all_card_types(db: Session = Depends(get_session)):
     service = CardTypeService(db)
-    return service.get_all()
+    result = []
+    for card_type in service.get_all():
+        data = card_type.model_dump()
+        data["json_schema"] = localize_schema_titles(data.get("json_schema"))
+        result.append(data)
+    return result
 
 @router.get("/card-types/{card_type_id}", response_model=CardTypeRead)
 def get_card_type(card_type_id: int, db: Session = Depends(get_session)):
@@ -75,7 +64,9 @@ def get_card_type(card_type_id: int, db: Session = Depends(get_session)):
     db_card_type = service.get_by_id(card_type_id)
     if db_card_type is None:
         raise HTTPException(status_code=404, detail="CardType not found")
-    return db_card_type
+    data = db_card_type.model_dump()
+    data["json_schema"] = localize_schema_titles(data.get("json_schema"))
+    return data
 
 @router.put("/card-types/{card_type_id}", response_model=CardTypeRead)
 def update_card_type(card_type_id: int, card_type: CardTypeUpdate, db: Session = Depends(get_session)):
@@ -83,7 +74,9 @@ def update_card_type(card_type_id: int, card_type: CardTypeUpdate, db: Session =
     db_card_type = service.update(card_type_id, card_type)
     if db_card_type is None:
         raise HTTPException(status_code=404, detail="CardType not found")
-    return db_card_type
+    data = db_card_type.model_dump()
+    data["json_schema"] = localize_schema_titles(data.get("json_schema"))
+    return data
 
 @router.delete("/card-types/{card_type_id}", status_code=204)
 def delete_card_type(card_type_id: int, db: Session = Depends(get_session)):
@@ -104,7 +97,8 @@ def get_card_type_schema(card_type_id: int, db: Session = Depends(get_session)) 
     ct = db.get(CardType, card_type_id)
     if not ct:
         raise HTTPException(status_code=404, detail="CardType not found")
-    return {"json_schema": ct.json_schema}
+    localized_schema = localize_schema_titles(ct.json_schema) if isinstance(ct.json_schema, dict) else ct.json_schema
+    return {"json_schema": localized_schema}
 
 @router.put("/card-types/{card_type_id}/schema")
 def update_card_type_schema(card_type_id: int, payload: Dict[str, Any], db: Session = Depends(get_session)) -> Dict[str, Any]:
@@ -115,7 +109,8 @@ def update_card_type_schema(card_type_id: int, payload: Dict[str, Any], db: Sess
     db.add(ct)
     db.commit()
     db.refresh(ct)
-    return {"json_schema": ct.json_schema}
+    localized_schema = localize_schema_titles(ct.json_schema) if isinstance(ct.json_schema, dict) else ct.json_schema
+    return {"json_schema": localized_schema}
 
 # --- CardType AI Params Endpoints ---
 
@@ -140,16 +135,28 @@ def update_card_type_ai_params(card_type_id: int, payload: Dict[str, Any], db: S
 # --- Card Endpoints ---
 
 @router.post("/projects/{project_id}/cards", response_model=CardRead)
-def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session), response: Response = None):
+def create_card_for_project(project_id: int, card: CardCreate, db: Session = Depends(get_session)):
     service = CardService(db)
-    created = service.create(card, project_id)
     try:
-        run_ids = trigger_on_card_save(db, created)
-        if response is not None and run_ids:
-            response.headers["X-Workflows-Started"] = ",".join(str(r) for r in run_ids)
-    except Exception:
-        logger.exception("OnSave workflow trigger failed")
-    return created
+        created = service.create(card, project_id)
+        triggered_run_ids = []
+        try:
+            event_data = {
+                "session": db,
+                "card": created,
+                "is_created": True,
+                "card_type": _resolve_card_type_name(db, created),
+            }
+            emit_event("card.saved", event_data)
+            triggered_run_ids = event_data.get("triggered_run_ids", [])
+        except Exception:
+            logger.exception("OnSave workflow trigger failed")
+        
+        # Header is managed by Middleware
+        
+        return created
+    except BusinessException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.get("/projects/{project_id}/cards", response_model=List[CardRead])
 def get_all_cards_for_project(project_id: int, db: Session = Depends(get_session)):
@@ -165,17 +172,60 @@ def get_card(card_id: int, db: Session = Depends(get_session)):
     return db_card
 
 @router.put("/cards/{card_id}", response_model=CardRead)
-def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session), response: Response = None):
+def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_session)):
+    # 获取更新前的状态
+    old_card = db.get(Card, card_id)
+    old_content = None
+    if old_card and old_card.content:
+        import copy
+        old_content = copy.deepcopy(old_card.content)
+
+    was_needs_confirmation = getattr(old_card, 'needs_confirmation', False) if old_card else False
+    
     service = CardService(db)
     db_card = service.update(card_id, card)
     if db_card is None:
         raise HTTPException(status_code=404, detail="Card not found")
+    
+    # 检查是否从"需要确认"状态变为"已确认"状态
+    is_now_confirmed = was_needs_confirmation and not getattr(db_card, 'needs_confirmation', False)
+    
+    # 用户保存时的处理
+    if is_now_confirmed:
+        # 场景1：用户确认了 AI 修改的卡片
+        logger.info(f"✅ 用户确认了 AI 修改的卡片 {card_id}，准备触发工作流")
+        db_card.last_modified_by = "user"
+        db_card.ai_modified = False  # 清除 AI 修改标记
+        db.add(db_card)
+        db.commit()
+        db.refresh(db_card)
+    elif not was_needs_confirmation and getattr(db_card, 'last_modified_by', None) != 'user':
+        # 场景2：用户手动修改卡片（非 AI 创建的，或已确认过的）
+        # 标记为用户修改，但不影响工作流触发
+        db_card.last_modified_by = "user"
+        db.add(db_card)
+        db.commit()
+        db.refresh(db_card)
+    
+    triggered_run_ids = []
     try:
-        run_ids = trigger_on_card_save(db, db_card)
-        if response is not None and run_ids:
-            response.headers["X-Workflows-Started"] = ",".join(str(r) for r in run_ids)
+        event_data = {
+            "session": db, 
+            "card": db_card, 
+            "is_created": False,
+            "old_content": old_content,
+            "card_type": _resolve_card_type_name(db, db_card),
+        }
+        emit_event("card.saved", event_data)
+        triggered_run_ids = event_data.get("triggered_run_ids", [])
+        
+        if is_now_confirmed and triggered_run_ids:
+            logger.info(f"🎯 AI修改卡片确认后触发了 {len(triggered_run_ids)} 个工作流")
     except Exception:
         logger.exception("OnSave workflow trigger failed")
+    
+    # Header is managed by Middleware
+    
     return db_card
 
 
@@ -234,18 +284,24 @@ def delete_card(card_id: int, db: Session = Depends(get_session)):
 @router.post("/cards/{card_id}/copy", response_model=CardRead)
 def copy_card_endpoint(card_id: int, payload: CardCopyOrMoveRequest, db: Session = Depends(get_session)):
     service = CardService(db)
-    copied = service.copy_card(card_id, payload.target_project_id, payload.parent_id)
-    if not copied:
-        raise HTTPException(status_code=404, detail="Card not found")
-    return copied
+    try:
+        copied = service.copy_card(card_id, payload.target_project_id, payload.parent_id)
+        if not copied:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return copied
+    except BusinessException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.post("/cards/{card_id}/move", response_model=CardRead)
 def move_card_endpoint(card_id: int, payload: CardCopyOrMoveRequest, db: Session = Depends(get_session)):
     service = CardService(db)
-    moved = service.move_card(card_id, payload.target_project_id, payload.parent_id)
-    if not moved:
-        raise HTTPException(status_code=404, detail="Card not found")
-    return moved 
+    try:
+        moved = service.move_card(card_id, payload.target_project_id, payload.parent_id)
+        if not moved:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return moved
+    except BusinessException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) 
 
 # --- Card Schema Endpoints ---
 
@@ -256,7 +312,7 @@ def get_card_schema(card_id: int, db: Session = Depends(get_session)) -> Dict[st
         raise HTTPException(status_code=404, detail="Card not found")
     effective = c.json_schema if c.json_schema is not None else (c.card_type.json_schema if c.card_type else None)
     # 动态装配引用
-    composed = _compose_schema_with_types(effective or {}, db)
+    composed = compose_schema_with_card_types(db, effective or {})
     return {"json_schema": c.json_schema, "effective_schema": composed, "follow_type": c.json_schema is None}
 
 @router.put("/cards/{card_id}/schema")
@@ -270,7 +326,7 @@ def update_card_schema(card_id: int, payload: Dict[str, Any], db: Session = Depe
     db.commit()
     db.refresh(c)
     effective = c.json_schema if c.json_schema is not None else (c.card_type.json_schema if c.card_type else None)
-    composed = _compose_schema_with_types(effective or {}, db)
+    composed = compose_schema_with_card_types(db, effective or {})
     return {"json_schema": c.json_schema, "effective_schema": composed, "follow_type": c.json_schema is None}
 
 @router.post("/cards/{card_id}/schema/apply-to-type")
@@ -292,31 +348,12 @@ def apply_card_schema_to_type(card_id: int, db: Session = Depends(get_session)) 
 
 # --- Card AI Params Endpoints ---
 
-def _merge_effective_params(db: Session, card: Card) -> Dict[str, Any]:
-    base = (card.card_type.ai_params if card.card_type and card.card_type.ai_params else {}) or {}
-    override = (card.ai_params or {})
-    eff = { **base, **override }
-    # 补齐字段结构（五项）：llm_config_id/prompt_name/temperature/max_tokens/timeout
-    if eff.get("llm_config_id") in (None, 0, "0", ""):
-        # 选用一个默认 LLM（id 最小）
-        try:
-            llm = db.query(LLMConfig).order_by(LLMConfig.id.asc()).first()  # type: ignore
-            if llm:
-                eff["llm_config_id"] = int(getattr(llm, "id", 0))
-        except Exception:
-            pass
-    # 规范类型
-    if eff.get("llm_config_id") is not None:
-        try: eff["llm_config_id"] = int(eff.get("llm_config_id"))
-        except Exception: pass
-    return eff
-
 @router.get("/cards/{card_id}/ai-params")
 def get_card_ai_params(card_id: int, db: Session = Depends(get_session)) -> Dict[str, Any]:
     c = db.get(Card, card_id)
     if not c:
         raise HTTPException(status_code=404, detail="Card not found")
-    effective = _merge_effective_params(db, c)
+    effective = merge_effective_ai_params(db, c)
     return {"ai_params": c.ai_params, "effective_params": effective, "follow_type": c.ai_params is None}
 
 @router.put("/cards/{card_id}/ai-params")
@@ -328,7 +365,7 @@ def update_card_ai_params(card_id: int, payload: Dict[str, Any], db: Session = D
     db.add(c)
     db.commit()
     db.refresh(c)
-    effective = _merge_effective_params(db, c)
+    effective = merge_effective_ai_params(db, c)
     return {"ai_params": c.ai_params, "effective_params": effective, "follow_type": c.ai_params is None}
 
 @router.post("/cards/{card_id}/ai-params/apply-to-type")
@@ -336,7 +373,7 @@ def apply_card_ai_params_to_type(card_id: int, db: Session = Depends(get_session
     c = db.get(Card, card_id)
     if not c:
         raise HTTPException(status_code=404, detail="Card not found")
-    effective = _merge_effective_params(db, c)
+    effective = merge_effective_ai_params(db, c)
     if not effective:
         raise HTTPException(status_code=400, detail="No ai_params to apply")
     if not c.card_type:

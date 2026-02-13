@@ -8,19 +8,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import AsyncGenerator
 from loguru import logger
-import json
 
 from app.db.session import get_session
-from app.services.agent_service import generate_assistant_chat_streaming
+from app.services.ai.assistant.assistant_service import generate_assistant_chat_streaming
 from app.schemas.ai import AssistantChatRequest
+from app.utils.stream_utils import wrap_sse_stream
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
-
-
-async def stream_wrapper(generator):
-    """将纯文本流包装为SSE格式"""
-    async for item in generator:
-        yield f"data: {json.dumps({'content': item}, ensure_ascii=False)}\n\n"
 
 
 @router.post("/chat")
@@ -73,7 +67,7 @@ async def assistant_chat(
             yield chunk
     
     return StreamingResponse(
-        stream_wrapper(stream_with_tools()),
+        wrap_sse_stream(stream_with_tools()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

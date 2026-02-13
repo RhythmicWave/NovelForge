@@ -1,0 +1,63 @@
+# 工作流：阶段大纲
+# 功能：阶段大纲保存时，提取章节大纲列表并批量创建章节大纲卡和章节正文卡
+# 触发器：阶段大纲卡片保存时自动触发
+
+#@node(description="触发器：监听阶段大纲卡片保存")
+trigger = Trigger.CardSaved(card_type="阶段大纲")
+#</node>
+
+
+#@node(description="读取阶段大纲")
+stage = Card.Read(card_id=trigger.card_id)
+#</node>
+
+
+#@node(description="提取并增强章节大纲列表")
+enriched_outlines = Logic.Expression(
+    expression="[{**outline, 'entity_list': (outline.get('entity_list') or []), 'volume_number': stage.content.volume_number, 'stage_number': stage.content.stage_number} for outline in stage.content.chapter_outline_list or []]"
+  )
+#</node>
+
+
+#@node(async=true, description="批量创建章节大纲卡（异步）")
+outline_cards = Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="章节大纲",
+    title_template="第{item.chapter_number}章 {item.title}",
+    items=enriched_outlines.result
+  )
+#</node>
+
+
+#@node(async=true, description="批量创建章节正文卡（异步）")
+content_cards = Card.BatchUpsert(
+    project_id=trigger.project_id,
+    parent_id=trigger.card_id,
+    card_type="章节正文",
+    title_template="第{item.chapter_number}章 {item.title}",
+    content_template={
+      "volume_number": "{item.volume_number}",
+      "stage_number": "{item.stage_number}",
+      "chapter_number": "{item.chapter_number}",
+      "title": "第{item.chapter_number}章 {item.title}",
+      "entity_list": "{item.entity_list}"
+    },
+    items=enriched_outlines.result
+  )
+#</node>
+
+
+#@node(description="等待异步任务完成")
+wait_result = Logic.Wait(tasks=[outline_cards, content_cards])
+#</node>
+
+
+#@node(description="清空大纲列表")
+update_result = Card.Update(
+    card_id=trigger.card_id,
+    content_merge={
+      "chapter_outline_list": []
+    }
+  )
+#</node>

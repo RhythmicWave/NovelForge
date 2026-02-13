@@ -1,4 +1,5 @@
 from typing import Optional, Any, List
+from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -8,8 +9,10 @@ class WorkflowBase(BaseModel):
     is_active: Optional[bool] = True
     is_built_in: Optional[bool] = False
     version: Optional[int] = 1
-    dsl_version: Optional[int] = 1
-    definition_json: Optional[dict] = None
+    dsl_version: Optional[int] = 2  # 代码式工作流版本
+    definition_code: str = ""  # 工作流代码
+    keep_run_history: Optional[bool] = False  # Default to False (Transient)
+    triggers_cache: Optional[List[dict]] = None  # 触发器缓存
 
 
 class WorkflowCreate(WorkflowBase):
@@ -22,7 +25,8 @@ class WorkflowUpdate(BaseModel):
     is_active: Optional[bool] = None
     version: Optional[int] = None
     dsl_version: Optional[int] = None
-    definition_json: Optional[dict] = None
+    definition_code: Optional[str] = None
+    keep_run_history: Optional[bool] = None
 
 
 class WorkflowRead(WorkflowBase):
@@ -42,9 +46,16 @@ class WorkflowRunRead(BaseModel):
     idempotency_key: Optional[str] = None
     summary_json: Optional[dict] = None
     error_json: Optional[dict] = None
+    created_at: Optional[datetime] = None  # 添加创建时间
+    started_at: Optional[datetime] = None  # 添加开始时间
+    finished_at: Optional[datetime] = None  # 添加完成时间
+    workflow: Optional["WorkflowRead"] = None  # Include basic info
 
     class Config:
         from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
 
 
 class RunRequest(BaseModel):
@@ -58,31 +69,40 @@ class CancelResponse(BaseModel):
     message: Optional[str] = None
 
 
+class NodeExecutionStatus(BaseModel):
+    """节点执行状态"""
+    node_id: str
+    node_type: str
+    status: str  # idle | pending | running | success | error | skipped
+    progress: int
+    error: Optional[str] = None
 
 
-# ---- Triggers ----
-
-class WorkflowTriggerBase(BaseModel):
+class RunStatus(BaseModel):
+    """工作流运行状态（包含节点状态）"""
+    run_id: int
     workflow_id: int
-    trigger_on: str  # onsave | ongenfinish | manual
-    card_type_name: Optional[str] = None
-    filter_json: Optional[dict] = None
-    is_active: Optional[bool] = True
+    status: str  # idle | pending | running | succeeded | failed | cancelled
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[dict] = None
+    nodes: List[NodeExecutionStatus]
 
 
-class WorkflowTriggerCreate(WorkflowTriggerBase):
-    pass
+# ---- Node Types ----
+
+class NodeTypeInfo(BaseModel):
+    """节点类型信息"""
+    type: str
+    category: str
+    label: str
+    description: str
+    input_schema: dict = {}  # Pydantic JSON Schema
+    output_schema: dict = {}  # Pydantic JSON Schema
 
 
-class WorkflowTriggerUpdate(BaseModel):
-    trigger_on: Optional[str] = None
-    card_type_name: Optional[str] = None
-    filter_json: Optional[dict] = None
-    is_active: Optional[bool] = None
+class NodeTypesResponse(BaseModel):
+    """节点类型列表响应"""
+    node_types: List[NodeTypeInfo]
 
-
-class WorkflowTriggerRead(WorkflowTriggerBase):
-    id: int
-
-    class Config:
-        from_attributes = True

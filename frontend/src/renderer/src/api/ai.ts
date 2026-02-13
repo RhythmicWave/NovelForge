@@ -1,4 +1,5 @@
 import { aiHttpClient, API_BASE_URL } from './request'
+import { createSSEStreamingRequest } from './streaming'
 import type { components } from '@renderer/types/generated'
 
 export type GeneralAIRequest = components['schemas']['GeneralAIRequest']
@@ -51,70 +52,17 @@ function createStreamingRequest(
   onClose: () => void,
   onError?: (err: any) => void
 ) {
-  const controller = new AbortController()
-  const signal = controller.signal
-
-  fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream'
-    },
-    body: JSON.stringify(body),
-    signal
-  }).then(async response => {
-    if (!response.ok) {
-      try {
-        const ct = response.headers.get('content-type') || ''
-        if (ct.includes('application/json')) {
-          const data = await response.json()
-          const msg = data?.message || data?.detail || `请求失败（${response.status}）`
-          throw new Error(msg)
-        } else {
-          const text = await response.text()
-          const msg = text || `请求失败（${response.status}）`
-          throw new Error(msg)
-        }
-      } catch (e: any) {
-        throw new Error(e?.message || `请求失败（${response.status}）`)
+  return createSSEStreamingRequest({
+    endpoint,
+    body,
+    onClose,
+    onError,
+    onMessage: payload => {
+      if (typeof payload?.content === 'string' && payload.content.length) {
+        onData(payload.content)
       }
-    }
-    if (!response.body) {
-      throw new Error('Response body is null')
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    function pump() {
-      reader.read().then(({ done, value }) => {
-        if (done) { onClose(); return }
-        buffer += decoder.decode(value, { stream: true })
-        const events = buffer.split('\n\n')
-        buffer = events.pop() || ''
-        for (const evt of events) {
-          const lines = evt.split('\n').map(l => l.trim())
-          const dataLines = lines.filter(l => l.startsWith('data: ')).map(l => l.substring(6))
-          if (!dataLines.length) continue
-          try {
-            const payload = JSON.parse(dataLines.join(''))
-            if (typeof payload.content === 'string' && payload.content.length) onData(payload.content)
-          } catch {}
-        }
-        pump()
-      }).catch(err => {
-        if (err?.name === 'AbortError') { onClose(); return }
-        onError?.(err)
-      })
-    }
-    pump()
-  }).catch(err => {
-    if (err?.name === 'AbortError') { onClose(); return }
-    onError?.(err)
+    },
   })
-
-  return {
-    cancel: () => { try { controller.abort() } catch {} }
-  }
 }
 
 export function generateContinuationStreaming(

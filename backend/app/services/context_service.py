@@ -10,6 +10,7 @@ from app.services.memory_service import MemoryService
 from app.schemas.context import FactsStructured
 from app.schemas.relation_extract import CN_TO_EN_KIND
 from app.services.kg_provider import get_provider
+from app.utils.text_utils import truncate_text
 
 
 
@@ -37,10 +38,6 @@ class AssembledContext:
         return "\n\n".join(parts)
 
 
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 200)] + "\n...[已截断]"
 
 
 def _compose_facts_subgraph_stub() -> str:
@@ -114,7 +111,7 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
     except Exception:
         pass
 
-    facts = _truncate(facts_text, facts_quota)
+    facts = truncate_text(facts_text, facts_quota, suffix="\n...[已截断]")
 
 
     return AssembledContext(

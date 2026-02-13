@@ -7,6 +7,12 @@ from .entity import OrganizationCard as OrganizationCard
 from .entity import EntityType as EntityType
 
 
+class Text(BaseModel):
+    '''
+    通用的文本模型，自由存储各种内容
+    '''
+    content: str = Field(description="任意文本内容，需使用/转换为markdown格式文本")
+
 # --- Schemas for Tags ---
 
 class Tags(BaseModel):
@@ -43,26 +49,15 @@ class ParagraphOverview(BaseModel):
     overview: str = Field(description="扩展后的小说大纲")
     
 
-# --- Simplified AI Request Model ---
-
-class SimpleAIRequest(BaseModel):
-    """简化的AI请求模型，直接传递字符串输入"""
-    input_text: str = Field(description="按照训练数据格式构造的字符串输入")
-    llm_config_id: Optional[int] = Field(default=1, description="LLM配置ID")
-    prompt_name: Optional[str] = Field(description="提示词名称，如不指定则使用task名称")
-    response_model_name: Optional[str] = Field(description="响应模型名称")
-
-
-
 class SocialSystem(BaseModel):
     power_structure: str = Field(description="权力架构（如：封建王朝/资本联邦）")
-    currency_system: List[str] = Field(default=["金币"], description="货币体系")
+    currency_system: List[str] = Field(description="货币体系")
     background:List[str]=Field(description="该社会体系的势力格局背景、历史传说等")
     major_power_camps: List[OrganizationCard] = Field(description="主要组织/门派/势力阵营，仅在此生成跨卷长期影响的核心组织。")
     civilization_level: Optional[str] = Field(description="科技/文明发展水平")
 
 class CoreSystem(BaseModel):
-    system_type: str = Field(description="体系类型（力量/社会/科技/异能等）")
+    system_type: str = Field(min_length=1,description="体系类型（力量/社会/科技/异能等）")
     name: str = Field(description="体系名称（如：斗气/资本规则/朝堂权谋）")
     levels: Optional[List[str]] = Field(None, description="等级/阶层划分（可选）")
     source: str = Field(description="能量/权力来源（如：灵气/资本/皇权）")
@@ -78,7 +73,7 @@ class WorldviewTemplate(BaseModel):
     world_name: str = Field(min_length=2, description="世界名称")
     core_conflict: str = Field(description="世界核心矛盾（如：资源争夺/种族仇恨）")
     social_system: SocialSystem = Field(description="社会体系")
-    power_systems: List[CoreSystem] = Field(default=[],description="核心体系列表，可包含力量/科技/异能等多种体系，避免设定过于复杂，最多设置两种体系。若是现实/历史等写实题材，则可置为空",max_length=2)
+    power_systems: List[CoreSystem] = Field(description="核心体系列表，可包含力量/科技/异能等多种体系，避免设定过于复杂，最多设置两种体系。若是现实/历史等写实题材，则可置为空",max_length=2)
     # key_settings: Optional[List[SettingItem]] = Field(description="其他关键世界观设定（可选）")
 
 class WorldBuilding(BaseModel):
@@ -105,31 +100,31 @@ class Blueprint(BaseModel):
 
 class CharacterAction(BaseModel):
     """角色卡，涵盖了各种信息"""
-    name: Optional[str] = Field(default="", description="角色名称")
-    description: Optional[str] = Field(default="", description="以第一视角讲述该角色在这卷内的主要事迹")
+    name: str = Field(description="角色名称")
+    description: str = Field(description="以第一视角讲述该角色在这卷内的主要事迹")
 
 class StoryLine(BaseModel):
-    """故事线信息，来自 primitive_models/Step2Model.py"""
-    story_type: Optional[Literal['主线', '辅线']] = Field(default='主线', description="故事线类型")
-    name: Optional[str] = Field(default="", description="用一个简单的名称表示该线")
-    overview: Optional[str] = Field(default="", description="故事线内容概述，需要详略得当，涉及到的所有场景、角色等元素都应在这个概述中体现到。")
+    """故事线信息"""
+    story_type: Literal['主线', '辅线'] = Field(description="故事线类型")
+    name: str = Field(description="用一个简单的名称表示该线")
+    overview: str = Field(description="故事线内容概述，需要详略得当，涉及到的所有场景、角色等元素都应在这个概述中体现到。")
 
 
 class VolumeOutline(BaseModel):
     """
     分卷大纲的核心数据模型
     """
-    volume_number: Optional[int] = Field(default=1, description="第几卷")
-    thinking: Optional[str] = Field(default="", description="根据提供的世界观、人物、地图/副本,思考本卷要如何展开,需要设计什么主线/辅线?如何推动剧情发展?",examples=["示例输出，仅供学习思考方式，不要被具体内容影响：本卷作为开篇，我的核心思考是如何迅速确立主角“无限复活”的金手指特性，并将其与残酷的异世大陆背景相结合，制造强烈的生存压迫感，从而驱动主角从绝境中崛起。我需要设计一个循序渐进的成长路径，让主角从一个濒死之人，通过每次复活积累经验和知识，逐步适应环境，并最终在A市站稳脚跟，积累原始资本，建立初步势力。同时，为了后续的宏大叙事，我必须在这一卷中埋下世界观的伏笔，例如社会阶层的固化、更高文明的操控等，通过主角的视角逐步揭示。在人物塑造上，我将引入一群性格各异的伙伴，他们既是主角的助力，也能通过他们的视角反衬主角的强大和特殊。爽点方面，主角利用金手指的“先知”优势，在股市和冒险中实现降维打击，以及最终对早期反派的复仇，都将是重要的爽点设计。"])
+    volume_number: Optional[int] = Field(description="第几卷")
+    thinking: Optional[str] = Field(description="根据提供的世界观、人物、地图/副本,思考本卷要如何展开,需要设计什么主线/辅线?如何推动剧情发展?",examples=["示例输出，仅供学习思考方式，不要被具体内容影响：本卷作为开篇，我的核心思考是如何迅速确立主角“无限复活”的金手指特性，并将其与残酷的异世大陆背景相结合，制造强烈的生存压迫感，从而驱动主角从绝境中崛起。我需要设计一个循序渐进的成长路径，让主角从一个濒死之人，通过每次复活积累经验和知识，逐步适应环境，并最终在A市站稳脚跟，积累原始资本，建立初步势力。同时，为了后续的宏大叙事，我必须在这一卷中埋下世界观的伏笔，例如社会阶层的固化、更高文明的操控等，通过主角的视角逐步揭示。在人物塑造上，我将引入一群性格各异的伙伴，他们既是主角的助力，也能通过他们的视角反衬主角的强大和特殊。爽点方面，主角利用金手指的“先知”优势，在股市和冒险中实现降维打击，以及最终对早期反派的复仇，都将是重要的爽点设计。"])
     main_target: StoryLine = Field(description="根据thinking设计主线目标,要让主角发展到什么地步?需描述准确数据")
-    branch_line: Optional[List[StoryLine]] = Field(default=[], description="该卷的辅线或支线,包含1~3条核心辅线")
-    character_thinking: Optional[str] = Field(default="", description="结合overview、提供的角色信息,如性格、核心驱动力、角色弧光等,思考在该卷要驱动角色实体们做什么事?要让哪些角色出场?是否要引入辅助角色?",examples=["示例输出，仅学习思考方式，不要被具体内容影响：在本卷中，我将重点驱动主角，让他充分利用“无限复活”的能力，从一个绝境中的幸存者，逐步成长为A市的领袖。他将通过反复试错来学习战斗技巧、社会规则，并利用信息差在股市中快速积累财富。我还需要引入孙清雨、王火、韩天等核心配角，让他们在主角的成长过程中扮演重要的辅助角色：孙清雨作为主角的第一个伙伴和忠实追随者，将见证并参与主角的早期崛起；王火则提供技术支持，并成为主角“复活”秘密的知情人；韩天则在装备改造和技术研发上提供关键帮助。这些角色的出场和互动，不仅能推动剧情发展，也能丰富主角的人设，展现他智谋超群、善于利用资源的特点。同时，林森作为本卷的主要反派，将是主角初期反抗旧秩序的具象化目标，他的存在将不断刺激主角变强和复仇。"])
+    branch_line: Optional[List[StoryLine]] = Field(description="该卷的辅线或支线,包含1~3条核心辅线")
+    character_thinking: Optional[str] = Field(description="结合overview、提供的角色信息,如性格、核心驱动力、角色弧光等,思考在该卷要驱动角色实体们做什么事?要让哪些角色出场?是否要引入辅助角色?",examples=["示例输出，仅学习思考方式，不要被具体内容影响：在本卷中，我将重点驱动主角，让他充分利用“无限复活”的能力，从一个绝境中的幸存者，逐步成长为A市的领袖。他将通过反复试错来学习战斗技巧、社会规则，并利用信息差在股市中快速积累财富。我还需要引入孙清雨、王火、韩天等核心配角，让他们在主角的成长过程中扮演重要的辅助角色：孙清雨作为主角的第一个伙伴和忠实追随者，将见证并参与主角的早期崛起；王火则提供技术支持，并成为主角“复活”秘密的知情人；韩天则在装备改造和技术研发上提供关键帮助。这些角色的出场和互动，不仅能推动剧情发展，也能丰富主角的人设，展现他智谋超群、善于利用资源的特点。同时，林森作为本卷的主要反派，将是主角初期反抗旧秩序的具象化目标，他的存在将不断刺激主角变强和复仇。"])
     new_character_cards: Optional[List[CharacterCard]] = Field(default=None, description="如有新增关键角色，在此补充其信息，life_span为短期。非必要尽量不引入新角色")
     new_scene_cards: Optional[List[SceneCard]]= Field(default=None, description="如有新增关键场景/地图/副本，在此补充其信息，life_span为短期，非必要尽量不引入新场景")
     # stage_lines: Optional[List[StageLine]] = Field(default=[], description="设计该卷的详细故事脉络，按阶段来划分，注意切分故事阶段时详略得当，每个阶段章节跨度不要太大,最好不超过30章")
     stage_count:int=Field(description="预期该卷的阶段剧情，将该卷的剧情分为n个阶段来叙述，通常为4~6个")
-    character_action_list: Optional[List[CharacterAction]] = Field(default=[], description="根据卷内设计，概述关键角色实体的行动与变化")
-    entity_snapshot: Optional[List[str]] = Field(default=[], description="卷末时，关键实体（角色为主）快照状态信息，，包括等级/修为境界、财富、功法等准确信息，以便收束剧情")
+    character_action_list: Optional[List[CharacterAction]] = Field( description="根据卷内设计，概述关键角色实体的行动与变化")
+    entity_snapshot: Optional[List[str]] = Field(description="卷末时，关键实体（角色为主）快照状态信息，，包括等级/修为境界、财富、功法等准确信息，以便收束剧情")
 
 class WritingGuide(BaseModel):
     """
@@ -140,14 +135,13 @@ class WritingGuide(BaseModel):
 
 class ChapterOutline(BaseModel):
     """章节大纲"""
-    volume_number: Optional[int] = Field(default=0, description="卷号，如果没有找到，则设置为0")
-    stage_number:Optional[int]=Field(default=1,description="该章节属于第几个阶段，从1开始")
-    title: Optional[str] = Field(default="", description="章节标题")
-    chapter_number: Optional[int] = Field(default=1, description="章节序号")
-   
-    overview: Optional[str] = Field(default="", description="章节主要内容概述,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。",min_length=100)
-    entity_list: Optional[List[str]] = Field(
-        default=[],
+    volume_number: int = Field(description="卷号，如果没有找到，则设置为0")
+    stage_number:int=Field(description="该章节属于第几个阶段，从1开始")
+    title: str= Field(description="章节标题")
+    chapter_number: int = Field(description="章节序号")
+    
+    overview: str = Field(description="章节主要内容概述,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。",min_length=100)
+    entity_list: List[str] = Field(
         description="章节中出场的重要实体列表，只能从上下文提供的组织/角色/场景卡实体中选择，不得新增、自创；实体名称必须是纯名称（不得包含括号/备注）。注意,为了精简上下文，避免实体列表中出现该章节未出场的冗余实体",
     )
 
@@ -155,26 +149,25 @@ class ChapterOutline(BaseModel):
 
 class StageLine(BaseModel):
     """故事按阶段划分的信息"""
-    volume_number:int=Field(default=1,description="该故事阶段属于第几卷")
-    stage_number:int=Field(default=1,description="该故事阶段是第几个阶段，从1开始")
-    stage_name: Optional[str] = Field(default="", description="用一个名称或一句话简单概述这个阶段")
+    volume_number:int=Field(description="该故事阶段属于第几卷")
+    stage_number:int=Field(description="该故事阶段是第几个阶段，从1开始")
+    stage_name: str = Field(description="用一个名称或一句话简单概述这个阶段")
     reference_chapter: Tuple[int, int] = Field(description="该部分剧情的起始和结束章节号,跨度通常为10~20章左右")
-    analysis: Optional[str] = Field(default="", description="以一个经验丰富的网文写手代入作者第一人称视角,'我'是如何思考设置这部分的剧情的,该部分剧情对于分卷的主线/辅线起到什么作用?该阶段剧情的爽点是什么？末尾是否设置钩子/悬念？")
-    overview: Optional[str] = Field(default="", description="这个阶段剧情内容具体概述，需要详略得当，涉及到的主要实体，如角色、场景/地图、组织等元素都应在这个概述中体现到。另外，若主角有了显著提升（如提升了主角多少实力或地位、增长了主角多少财富或资源之类的），则相关信息需要准确数据描述，不能省略")
-    chapter_outline_list:Optional[List[ChapterOutline]]=Field(description="根据reference_chapter、overview生成所需的章节大纲")
-    entity_snapshot: Optional[List[str]] = Field(default=[], description="阶段末时，关键实体（角色为主）快照状态信息，包括等级/修为境界、财富、功法等准确信息，以便收束剧情，确保最后一个阶段时，剧情发展能够使得实体状态收束到该卷末的实体状态。")
+    analysis: Optional[str] = Field(description="以一个经验丰富的网文写手代入作者第一人称视角,'我'是如何思考设置这部分的剧情的,该部分剧情对于分卷的主线/辅线起到什么作用?该阶段剧情的爽点是什么？末尾是否设置钩子/悬念？")
+    overview: Optional[str] = Field(description="这个阶段剧情内容具体概述，需要详略得当，涉及到的主要实体，如角色、场景/地图、组织等元素都应在这个概述中体现到。另外，若主角有了显著提升（如提升了主角多少实力或地位、增长了主角多少财富或资源之类的），则相关信息需要准确数据描述，不能省略")
+    chapter_outline_list:Optional[List[ChapterOutline]]=Field(description="根据reference_chapter、overview生成所需的章节大纲。注意章节大纲的标题不要包含”第x章这种前缀")
+    entity_snapshot: Optional[List[str]] = Field(description="阶段末时，关键实体（角色为主）快照状态信息，包括等级/修为境界、财富、功法等准确信息，以便收束剧情，确保最后一个阶段时，剧情发展能够使得实体状态收束到该卷末的实体状态。")
 
 
 # === Step 6: Batch Chapter Outline Schemas===
 
 class Chapter(BaseModel):
-    volume_number: Optional[int] = Field(default=0, description="卷号，如果没有找到，则设置为0")
-    stage_number:Optional[int]=Field(default=1,description="该章节属于第几个阶段，从1开始")
-    title: Optional[str] = Field(default="", description="章节标题")
-    chapter_number: Optional[int] = Field(default=1, description="章节序号")
+    volume_number: int = Field( description="卷号，如果没有找到，则设置为0")
+    stage_number: int=Field(description="该章节属于第几个阶段，从1开始")
+    title: str = Field(description="章节标题")
+    chapter_number: int = Field(description="章节序号")
 
     entity_list: List[str] = Field(
-        default=[],
         description="章节中参与的重要实体列表，只能从提供的实体中选择；name 必须是纯名称（不得包含括号/备注）",
     )
     content:Optional[str]=Field(default="",description="章节正文内容")

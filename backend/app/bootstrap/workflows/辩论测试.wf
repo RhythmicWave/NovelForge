@@ -1,0 +1,86 @@
+# ============================================================
+# AI 辩论测试工作流
+# ============================================================
+# 功能：测试 AI.Debate 节点的进度报告和断点续传
+# 主题：金钱是否是万能的
+# 
+# 节点说明：
+# 1. Logic.SelectProject - 选择项目（需要先在系统中创建项目）
+# 2. AI.Debate - 异步执行辩论（3轮，每轮双方各发言一次）
+# 3. Logic.Wait - 等待辩论完成
+# 4. Card.Create - 创建两张卡片保存辩论结果
+# ============================================================
+
+#@node(description="1. 选择项目（请修改 project_id 为你的实际项目ID）")
+project = Logic.SelectProject(project_id=11)
+#</node>
+
+
+#@node(async=true, description="2. AI 辩论：金钱是否是万能的（异步执行）")
+debate = AI.Debate(
+    topic="金钱是否是万能的",
+    context="这是一个经典的哲学辩论话题。请从多个角度深入分析，包括物质层面、精神层面、社会关系等。",
+    max_rounds=3,
+    agent_1_name="正方（金钱万能派）",
+    agent_1_system_prompt="你是正方辩手，认为金钱是万能的。你需要：1. 列举金钱能解决的各种问题 2. 强调金钱在现代社会的重要性 3. 用具体案例支持你的观点。请保持逻辑严密，论据充分。",
+    agent_1_llm_config=5,
+    agent_2_name="反方（金钱有限派）",
+    agent_2_system_prompt="你是反方辩手，认为金钱不是万能的。你需要：1. 指出金钱无法解决的问题（如真爱、健康、时间等）2. 强调精神价值的重要性 3. 用具体案例反驳对方。请保持逻辑严密，论据充分。",
+    agent_2_llm_config=5,
+    temperature=0.8,
+    max_tokens=3000
+  )
+#</node>
+
+
+#@node(description="3. 等待辩论完成（必须等待异步节点）")
+wait_debate = Logic.Wait(tasks=debate)
+#</node>
+
+
+#@node(description="4. 格式化辩论完整记录为文本")
+format_full_log = Logic.Expression(
+    expression="'\\n\\n'.join([f\"=== 第 {log['round']} 轮 - {log['role']} ===\\n\\n【思考】\\n{log['thought']}\\n\\n【发言】\\n{log['content']}\" for log in debate.full_log]) if wait_debate.count > 0 else '辩论未完成'"
+  )
+#</node>
+
+
+#@node(description="5. 格式化辩论摘要为文本")
+format_summary = Logic.Expression(
+    expression="f\"辩论主题：金钱是否是万能的\\n\\n总结：\\n{debate.summary}\\n\\n完整对话记录：\\n\\n\" + '\\n\\n'.join([f\"{msg['role']}：\\n{msg['content']}\" for msg in debate.history]) if wait_debate.count > 0 else '辩论未完成'"
+  )
+#</node>
+
+
+#@node(description="6. 创建卡片1：辩论完整记录（包含思考过程）")
+card_full_log = Card.Create(
+    project_id=project.project_id,
+    card_type="章节正文",
+    title="AI辩论完整记录 - 金钱是否万能",
+    content={
+      "volume_number": 0,
+      "stage_number": 1,
+      "title": "AI辩论完整记录 - 金钱是否万能",
+      "chapter_number": 1,
+      "entity_list": [],
+      "content": format_full_log.result
+    }
+  )
+#</node>
+
+
+#@node(description="7. 创建卡片2：辩论摘要（仅公开发言）")
+card_summary = Card.Create(
+    project_id=project.project_id,
+    card_type="章节正文",
+    title="AI辩论摘要 - 金钱是否万能",
+    content={
+      "volume_number": 0,
+      "stage_number": 1,
+      "title": "AI辩论摘要 - 金钱是否万能",
+      "chapter_number": 2,
+      "entity_list": [],
+      "content": format_summary.result
+    }
+  )
+#</node>

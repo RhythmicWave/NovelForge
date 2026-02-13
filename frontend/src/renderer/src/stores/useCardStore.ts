@@ -106,7 +106,6 @@ export const useCardStore = defineStore('card', () => {
     isLoading.value = true
     try {
       const fetchedCards = await getCardsForProject(projectId)
-      console.log(`[CardStore] Fetched ${fetchedCards.length} cards for project ${projectId}:`, fetchedCards);
       cards.value = fetchedCards
     } catch (error) {
       ElMessage.error('Failed to fetch cards.')
@@ -139,11 +138,9 @@ export const useCardStore = defineStore('card', () => {
   // 增加可选参数：skipHooks 用于内部更新时跳过“保存后钩子”
   async function modifyCard(cardId: number, cardData: { content: Record<string, any> | null } | CardUpdate, options?: { skipHooks?: boolean }) {
     try {
-      console.log('[CardStore] 准备更新卡片:', cardId, cardData)
       // 使用原始响应以读取头部 X-Workflows-Started
       const axiosResp: any = await (await import('@renderer/api/cards')).updateCardRaw(cardId, cardData as CardUpdate)
       const updatedCard: CardRead = axiosResp.data
-      console.log('[CardStore] 更新卡片成功，检查工作流回执响应头:', axiosResp.headers)
 
       // 本地同步更新
       if ('parent_id' in cardData || 'display_order' in cardData) {
@@ -164,7 +161,6 @@ export const useCardStore = defineStore('card', () => {
       const runIds: number[] = typeof runHeader === 'string' && runHeader.trim()
         ? runHeader.split(',').map((s: string) => Number(s.trim())).filter((n: number) => Number.isFinite(n))
         : []
-      console.log('[Workflow] 工作流启动回执 runIds =', runIds)
 
       // 兜底轮询函数
       const pollUntilDone = async (runId: number, maxSecs = 30) => {
@@ -174,12 +170,13 @@ export const useCardStore = defineStore('card', () => {
             const resp = await fetch(`${BASE_URL}/api/workflows/runs/${runId}`, { method: 'GET' })
             const json = await resp.json()
             const st = json?.status
-            console.log(`[Workflow] 轮询状态 run_id=${runId} status=${st}`)
             if (st === 'succeeded' || st === 'failed' || st === 'cancelled') {
               if (currentProject.value?.id) await fetchCards(currentProject.value.id)
               return
             }
-          } catch (e) { console.warn('[Workflow] 轮询异常，将继续重试', e) }
+          } catch (e) { 
+            console.error('[Workflow] 轮询异常:', e)
+          }
           await new Promise(r => setTimeout(r, 1000))
         }
       }
@@ -187,16 +184,9 @@ export const useCardStore = defineStore('card', () => {
       if (runIds.length && currentProject.value?.id) {
         for (const rid of runIds) {
           try {
-            console.log(`[Workflow] 开始订阅 SSE 事件 run_id=${rid} ...`)
             const es = new EventSource(`${BASE_URL}/api/workflows/runs/${rid}/events`)
             let finished = false
-            es.onopen = () => console.log(`[Workflow] SSE 已连接 run_id=${rid}`)
-            es.onmessage = (evt) => console.log(`[Workflow] 默认消息 run_id=${rid}:`, evt.data)
-            es.addEventListener('step_started', (evt: MessageEvent) => console.log(`[Workflow] 步骤开始 run_id=${rid}:`, evt.data))
-            es.addEventListener('step_succeeded', (evt: MessageEvent) => console.log(`[Workflow] 步骤成功 run_id=${rid}:`, evt.data))
-            es.addEventListener('step_failed', (evt: MessageEvent) => console.warn(`[Workflow] 步骤失败 run_id=${rid}:`, evt.data))
             es.addEventListener('run_completed', async (evt: MessageEvent) => {
-              console.log(`[Workflow] 运行完成 run_id=${rid}:`, evt.data)
               finished = true
               try {
                 const payload = (() => { try { return JSON.parse(String(evt.data || '{}')) } catch { return {} } })()
@@ -217,7 +207,9 @@ export const useCardStore = defineStore('card', () => {
                           if (currentProject.value?.id) await fetchCards(currentProject.value.id)
                         }
                       }
-                    } catch (e) { console.warn('[Workflow] 刷新受影响卡片失败', cid, e) }
+                    } catch (e) { 
+                      console.error('[Workflow] 刷新受影响卡片失败:', cid, e)
+                    }
                   }
                 } else {
                   // 没有携带受影响集合，回退为全量刷新
@@ -227,16 +219,15 @@ export const useCardStore = defineStore('card', () => {
             })
             es.onerror = async (err) => {
               if (finished) {
-                console.log(`[Workflow] SSE 已正常结束 run_id=${rid}`)
                 es.close()
                 return
               }
-              console.warn(`[Workflow] SSE 出错/断开 run_id=${rid}，启动轮询兜底`, err)
+              console.error('[Workflow] SSE 连接错误:', err)
               es.close()
               await pollUntilDone(rid)
             }
           } catch (e) {
-            console.warn('[Workflow] 打开 SSE 失败，将直接轮询', e)
+            console.error('[Workflow] 打开 SSE 失败:', e)
             await pollUntilDone(rid)
           }
         }
@@ -248,15 +239,9 @@ export const useCardStore = defineStore('card', () => {
   }
 
   async function removeCard(cardId: number) {
-    try {
-      await deleteCard(cardId)
-      // 后端已做递归删除，这里仅刷新
-      if (currentProject.value?.id) await fetchCards(currentProject.value.id)
-      ElMessage.success('Card deleted successfully.')
-    } catch (error) {
-      ElMessage.error('Failed to delete card.')
-      console.error(error)
-    }
+    await deleteCard(cardId)
+    // 后端已做递归删除，这里仅刷新
+    if (currentProject.value?.id) await fetchCards(currentProject.value.id)
   }
 
   // CardType Actions

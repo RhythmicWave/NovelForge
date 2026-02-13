@@ -1,10 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy.orm import joinedload
-from fastapi import HTTPException
 
 from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
+from app.exceptions import BusinessException
 import logging
 # 引入动态信息模型
 from app.schemas.entity import UpdateDynamicInfo, CharacterCard, DynamicInfoItem
@@ -70,14 +70,30 @@ def _shallow_clone(src: Card, project_id: int, parent_id: Optional[int], display
 
 # ---- 标题后缀生成 ----
 
-def _generate_non_conflicting_title(db: Session, project_id: int, base_title: str) -> str:
+def _generate_non_conflicting_title(db: Session, project_id: int, base_title: str, card_type_id: Optional[int] = None) -> str:
+    """生成不冲突的标题
+    
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+        base_title: 基础标题
+        card_type_id: 卡片类型ID（如果提供，只检查同类型卡片的标题冲突）
+    """
     title = (base_title or '').strip() or '新卡片'
-    # 收集同项目内所有以 base_title 开头且形如 base_title(数字) 的标题
+    
+    # 构建查询：同项目内的标题
     stmt = select(Card.title).where(Card.project_id == project_id)
+    
+    # 如果指定了卡片类型，只检查同类型的标题冲突
+    if card_type_id is not None:
+        stmt = stmt.where(Card.card_type_id == card_type_id)
+    
     titles = db.exec(stmt).all() or []
     existing_titles = set(titles)
+    
     if title not in existing_titles:
         return title
+    
     # 找最大后缀
     import re
     pattern = re.compile(rf"^{re.escape(title)}\((\d+)\)$")
@@ -115,7 +131,7 @@ class CardService:
 
         card_type = self.db.get(CardType, card_create.card_type_id)
         if not card_type:
-             raise HTTPException(status_code=404, detail=f"CardType with id {card_create.card_type_id} not found")
+             raise BusinessException(f"CardType with id {card_create.card_type_id} not found", status_code=404)
 
         # 单例限制：在保留项目(__free__)中放行
         proj = self.db.get(Project, project_id)
@@ -124,9 +140,9 @@ class CardService:
             statement = select(Card).where(Card.project_id == project_id, Card.card_type_id == card_create.card_type_id)
             existing_card = self.db.exec(statement).first()
             if existing_card:
-                raise HTTPException(
-                    status_code=409, # Conflict
-                    detail=f"A card of type '{card_type.name}' already exists in this project, and it is a singleton."
+                raise BusinessException(
+                    f"A card of type '{card_type.name}' already exists in this project, and it is a singleton.",
+                    status_code=409
                 )
 
         # 决定显示顺序
@@ -142,8 +158,13 @@ class CardService:
         elif not ai_context_template:
             ai_context_template = card_type.default_ai_context_template
 
-        # 自动处理标题冲突：相同标题追加 (n)
-        final_title = _generate_non_conflicting_title(self.db, project_id, getattr(card_create, 'title', '') or card_type.name)
+        # 自动处理标题冲突：相同类型的卡片标题追加 (n)
+        final_title = _generate_non_conflicting_title(
+            self.db, 
+            project_id, 
+            getattr(card_create, 'title', '') or card_type.name,
+            card_type_id=card_create.card_type_id  # 只检查同类型卡片
+        )
 
         card = Card(
             **{ **card_create.model_dump(), 'title': final_title },
@@ -246,6 +267,104 @@ class CardService:
         self.db.commit()
         return True 
 
+    def replace_field_text(self, card_id: int, field_path: str, old_text: str, new_text: str, fuzzy_match: bool = True) -> Dict[str, Any]:
+        """
+        替换卡片字段中的指定文本片段
+        
+        Args:
+            card_id: 目标卡片ID
+            field_path: 字段路径（如 "content", "overview" 等）
+            old_text: 要被替换的原文片段
+            new_text: 新的文本内容
+            fuzzy_match: 是否启用模糊匹配（支持 "开头...结尾" 格式）
+            
+        Returns:
+            result dict including success, replaced_count, etc.
+        """
+        import copy
+        
+        # 1. 获取卡片
+        card = self.get_by_id(card_id)
+        if not card:
+            return {"success": False, "error": f"卡片 {card_id} 不存在"}
+            
+        # 2. 标准化路径 (自动处理 content. 前缀)
+        normalized_path = field_path
+        if not normalized_path.startswith("content."):
+            normalized_path = f"content.{normalized_path}"
+            
+        # 3. 获取当前值
+        try:
+            current_value = card.content or {}
+            # 逐层访问
+            parts = normalized_path.split(".")[1:] # 跳过 content
+            for part in parts:
+                if isinstance(current_value, dict):
+                    current_value = current_value.get(part, "")
+                else:
+                    return {"success": False, "error": f"字段路径 {normalized_path} 无效: 无法遍历到 {part}"}
+        except Exception as e:
+            return {"success": False, "error": f"获取字段值失败: {str(e)}"}
+            
+        if not isinstance(current_value, str):
+            return {"success": False, "error": f"字段 {field_path} 不是文本类型"}
+            
+        # 4. 匹配逻辑
+        actual_old_text = old_text
+        if fuzzy_match and ("..." in old_text or "……" in old_text):
+            separator = "..." if "..." in old_text else "……"
+            split_parts = old_text.split(separator, 1)
+            if len(split_parts) == 2:
+                start_text = split_parts[0].strip()
+                end_text = split_parts[1].strip()
+                
+                # 查找范围
+                start_idx = current_value.find(start_text)
+                if start_idx == -1:
+                    return {"success": False, "error": "未找到开头文本", "hint": f"开头: {start_text[:20]}..."}
+                
+                end_search_start = start_idx + len(start_text)
+                end_idx = current_value.find(end_text, end_search_start)
+                if end_idx == -1:
+                    return {"success": False, "error": "未找到结尾文本", "hint": f"结尾: ...{end_text[-20:]}"}
+                
+                actual_old_text = current_value[start_idx:end_idx + len(end_text)]
+            else:
+                 return {"success": False, "error": "模糊匹配格式错误"}
+        
+        if actual_old_text not in current_value:
+             return {"success": False, "error": "未找到指定的原文片段"}
+             
+        # 5. 执行替换
+        replaced_count = current_value.count(actual_old_text)
+        updated_value = current_value.replace(actual_old_text, new_text)
+        
+        # 6. 更新并保存
+        new_content = copy.deepcopy(card.content or {})
+        target = new_content
+        # 导航到父级
+        parts = normalized_path.split(".")[1:]
+        for part in parts[:-1]:
+            if part not in target:
+                 target[part] = {}
+            target = target[part]
+        
+        target[parts[-1]] = updated_value
+        
+        card.content = new_content
+        self.db.add(card)
+        self.db.commit()
+        self.db.refresh(card)
+        
+        return {
+            "success": True,
+            "card_id": card.id,
+            "card_title": card.title,
+            "replaced_count": replaced_count,
+            "old_length": len(current_value),
+            "new_length": len(updated_value)
+        }
+
     # ---- 移动与复制 ----
     def move_card(self, card_id: int, target_project_id: int, parent_id: Optional[int] = None) -> Optional[Card]:
         root = self.get_by_id(card_id)
@@ -256,14 +375,14 @@ class CardService:
         id_set = {c.id for c in subtree}
         # 校验：若指定 parent_id，不能把父节点设为子树内部其它节点（避免环）
         if parent_id and parent_id in id_set and parent_id != root.id:
-            raise HTTPException(status_code=400, detail="Cannot set parent to a descendant of itself")
+            raise BusinessException("Cannot set parent to a descendant of itself", status_code=400)
         # 目标父节点项目校验
         if parent_id is not None:
             parent_card = self.get_by_id(parent_id)
             if not parent_card:
-                raise HTTPException(status_code=404, detail="Target parent card not found")
+                raise BusinessException("Target parent card not found", status_code=404)
             if parent_card.project_id != target_project_id:
-                raise HTTPException(status_code=400, detail="Target parent card not in target project")
+                raise BusinessException("Target parent card not in target project", status_code=400)
         # 非保留项目的单例限制（跨项目移动时校验）
         if target_project_id != root.project_id:
             target_proj = self.db.get(Project, target_project_id)
@@ -272,7 +391,7 @@ class CardService:
                 exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == root.card_type_id)
                 exists = self.db.exec(exists_stmt).first()
                 if exists:
-                    raise HTTPException(status_code=409, detail=f"A card of type '{root.card_type.name}' already exists in target project (singleton)")
+                    raise BusinessException(f"A card of type '{root.card_type.name}' already exists in target project (singleton)", status_code=409)
         # 更新项目ID（整棵子树）
         for node in subtree:
             node.project_id = target_project_id
@@ -298,7 +417,7 @@ class CardService:
             exists_stmt = select(Card).where(Card.project_id == target_project_id, Card.card_type_id == src_root.card_type_id)
             exists = self.db.exec(exists_stmt).first()
             if exists:
-                raise HTTPException(status_code=409, detail=f"A card of type '{src_root.card_type.name}' already exists in target project (singleton)")
+                raise BusinessException(f"A card of type '{src_root.card_type.name}' already exists in target project (singleton)", status_code=409)
         # 收集子树，按父在前的顺序复制
         subtree = _collect_subtree(self.db, src_root)
         old_to_new_id: dict[int, int] = {}

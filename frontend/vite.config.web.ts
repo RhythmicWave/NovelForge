@@ -15,7 +15,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@renderer': resolve(__dirname, 'src/renderer/src')
+      '@renderer': resolve(__dirname, 'src/renderer/src'),
+      '@': resolve(__dirname, 'src/renderer/src')
     }
   },
   plugins: [
@@ -29,11 +30,11 @@ export default defineConfig({
         return html.replace(
           /<meta\s+http-equiv=["']Content-Security-Policy["'].*?>/i,
           '<meta http-equiv="Content-Security-Policy" content="' +
-            "default-src 'self'; " +
-            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
-            "style-src 'self' 'unsafe-inline'; " +
-            // 这里使用 connect-src *，方便本地和局域网部署；如果将来需要更严格策略可再收紧
-            "connect-src * https://api.github.com;" +
+          "default-src 'self'; " +
+          "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline'; " +
+          // 这里使用 connect-src *，方便本地和局域网部署；如果将来需要更严格策略可再收紧
+          "connect-src * https://api.github.com;" +
           '">'
         )
       }
@@ -42,14 +43,14 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-        '/api': {
-            target: 'http://127.0.0.1:8000',
-            changeOrigin: true,
-        },
-        '/imgs': {
-            target: 'http://127.0.0.1:8000',
-            changeOrigin: true,
-        }
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/imgs': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      }
     }
   },
   build: {

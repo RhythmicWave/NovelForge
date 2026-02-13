@@ -71,6 +71,8 @@ class CardUpdate(BaseModel):
     ai_context_template: Optional[str] = None
     json_schema: Optional[Dict[str, Any]] = None
     ai_params: Optional[Dict[str, Any]] = None
+    # AI 修改追踪字段（前端需要清除 needs_confirmation）
+    needs_confirmation: Optional[bool] = None
 
 
 class CardRead(CardBase):
@@ -81,6 +83,10 @@ class CardRead(CardBase):
     card_type: CardTypeRead
     # 具体卡片可覆盖类型默认模板
     ai_context_template: Optional[str] = None
+    # AI 修改追踪字段
+    ai_modified: bool = False
+    needs_confirmation: bool = False
+    last_modified_by: Optional[str] = None
 
 
 # --- Operations ---

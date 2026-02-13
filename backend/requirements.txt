@@ -5,6 +5,7 @@ sqlmodel
 alembic
 loguru
 pydantic==2.11.7
+pydantic_settings
 neo4j
 python-dotenv
 langchain>1.0

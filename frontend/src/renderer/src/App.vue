@@ -8,17 +8,20 @@ import SettingsDialog from './components/common/SettingsDialog.vue'
 import { useAppStore } from './stores/useAppStore'
 import { useProjectStore } from './stores/useProjectStore'
 import { useUpdateStore } from './stores/useUpdateStore'
+import { useWorkflowStore } from './stores/useWorkflowStore'
 import type { components } from '@renderer/types/generated'
 import { schemaService } from './api/schema'
 
 const IdeasHome = defineAsyncComponent(() => import('./views/IdeasHome.vue'))
-const WorkflowStudio = defineAsyncComponent(() => import('./views/WorkflowStudio.vue'))
+const CodeWorkflowEditor = defineAsyncComponent(() => import('./views/workflow/CodeWorkflowEditor.vue'))
+const WorkflowStatusBar = defineAsyncComponent(() => import('./components/workflow/WorkflowStatusBar.vue'))
 
 type Project = components['schemas']['ProjectRead']
 
 const appStore = useAppStore()
 const projectStore = useProjectStore()
 const updateStore = useUpdateStore()
+const workflowStore = useWorkflowStore()
 
 const { currentView, settingsDialogVisible } = storeToRefs(appStore)
 const { currentProject } = storeToRefs(projectStore)
@@ -55,6 +58,9 @@ async function syncViewFromHash() {
   if (hash.startsWith('#/workflows')) {
     appStore.goToWorkflows()
   }
+  if (hash.startsWith('#/code-workflows')) {
+    appStore.goToCodeWorkflows()
+  }
 }
 
 // 初始化主题和加载全局资源
@@ -63,6 +69,14 @@ onMounted(async () => {
   schemaService.loadSchemas() // Load all schemas on app startup
   syncViewFromHash()
   window.addEventListener('hashchange', syncViewFromHash)
+  
+  // 设置工作流监听器（监听响应头中的 X-Workflows-Started）
+  const cleanupWorkflowListener = workflowStore.setupWorkflowListener()
+  
+  // 在组件卸载时清理
+  onBeforeUnmount(() => {
+    cleanupWorkflowListener()
+  })
   
   // 自动检测更新（如果开启）
   if (updateStore.autoCheckEnabled) {
@@ -91,12 +105,14 @@ onBeforeUnmount(() => {
         @back-to-dashboard="handleBackToDashboard"
       />
       <IdeasHome v-else-if="currentView === 'ideas'" />
-      <WorkflowStudio v-else-if="currentView === 'workflows'" />
+      <CodeWorkflowEditor v-else-if="currentView === 'workflows'" />
     </main>
+
     <SettingsDialog 
       v-model="settingsDialogVisible"
       @close="handleCloseSettings"
     />
+    <WorkflowStatusBar />
   </div>
 </template>
 

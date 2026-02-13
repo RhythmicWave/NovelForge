@@ -793,6 +793,7 @@ async function handleSave(newTitle?: string) {
 	const updatePayload: CardUpdate = {
 		title: effectiveTitle,
 		content: nextContent as any,
+		needs_confirmation: false,  // 清除 AI 修改标记，触发工作流
 	}
 	localCard.content = nextContent as any
 	await cardStore.modifyCard(localCard.id, updatePayload)

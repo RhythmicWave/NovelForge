@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session
 from app.db import get_session
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
@@ -11,7 +11,13 @@ router = APIRouter()
 
 @router.post("/", response_model=ApiResponse[ProjectRead])
 def create_project_endpoint(project_in: ProjectCreate, session: Session = Depends(get_session)):
-    project = project_service.create_project(session=session, project_in=project_in)
+    try:
+        project, _ = project_service.create_project(session=session, project_in=project_in)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Header is handled by WorkflowHeaderMiddleware automatically
+        
     return ApiResponse(data=project)
 
 @router.get("/", response_model=ApiResponse[List[ProjectRead]])

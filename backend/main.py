@@ -20,71 +20,68 @@ _load_env_from_nearby()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel, Session, select
-
-from app.api.router import api_router
-from app.db.session import engine
-from app.db import models
-from app.bootstrap.init_app import init_prompts, create_default_card_types
-# 知识库初始化
-from app.bootstrap.init_app import init_knowledge
-from app.bootstrap.init_app import init_reserved_project
-from app.bootstrap.init_app import init_workflows
-
-def init_db():
-    models.SQLModel.metadata.create_all(engine)
-
-# 创建所有表
-# models.Base.metadata.create_all(bind=engine)
-
 from contextlib import asynccontextmanager
 
-# 使用 lifespan 事件处理器替代 on_event
+from app.api.router import api_router
+from app.core import settings
+from app.core.startup import startup, shutdown
+
+
+# 使用 lifespan 事件处理器
 @asynccontextmanager
 async def lifespan(app):
     # 启动时执行
-    # 确保所有表存在（开发阶段可用；生产建议通过 Alembic 迁移）
-    models.SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        init_prompts(session)
-        create_default_card_types(session)
-        # 初始化知识库
-        init_knowledge(session)
-        # 初始化保留项目
-        init_reserved_project(session)
-        # 初始化内置工作流
-        init_workflows(session)
+    startup()
+    
+    # [Optimize] 启动时清理过期的工作流运行记录
+    try:
+        from app.db.session import engine
+        from sqlmodel import Session
+        from app.services.workflow.cleanup import cleanup_expired_runs
+        
+        with Session(engine) as session:
+            cleanup_expired_runs(session)
+    except Exception as e:
+        print(f"Startup cleanup failed: {e}")
+        
     yield
-    # 关闭时可添加清理逻辑（如有需要）
+    # 关闭时执行
+    shutdown()
 
 # 创建 FastAPI 应用实例，注册 lifespan
 app = FastAPI(
-    title="NovelForge API",
-    version="1.0.0",
+    title=f"{settings.app.app_name} API",
+    version=settings.app.app_version,
     openapi_url="/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
 )
 
-# 设置CORS中间件，允许所有来源的请求
-# 这在开发环境中很方便，但在生产环境中应该更严格
+# 注册工作流 Header 中间件 (在 CORS 之前注册，确保响应头被 CORS 处理)
+from app.core.middleware.workflow import WorkflowHeaderMiddleware
+app.add_middleware(WorkflowHeaderMiddleware)
+
+# 设置CORS中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源
+    allow_origins=settings.app.get_cors_origins_list(),
     allow_credentials=True,
-    allow_methods=["*"],  # 允许所有方法
-    allow_headers=["*"],  # 允许所有头部
-    expose_headers=["X-Workflows-Started"],  # 允许浏览器读取此自定义响应头
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Workflows-Started"],
 )
 
 # 包含API路由
-app.include_router(api_router, prefix="/api")
+app.include_router(api_router, prefix=settings.app.api_prefix)
 
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to NovelCreationEditor API"}
+    return {
+        "message": f"Welcome to {settings.app.app_name} API",
+        "version": settings.app.app_version
+    }
 
 if __name__ == "__main__":
     import uvicorn

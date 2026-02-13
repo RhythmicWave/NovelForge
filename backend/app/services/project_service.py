@@ -1,9 +1,8 @@
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlmodel import Session, select
 
 from app.db.models import Project, Workflow
-from app.services import workflow_triggers
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.card_service import CardService
 from app.services.kg_provider import get_provider
@@ -38,33 +37,44 @@ def get_project(session: Session, project_id: int) -> Optional[Project]:
 
 
 
-def create_project(session: Session, project_in: ProjectCreate) -> Project:
+from typing import List, Optional, Tuple
+
+def create_project(session: Session, project_in: ProjectCreate) -> Tuple[Project, List[int]]:
+    # 检查项目名称是否已存在
+    from sqlmodel import select
+    existing_project = session.exec(
+        select(Project).where(Project.name == project_in.name)
+    ).first()
+    
+    if existing_project:
+        raise ValueError(f"项目名称已存在: {project_in.name}")
+    
     db_project = Project.model_validate(project_in)
     session.add(db_project)
     session.commit()
     session.refresh(db_project)
     
-    # 如果传入的是 workflow_id，则直接运行该工作流
-    workflow_id = getattr(project_in, 'workflow_id', None)
-    if isinstance(workflow_id, int) and workflow_id > 0:
-        wf = session.get(Workflow, workflow_id)
-        if wf:
-            # 直接创建一次运行，作用域仅携带 project_id
-            from app.services.workflow_engine import engine as wf_engine
-            run = wf_engine.create_run(session, wf, scope_json={"project_id": db_project.id}, params_json={}, idempotency_key=f"proj-init:{db_project.id}:{workflow_id}")
-            wf_engine.run(session, run)
-    else:
-        # 触发所有 onprojectcreate 工作流
-        try:
-            workflow_triggers.trigger_on_project_create(session, db_project.id)
-        except Exception:
-            # 不阻断项目创建
-            pass
+    triggered_run_ids = []
+    # 触发项目创建事件
+    try:
+        from app.core import emit_event
+        
+        event_data = {
+            "session": session,
+            "project_id": db_project.id,
+            "template": project_in.template,  # 传递模板标识
+        }
+        
+        emit_event("project.created", event_data)
+        triggered_run_ids = event_data.get("triggered_run_ids", [])
+    except Exception:
+        # 不阻断项目创建
+        pass
     
     # 刷新以加载新创建的卡片到项目关系中
     session.refresh(db_project)
     
-    return db_project
+    return db_project, triggered_run_ids
 
 
 def update_project(session: Session, project_id: int, project_in: ProjectUpdate) -> Optional[Project]:

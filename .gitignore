@@ -22,9 +22,20 @@ backend/alembic/versions/*.py
 !README.md
 !README.MD
 !CLA.md
+!贡献指南.md
+!后续规划.md
+!rules/**/*.md
+!rules/**/*.mdc
 
-# 忽略primitive_models整个文件夹
+
 primitive_models/
+docs/
+.pytest_cache/
+
+.windsurf/
+.windsurfrules
+.agent/
+.kiro/
 
 # IDE配置
 .vscode/
@@ -47,6 +58,7 @@ desktop.ini
 *.tmp
 *.temp 
 
+backend/migrate_db.py
 backend/dist
 backend/build
 *.spec
