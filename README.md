@@ -17,7 +17,7 @@
   <a href="#工作流系统代码式工作流--workflow-agent">工作流系统</a> •
   <a href="#项目结构">项目结构</a> •
   <a href="./贡献指南.md">贡献指南</a> •
-  <a href="./后续规划.md">后续规划</a>
+  <a href="./后续规划.md">后续规划</a> •
   <a href="#交流群">交流群</a>
 </p>
 
@@ -692,4 +692,4 @@ NovelForge 目前仍处于迭代的早期阶段，作者深知该项目在创作
 <a id="交流群"></a>
 ## 交流群
 
-
+![alt text](docImgs/README/image-40.png)
