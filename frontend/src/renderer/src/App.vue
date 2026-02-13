@@ -13,7 +13,6 @@ import type { components } from '@renderer/types/generated'
 import { schemaService } from './api/schema'
 
 const IdeasHome = defineAsyncComponent(() => import('./views/IdeasHome.vue'))
-const WorkflowEditorV2 = defineAsyncComponent(() => import('./views/workflow/WorkflowEditorV2.vue'))
 const CodeWorkflowEditor = defineAsyncComponent(() => import('./views/workflow/CodeWorkflowEditor.vue'))
 const WorkflowStatusBar = defineAsyncComponent(() => import('./components/workflow/WorkflowStatusBar.vue'))
 

@@ -262,6 +262,7 @@ import WorkflowRunsDialog from './dialogs/WorkflowRunsDialog.vue'
 import WorkflowAgentDialog from './WorkflowAgentDialog.vue'
 import { useWorkflowExecution } from '@/composables/useWorkflowExecution'
 import { useWorkflowProgress } from '@/composables/useWorkflowProgress'
+import { applyWorkflowPatch } from '@/api/workflowAgent'
 import {
   listWorkflows,
   saveCodeWorkflow,
@@ -831,6 +832,12 @@ const saveWorkflow = async () => {
       await updateWorkflow(currentWorkflowId.value, {
         definition_code: code.value
       })
+      try {
+        const workflowData = await getCodeWorkflow(currentWorkflowId.value)
+        currentWorkflowRevision.value = workflowData.revision || ''
+      } catch {
+        // ignore
+      }
       ElMessage.success('工作流已更新')
     } else {
       // 创建新工作流，先询问名称
@@ -865,14 +872,55 @@ const validateWorkflowCode = async () => {
   }
 
   try {
-    const result = await validateWorkflow(currentWorkflowId.value)
-    validationResult.value = result
+    const runPatchDryRun = async () => {
+      return applyWorkflowPatch(currentWorkflowId.value, {
+        base_revision: currentWorkflowRevision.value || '',
+        patch_ops: [
+          {
+            op: 'replace_code',
+            new_code: code.value || '',
+            reason: 'ui_validate',
+          },
+        ],
+        dry_run: true,
+      })
+    }
+
+    let patchResult
+    try {
+      patchResult = await runPatchDryRun()
+    } catch (error) {
+      // 若 revision 落后，先刷新再重试一次
+      const status = error?.response?.status
+      const detail = error?.response?.data?.detail
+      if (status === 409 && detail?.code === 'revision_mismatch') {
+        const workflowData = await getCodeWorkflow(currentWorkflowId.value)
+        currentWorkflowRevision.value = workflowData.revision || currentWorkflowRevision.value
+        patchResult = await runPatchDryRun()
+      } else {
+        throw error
+      }
+    }
+
+    validationResult.value = patchResult?.validation || {
+      is_valid: false,
+      errors: [
+        {
+          line: 0,
+          variable: '',
+          error_type: 'unknown',
+          message: patchResult?.error || '校验失败',
+          suggestion: null,
+        },
+      ],
+      warnings: [],
+    }
     showValidationDialog.value = true
 
-    if (result.is_valid) {
+    if (validationResult.value.is_valid) {
       ElMessage.success('校验通过！')
     } else {
-      ElMessage.error(`发现 ${result.errors.length} 个错误`)
+      ElMessage.error(`发现 ${validationResult.value.errors.length} 个错误`)
     }
   } catch (error) {
     console.error('校验工作流失败:', error)

@@ -958,11 +958,27 @@ async function applyCodeUpdateSafely(newCode, options = {}) {
         dry_run: false,
       })
 
+      const finalCode = typeof result?.new_code === 'string' && result.new_code.length
+        ? result.new_code
+        : normalized
+
+      // 不强制每一次 UI 操作都生成“可校验通过”的代码。
+      // 否则像“先把节点设为 async，再补 wait 节点”的正常编辑流程会被后端拒绝写回。
+      // 处理策略：若后端校验失败，则仅暂存到前端本地（不更新 revision），直到下一次校验通过再写回。
       if (!result?.success) {
+        if (result?.error === 'validate_failed') {
+          const parsedNodes = await parseCodeToNodes(finalCode)
+          nodes.value = parsedNodes
+          emitCodeUpdate(finalCode)
+          if (!options.silent) {
+            ElMessage.warning('代码校验未通过：已暂存本地（未写回后端），请继续修改直至通过校验')
+          }
+          return true
+        }
+
         throw new Error(result?.error || '后端补丁应用失败')
       }
 
-      const finalCode = typeof result.new_code === 'string' ? result.new_code : normalized
       const parsedNodes = await parseCodeToNodes(finalCode)
       nodes.value = parsedNodes
       revisionRef.value = result.new_revision || revisionRef.value

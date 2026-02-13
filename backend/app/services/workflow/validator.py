@@ -1137,86 +1137,84 @@ class WorkflowValidator:
     
     def _validate_async_dependencies(self, statements):
         """检查异步节点依赖
-        
-        检查同步节点是否直接依赖异步节点的输出，而没有使用 wait 节点等待。
+
+        规则：如果某个同步节点使用了异步节点的输出，那么在此之前必须出现过一个
+        `Logic.Wait` 来等待该异步任务完成。
+
+        说明：这里采用“代码顺序”的屏障语义做校验（更符合执行器实际行为），不要求
+        下游节点必须显式引用 `wait_xxx` 变量。
         """
-        # 找出所有异步节点
+
         async_nodes = {stmt.variable for stmt in statements if stmt.is_async}
-        
         if not async_nodes:
-            return  # 没有异步节点，无需检查
-        
-        # 找出所有 wait 节点及其等待的异步节点
-        # wait_node_name -> set of async_node_names
-        wait_to_async = {}
+            return
+
+        waited_async_nodes: set[str] = set()
+
+        def _extract_waited_async_vars(wait_stmt) -> set[str]:
+            tasks = wait_stmt.config.get("tasks") or wait_stmt.config.get("wait_for")
+            waited: set[str] = set()
+            if not tasks:
+                return waited
+
+            if isinstance(tasks, str):
+                task_var = tasks.lstrip("$")
+                if task_var in async_nodes:
+                    waited.add(task_var)
+                return waited
+
+            if isinstance(tasks, list):
+                for task in tasks:
+                    if not isinstance(task, str):
+                        continue
+                    task_var = task.lstrip("$")
+                    if task_var in async_nodes:
+                        waited.add(task_var)
+                return waited
+
+            # 其它复杂类型（极少见）：不做静态推断
+            return waited
+
+        # 基于“代码顺序”的屏障语义进行校验：只要在某条语句之前执行过 wait，后续语句就可以安全使用对应异步结果。
         for stmt in statements:
             if stmt.node_type == "Logic.Wait":
-                # Wait 节点的 tasks 参数可能是单个任务或任务列表
-                tasks = stmt.config.get('tasks')
-                waited = set()
-                if tasks:
-                    # 提取变量名（去掉 $ 前缀）
-                    if isinstance(tasks, str):
-                        task_var = tasks.lstrip('$')
-                        if task_var in async_nodes:
-                            waited.add(task_var)
-                    elif isinstance(tasks, list):
-                        for task in tasks:
-                            if isinstance(task, str):
-                                task_var = task.lstrip('$')
-                                if task_var in async_nodes:
-                                    waited.add(task_var)
-                if waited:
-                    wait_to_async[stmt.variable] = waited
-        
-        # 检查每个同步节点的依赖
-        for stmt in statements:
+                waited_async_nodes.update(_extract_waited_async_vars(stmt))
+                continue
+
             if stmt.is_async:
-                continue  # 跳过异步节点
-            
-            if stmt.node_type == "Logic.Wait":
-                continue  # 跳过 wait 节点本身
-            
-            # 收集所有依赖的变量（包括表达式中的）
+                continue
+
+            # 收集所有依赖的变量（包括 Expression.expression 内部引用）
             all_deps = set(stmt.depends_on)
-            
-            # 特别处理 Expression 节点：提取表达式中的变量
             if stmt.node_type == "Logic.Expression":
-                expression = stmt.config.get('expression', '')
+                expression = stmt.config.get("expression", "")
                 if expression:
                     all_deps.update(get_expression_dependencies(expression))
-            
-            # 找出依赖的异步节点
+
             async_deps = all_deps & async_nodes
-            
             if not async_deps:
-                continue  # 没有依赖异步节点
-            
-            # 找出依赖的 wait 节点
-            wait_deps = {dep for dep in all_deps if dep in wait_to_async}
-            
-            # 检查每个异步依赖是否有对应的 wait 节点
+                continue
+
             for async_dep in async_deps:
-                # 检查是否有 wait 节点等待这个异步节点
-                has_wait = any(
-                    async_dep in waited_async
-                    for wait_node, waited_async in wait_to_async.items()
-                    if wait_node in wait_deps
-                )
-                
-                if not has_wait:
-                    # 同步节点依赖了未等待的异步节点
-                    self.errors.append(ValidationError(
+                if async_dep in waited_async_nodes:
+                    continue
+
+                self.errors.append(
+                    ValidationError(
                         line=stmt.line_number,
                         variable=stmt.variable,
-                        error_type='async_dependency',
-                        message=f"同步节点 '{stmt.variable}' 依赖异步节点 '{async_dep}'，但没有使用 wait 节点等待",
+                        error_type="async_dependency",
+                        message=(
+                            f"同步节点 '{stmt.variable}' 依赖异步节点 '{async_dep}'，但在此之前没有执行 Logic.Wait 等待该异步任务完成"
+                        ),
                         suggestion=(
-                            f"在使用 '{async_dep}' 之前添加 wait 节点并在表达式中引用它，例如：\n"
-                            f"#@node()\nwait_{async_dep} = Logic.Wait(tasks={async_dep})\n#</node>\n"
-                            f"然后在表达式中引用 wait_{async_dep} 以确保等待完成"
-                        )
-                    ))
+                            f"在使用 '{async_dep}' 之前插入 wait 节点，例如：\n"
+                            f"#@node(description=\"等待 {async_dep} 完成\")\n"
+                            f"wait_{async_dep} = Logic.Wait(tasks={async_dep})\n"
+                            f"#</node>"
+                        ),
+                    )
+                )
     
     def _validate_parameter_values(self, statements):
         """检查参数值的有效性

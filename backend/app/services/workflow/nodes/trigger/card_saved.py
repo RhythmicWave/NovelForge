@@ -13,7 +13,7 @@ class TriggerCardSavedInput(BaseModel):
         description="卡片类型名称（可选）。只触发指定类型的卡片保存，如 '核心蓝图'。留空则匹配所有类型"
     )
     on_create: bool = Field(
-        True,
+        False,
         description="是否在卡片创建时触发"
     )
     on_update: bool = Field(
@@ -44,7 +44,7 @@ class TriggerCardSavedNode(BaseNode):
     
     过滤条件：
         - card_type: 只触发指定类型的卡片（可选）
-        - on_create: 是否在创建时触发（默认 true）
+        - on_create: 是否在创建时触发（默认 false）
         - on_update: 是否在更新时触发（默认 true）
     
     示例:

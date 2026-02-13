@@ -14,7 +14,7 @@ stage = Card.Read(card_id=trigger.card_id)
 
 #@node(description="提取并增强章节大纲列表")
 enriched_outlines = Logic.Expression(
-    expression="[{**outline, 'volume_number': stage.content.volume_number, 'stage_number': stage.content.stage_number} for outline in stage.content.chapter_outline_list or []]"
+    expression="[{**outline, 'entity_list': (outline.get('entity_list') or []), 'volume_number': stage.content.volume_number, 'stage_number': stage.content.stage_number} for outline in stage.content.chapter_outline_list or []]"
   )
 #</node>
 
@@ -41,7 +41,7 @@ content_cards = Card.BatchUpsert(
       "stage_number": "{item.stage_number}",
       "chapter_number": "{item.chapter_number}",
       "title": "第{item.chapter_number}章 {item.title}",
-      "content": ""
+      "entity_list": "{item.entity_list}"
     },
     items=enriched_outlines.result
   )

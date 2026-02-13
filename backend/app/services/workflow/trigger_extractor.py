@@ -17,7 +17,7 @@ def extract_triggers_from_code(code: str) -> List[Dict[str, Any]]:
           参数: template (可选)
           
         - Trigger.CardSaved: 卡片保存触发器
-          参数: card_type (可选), on_create (默认true), on_update (默认true)
+          参数: card_type (可选), on_create (默认false), on_update (默认true)
     
     Args:
         code: 工作流代码（注释标记 DSL）
@@ -87,13 +87,21 @@ def extract_triggers_from_code(code: str) -> List[Dict[str, Any]]:
                 if "card_type" in config and config["card_type"]:
                     match["card_type"] = config["card_type"]
                 # 提取 on_create 和 on_update 参数
-                on_create = config.get("on_create", True)
-                on_update = config.get("on_update", True)
-                if not on_create:
-                    match["is_created"] = False
-                elif not on_update:
+                # 默认值需与 TriggerCardSavedInput 保持一致：on_create=False, on_update=True
+                on_create = bool(config.get("on_create", False))
+                on_update = bool(config.get("on_update", True))
+
+                # 两者都关闭：该触发器不应触发任何事件，直接跳过
+                if not on_create and not on_update:
+                    logger.debug("[TriggerExtractor] 跳过无效 Trigger.CardSaved：on_create 和 on_update 均为 false")
+                    continue
+
+                # 仅创建 / 仅更新：收敛到 is_created 条件
+                if on_create and not on_update:
                     match["is_created"] = True
-                # 如果两者都为 true，不添加 is_created 条件
+                elif not on_create and on_update:
+                    match["is_created"] = False
+                # 两者都为 true：不添加 is_created 条件（创建/更新都触发）
             
             trigger_config = {
                 "event": event,

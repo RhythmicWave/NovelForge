@@ -5,7 +5,6 @@
 """
 
 import os
-import re
 from sqlmodel import Session, select
 from loguru import logger
 
@@ -18,16 +17,10 @@ def _parse_code_workflow(file_path: str) -> dict:
     """解析代码式工作流文件（.wf格式）"""
     with open(file_path, 'r', encoding='utf-8') as f:
         code = f.read()
-    
-    # 从文件头注释中提取元信息
-    # 格式：# 工作流：名称
-    #      # 功能：描述
-    name_match = re.search(r'^#\s*工作流[：:]\s*(.+)$', code, re.MULTILINE)
-    desc_match = re.search(r'^#\s*功能[：:]\s*(.+)$', code, re.MULTILINE)
-    
-    # 如果没有找到，使用文件名
-    name = name_match.group(1).strip() if name_match else os.path.splitext(os.path.basename(file_path))[0]
-    description = desc_match.group(1).strip() if desc_match else f"内置工作流: {name}"
+
+    # 工作流名称统一以文件名为准，避免文件头注释导致初始化名称漂移
+    name = os.path.splitext(os.path.basename(file_path))[0]
+    description = f"内置工作流: {name}"
     
     return {
         "name": name,

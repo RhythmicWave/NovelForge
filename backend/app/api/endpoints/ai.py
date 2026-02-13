@@ -238,7 +238,7 @@ async def generate_continuation(
 
         if request.stream:
             # 先做一次配额预检，避免流式过程中才抛错
-            ok, reason = _llm_svc.can_consume(session, request.llm_config_id, 0, 0, 1)
+            ok, reason = llm_config_service.can_consume(session, request.llm_config_id, 0, 0, 1)
             if not ok:
                 raise HTTPException(status_code=400, detail=f"LLM 配额不足：{reason}")
             async def _stream_and_trigger():
@@ -270,7 +270,7 @@ async def generate_continuation(
                 })
             except Exception:
                 pass
-            return ApiResponse(data=result)
+            return ApiResponse(data=ContinuationResponse(content=result))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

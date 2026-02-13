@@ -155,7 +155,7 @@ class StageLine(BaseModel):
     reference_chapter: Tuple[int, int] = Field(description="该部分剧情的起始和结束章节号,跨度通常为10~20章左右")
     analysis: Optional[str] = Field(description="以一个经验丰富的网文写手代入作者第一人称视角,'我'是如何思考设置这部分的剧情的,该部分剧情对于分卷的主线/辅线起到什么作用?该阶段剧情的爽点是什么？末尾是否设置钩子/悬念？")
     overview: Optional[str] = Field(description="这个阶段剧情内容具体概述，需要详略得当，涉及到的主要实体，如角色、场景/地图、组织等元素都应在这个概述中体现到。另外，若主角有了显著提升（如提升了主角多少实力或地位、增长了主角多少财富或资源之类的），则相关信息需要准确数据描述，不能省略")
-    chapter_outline_list:Optional[List[ChapterOutline]]=Field(description="根据reference_chapter、overview生成所需的章节大纲")
+    chapter_outline_list:Optional[List[ChapterOutline]]=Field(description="根据reference_chapter、overview生成所需的章节大纲。注意章节大纲的标题不要包含”第x章这种前缀")
     entity_snapshot: Optional[List[str]] = Field(description="阶段末时，关键实体（角色为主）快照状态信息，包括等级/修为境界、财富、功法等准确信息，以便收束剧情，确保最后一个阶段时，剧情发展能够使得实体状态收束到该卷末的实体状态。")
 
 

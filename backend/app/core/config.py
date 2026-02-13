@@ -15,7 +15,7 @@ class DatabaseSettings(BaseSettings):
     """数据库配置"""
     
     # 数据库路径
-    db_path: Optional[str] = Field(default=None, alias="AIAUTHOR_DB_PATH")
+    db_path: Optional[str] = Field(default=None, alias="NOVELFORGE_DB_PATH")
     
     # 是否打印SQL日志
     echo: bool = Field(default=False, alias="DB_ECHO")
@@ -32,13 +32,14 @@ class DatabaseSettings(BaseSettings):
         策略：
         1) 打包(onefile/onedir)：优先放在可执行文件同目录
         2) 开发态：放在源码 backend 目录
-        3) 支持通过环境变量 AIAUTHOR_DB_PATH 覆盖绝对路径
+        3) 支持通过环境变量 NOVELFORGE_DB_PATH 覆盖绝对路径（兼容旧变量 AIAUTHOR_DB_PATH）
         
         Returns:
             数据库URL
         """
-        if self.db_path:
-            db_file = Path(self.db_path)
+        override_path = self.db_path or os.getenv("AIAUTHOR_DB_PATH")
+        if override_path:
+            db_file = Path(override_path)
         else:
             if getattr(sys, "frozen", False):
                 base_dir = Path(sys.executable).resolve().parent
@@ -46,7 +47,7 @@ class DatabaseSettings(BaseSettings):
                 # 从 app/core/config.py 向上2层到 backend/
                 # config.py -> core/ -> app/ -> backend/
                 base_dir = Path(__file__).resolve().parents[2]
-            db_file = base_dir / 'aiauthor.db'
+            db_file = base_dir / 'novelforge.db'
         
         return f"sqlite:///{db_file.as_posix()}"
 
