@@ -166,7 +166,7 @@ async def stream_workflow_agent_chat(
             set_deps=set_workflow_agent_deps,
             deps=WorkflowAgentDeps(session=session, workflow_id=request.workflow_id),
             temperature=request.temperature if request.temperature is not None else 0.4,
-            max_tokens=request.max_tokens if request.max_tokens is not None else 4096,
+            max_tokens=16384 if request.max_tokens is None else request.max_tokens,
             timeout=request.timeout if request.timeout is not None else 90,
             thinking_enabled=request.thinking_enabled,
             history_messages=history_messages,

@@ -85,7 +85,7 @@ async def stream_chat_with_tools(
         set_deps=set_assistant_deps,
         deps=deps,
         temperature=request.temperature or 0.6,
-        max_tokens=request.max_tokens or 8192,
+        max_tokens=8192 if request.max_tokens is None else request.max_tokens,
         timeout=request.timeout or 90,
         thinking_enabled=getattr(request, "thinking_enabled", None),
         enable_summarization=bool(enable_summarization),
@@ -129,4 +129,3 @@ async def generate_assistant_chat_streaming(
         }
         yield json.dumps(error_event, ensure_ascii=False)
         raise
-

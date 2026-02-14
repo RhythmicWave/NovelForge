@@ -79,7 +79,7 @@ const assistantTimeout = computed({
             <el-tooltip placement="top" effect="dark">
               <template #content>
                 控制单次回复的最大长度。值越大，回复可以越长，但也会增加响应时间和费用。<br/>
-                默认值为 8192。
+                默认值为 -1（不限制）。
               </template>
               <el-icon class="field-help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
@@ -87,11 +87,11 @@ const assistantTimeout = computed({
         </template>
         <el-input-number
           v-model="assistantMaxTokens"
-          :min="256"
+          :min="-1"
           :max="65536"
           :step="512"
           controls-position="right"
-          placeholder="8192"
+          placeholder="-1"
         />
       </el-form-item>
 
