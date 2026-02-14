@@ -20,9 +20,10 @@ const LEGACY_KEYS = {
 
 const contextSummaryEnabled = ref(false)
 const contextSummaryThreshold = ref<number | null>(4000)
-const reactModeEnabled = ref(false)
+const reactModeEnabled = ref(true)
 const agentTemperature = ref<number | null>(0.6)
-const agentMaxTokens = ref<number | null>(8192)
+// -1 表示不限制（不向后端发送 max_tokens）
+const agentMaxTokens = ref<number | null>(-1)
 const agentTimeout = ref<number | null>(90)
 
 let initialized = false
@@ -49,6 +50,17 @@ function readNumber(primaryKey: string, legacyKey: string, fallback: number | nu
   if (Number.isNaN(parsed) || parsed <= 0) return fallback
   return parsed
 }
+
+function readMaxTokens(primaryKey: string, legacyKey: string, fallback: number | null): number | null {
+  const raw = readRaw(primaryKey) ?? readRaw(legacyKey)
+  if (!raw) return fallback
+  const parsed = Number(raw)
+  if (Number.isNaN(parsed)) return fallback
+  if (parsed === -1) return -1
+  if (parsed <= 0) return fallback
+  return parsed
+}
+
 
 function persistBoolean(primaryKey: string, legacyKey: string, value: boolean) {
   if (typeof window === 'undefined') return
@@ -90,10 +102,10 @@ function ensureInitialized() {
   reactModeEnabled.value = readBoolean(
     STORAGE_KEYS.reactModeEnabled,
     LEGACY_KEYS.reactModeEnabled,
-    false,
+    true,
   )
   agentTemperature.value = readNumber(STORAGE_KEYS.temperature, LEGACY_KEYS.temperature, 0.6)
-  agentMaxTokens.value = readNumber(STORAGE_KEYS.maxTokens, LEGACY_KEYS.maxTokens, 8192)
+  agentMaxTokens.value = readMaxTokens(STORAGE_KEYS.maxTokens, LEGACY_KEYS.maxTokens, -1)
   agentTimeout.value = readNumber(STORAGE_KEYS.timeout, LEGACY_KEYS.timeout, 90)
 
   watch(contextSummaryEnabled, val => {
@@ -117,7 +129,7 @@ function ensureInitialized() {
   }, { immediate: true })
 
   watch(agentMaxTokens, val => {
-    if (val != null && !Number.isNaN(val) && val > 0) {
+    if (val != null && !Number.isNaN(val) && (val === -1 || val > 0)) {
       persistNumber(STORAGE_KEYS.maxTokens, LEGACY_KEYS.maxTokens, val)
     }
   }, { immediate: true })
@@ -149,7 +161,7 @@ export function useAgentPreferences() {
   }
 
   function setAgentMaxTokens(val: number | null) {
-    agentMaxTokens.value = val != null && !Number.isNaN(val) && val > 0 ? val : null
+    agentMaxTokens.value = val === -1 || (val != null && !Number.isNaN(val) && val > 0) ? val : null
   }
 
   function setAgentTimeout(val: number | null) {
@@ -159,9 +171,9 @@ export function useAgentPreferences() {
   function resetAgentPreferences() {
     setContextSummaryEnabled(false)
     setContextSummaryThreshold(4000)
-    setReactModeEnabled(false)
+    setReactModeEnabled(true)
     setAgentTemperature(0.6)
-    setAgentMaxTokens(8192)
+    setAgentMaxTokens(-1)
     setAgentTimeout(90)
   }
 
@@ -190,4 +202,3 @@ export function useAgentPreferences() {
     resetAssistantPreferences: resetAgentPreferences,
   }
 }
-

@@ -38,6 +38,11 @@ def build_chat_model(
     cfg = _get_llm_config(session, llm_config_id)
     provider = (cfg.provider or "").lower()
 
+    # 约定：max_tokens = -1 表示“不限制 / 不设置该参数”。
+    # 统一在工厂层做归一化，避免各业务层重复处理。
+    if max_tokens == -1:
+        max_tokens = None
+
     common_kwargs: dict = {}
     if temperature is not None:
         common_kwargs["temperature"] = float(temperature)
@@ -91,4 +96,3 @@ def build_chat_model(
         return ChatGoogleGenerativeAI(**model_kwargs)
 
     raise ValueError(f"不支持的LLM提供商: {cfg.provider}")
-

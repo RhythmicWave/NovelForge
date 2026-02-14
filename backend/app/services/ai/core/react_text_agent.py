@@ -316,7 +316,7 @@ async def stream_chat_with_react_protocol(
         session=session,
         llm_config_id=llm_config_id,
         temperature=temperature or 0.6,
-        max_tokens=max_tokens or 8192,
+        max_tokens=max_tokens,
         timeout=timeout or 90,
         thinking_enabled=thinking_enabled,
     )
