@@ -49,3 +49,57 @@ export const getContentModels = (): Promise<string[]> => request.get('/ai/conten
 
 // --- Card AI Params API ---
 export const getCardAIParams = (cardId: number): Promise<{ ai_params: any; effective_params: any; follow_type: boolean }> => request.get(`/cards/${cardId}/ai-params`) 
+
+// --- Card Export API ---
+export type CardExportScope = 'all' | 'single' | 'type'
+export type CardExportFormat = 'txt' | 'md' | 'json'
+
+export interface CardExportRequest {
+  scope: CardExportScope
+  card_id?: number
+  card_type_id?: number
+  format: CardExportFormat
+}
+
+export interface CardExportResponse {
+  blob: Blob
+  filename: string | null
+  contentType: string | null
+}
+
+function parseFilenameFromContentDisposition(disposition: string | undefined): string | null {
+  if (!disposition) return null
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch {
+      return utf8Match[1]
+    }
+  }
+
+  const normalMatch = disposition.match(/filename="?([^"]+)"?/i)
+  if (normalMatch && normalMatch[1]) return normalMatch[1]
+  return null
+}
+
+export const exportCardsForProject = async (projectId: number, data: CardExportRequest): Promise<CardExportResponse> => {
+  const response: AxiosResponse<Blob> = await (request as any).request({
+    method: 'POST',
+    url: `/api/projects/${projectId}/cards/export`,
+    data,
+    responseType: 'blob',
+    rawResponse: true
+  })
+
+  const headers = response?.headers || {}
+  const disposition: string | undefined = headers['content-disposition'] || headers['Content-Disposition']
+  const contentType: string | null = headers['content-type'] || headers['Content-Type'] || null
+
+  return {
+    blob: response.data,
+    filename: parseFilenameFromContentDisposition(disposition),
+    contentType
+  }
+}
