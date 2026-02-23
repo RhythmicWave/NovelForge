@@ -29,6 +29,7 @@
           <div class="cards-title-actions">
             <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
             <el-button v-if="!isFreeProject" size="small" @click="openImportFreeCards">导入卡片</el-button>
+            <el-button size="small" @click="openExportDialog">导出卡片</el-button>
             <el-button v-if="selectedCardIds.length > 0" size="small" type="danger" @click="batchDeleteCards">
               删除选中 ({{ selectedCardIds.length }})
             </el-button>
@@ -263,6 +264,14 @@
   </el-dialog>
 
   <SchemaStudio v-model:visible="schemaStudio.visible" :mode="'card'" :target-id="schemaStudio.cardId" :context-title="schemaStudio.cardTitle" @saved="onCardSchemaSaved" />
+  <CardExportDialog
+    v-model="exportDialogVisible"
+    :project-id="projectStore.currentProject?.id"
+    :project-name="projectStore.currentProject?.name"
+    :cards="cards as any"
+    :card-types="cardStore.cardTypes as any"
+    :initial-card-id="selectedCardIds.length === 1 ? selectedCardIds[0] : ((activeCard as any)?.id ?? null)"
+  />
 
   
 </template>
@@ -303,6 +312,7 @@ import { generateAIContent } from '@renderer/api/ai'
  // Mock components that will be created later
  const CardEditorHost = defineAsyncComponent(() => import('@renderer/components/cards/CardEditorHost.vue'));
  const CardMarket = defineAsyncComponent(() => import('@renderer/components/cards/CardMarket.vue'));
+ const CardExportDialog = defineAsyncComponent(() => import('@renderer/components/cards/CardExportDialog.vue'));
 
 
  type Project = components['schemas']['ProjectRead']
@@ -330,10 +340,10 @@ import { generateAIContent } from '@renderer/api/ai'
    return list
  })
 
- async function openImportFreeCards() {
-   try {
-     const list = await getProjects()
-     const currentId = projectStore.currentProject?.id
+async function openImportFreeCards() {
+  try {
+    const list = await getProjects()
+    const currentId = projectStore.currentProject?.id
      importDialog.value.projects = (list || []).filter(p => p.id !== currentId).map(p => ({ id: p.id!, name: p.name! }))
      importDialog.value.sourcePid = importDialog.value.projects[0]?.id ?? null
      selectedImportIds.value = []
@@ -341,6 +351,18 @@ import { generateAIContent } from '@renderer/api/ai'
      importDialog.value.visible = true
    } catch { ElMessage.error('加载来源项目失败') }
  }
+
+function openExportDialog() {
+  if (!projectStore.currentProject?.id) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  if ((cards.value || []).length === 0) {
+    ElMessage.warning('当前项目暂无可导出的卡片')
+    return
+  }
+  exportDialogVisible.value = true
+}
 
  async function onImportSourceChange(pid: number | null) {
    importSourceCards.value = []
@@ -444,6 +466,7 @@ const groupedTree = computed(() => buildGroupedNodes(cardTree.value as unknown a
 const activeTab = ref('market')
 const activeRightTab = ref('assistant')
 const isCreateCardDialogVisible = ref(false)
+const exportDialogVisible = ref(false)
 const prefetchedContext = ref<any>(null)
 const newCardForm = reactive<Partial<CardCreate>>({
   title: '',
