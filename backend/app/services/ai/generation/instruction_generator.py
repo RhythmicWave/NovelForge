@@ -148,7 +148,25 @@ async def generate_instruction_stream(
             escape_next = False  # 下一个字符是否被转义
             
             async for chunk in chat_model.astream(messages):
-                content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                raw = getattr(chunk, "content", "")
+                if isinstance(raw, str):
+                    content = raw
+                elif isinstance(raw, list):
+                    parts = []
+                    for part in raw:
+                        if isinstance(part, dict):
+                            # 只拼 text，避免 reasoning/tool 片段污染你后面的 JSON 行解析
+                            if part.get("type") == "text" and isinstance(part.get("text"), str):
+                                parts.append(part["text"])
+                        elif isinstance(part, str):
+                            parts.append(part)
+                    content = "".join(parts)
+                else:
+                    content = str(raw) if raw is not None else ""
+
+                if not content:
+                    continue
+
                 buffer += content
                 
                 # 按行解析

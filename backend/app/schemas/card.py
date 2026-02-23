@@ -1,5 +1,5 @@
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
 
@@ -106,3 +106,26 @@ class CardOrderItem(BaseModel):
 class CardBatchReorderRequest(BaseModel):
     """批量更新卡片排序请求"""
     updates: List[CardOrderItem] = Field(description="要更新的卡片排序列表") 
+
+
+# --- Export ---
+
+CardExportScope = Literal["all", "single", "type"]
+CardExportFormat = Literal["txt", "md", "json"]
+
+
+class CardExportRequest(BaseModel):
+    """项目卡片导出请求"""
+
+    scope: CardExportScope = Field(default="all", description="导出范围")
+    card_id: Optional[int] = Field(default=None, description="单卡导出时的卡片ID")
+    card_type_id: Optional[int] = Field(default=None, description="按类型导出时的卡片类型ID")
+    format: CardExportFormat = Field(default="txt", description="导出格式")
+
+    @model_validator(mode="after")
+    def validate_scope_fields(self):
+        if self.scope == "single" and self.card_id is None:
+            raise ValueError("scope=single 时必须提供 card_id")
+        if self.scope == "type" and self.card_type_id is None:
+            raise ValueError("scope=type 时必须提供 card_type_id")
+        return self

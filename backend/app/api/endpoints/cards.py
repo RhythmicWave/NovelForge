@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 from typing import List, Dict, Any
+from urllib.parse import quote
 
 from app.db.session import get_session
 from app.services.card_service import CardService, CardTypeService
+from app.services.card_export_service import CardExportService
 from app.services.schema_service import compose_schema_with_card_types, localize_schema_titles
 from app.services.card_params_service import merge_effective_ai_params
 from app.schemas.card import (
     CardRead, CardCreate, CardUpdate, 
     CardTypeRead, CardTypeCreate, CardTypeUpdate,
-    CardBatchReorderRequest
+    CardBatchReorderRequest,
+    CardExportRequest,
 )
 from app.db.models import Card, CardType
 from app.exceptions import BusinessException
@@ -162,6 +165,21 @@ def create_card_for_project(project_id: int, card: CardCreate, db: Session = Dep
 def get_all_cards_for_project(project_id: int, db: Session = Depends(get_session)):
     service = CardService(db)
     return service.get_all_for_project(project_id)
+
+
+@router.post("/projects/{project_id}/cards/export")
+def export_cards_for_project(project_id: int, payload: CardExportRequest, db: Session = Depends(get_session)):
+    service = CardExportService(db)
+    try:
+        exported = service.export(project_id=project_id, request=payload)
+        disposition = f"attachment; filename*=UTF-8''{quote(exported.filename)}"
+        return Response(
+            content=exported.content,
+            media_type=exported.media_type,
+            headers={"Content-Disposition": disposition},
+        )
+    except BusinessException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.get("/cards/{card_id}", response_model=CardRead)
 def get_card(card_id: int, db: Session = Depends(get_session)):
