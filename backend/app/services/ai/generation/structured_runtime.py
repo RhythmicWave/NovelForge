@@ -72,6 +72,7 @@ async def _run_instruction_flow_with_schema(
         max_tokens=max_tokens,
         timeout=timeout,
         max_retry=max_retry,
+        track_stats=False,
     ):
         event_type = event.get("type")
 

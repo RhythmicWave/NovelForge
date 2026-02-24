@@ -13,6 +13,8 @@ from pydantic import ValidationError
 from loguru import logger
 
 from app.services.ai.core.chat_model_factory import build_chat_model
+from app.services.ai.core.quota_manager import precheck_quota, record_usage
+from app.services.ai.core.token_utils import estimate_tokens
 from app.services.ai.core.model_builder import build_model_from_json_schema
 from app.services.ai.generation.instruction_validator import (
     validate_instruction, 
@@ -21,6 +23,24 @@ from app.services.ai.generation.instruction_validator import (
 )
 from app.services.ai.generation.prompt_builder import build_user_task_prompt
 from app.schemas.instruction import ConversationMessage
+
+
+def _estimate_messages_input_tokens(messages: List[BaseMessage]) -> int:
+    parts: List[str] = []
+    for msg in messages:
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            parts.append(content)
+            continue
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str) and text:
+                        parts.append(text)
+                elif isinstance(block, str):
+                    parts.append(block)
+    return estimate_tokens("\n".join(parts))
 
 
 async def generate_instruction_stream(
@@ -35,7 +55,8 @@ async def generate_instruction_stream(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     timeout: float = 150,
-    max_retry: int = 3
+    max_retry: int = 3,
+    track_stats: bool = True,
 ) -> AsyncIterator[Dict[str, Any]]:
     """生成指令流（带自动校验与修复）
     
@@ -134,6 +155,24 @@ async def generate_instruction_stream(
     
     for attempt in range(max_retry):
         logger.info(f"[生成轮次 {attempt + 1}/{max_retry}] 开始生成...")
+        attempt_input_tokens = _estimate_messages_input_tokens(messages)
+        if track_stats:
+            ok, reason = precheck_quota(
+                session,
+                llm_config_id,
+                attempt_input_tokens,
+                need_calls=1,
+            )
+            if not ok:
+                yield {
+                    "type": "error",
+                    "text": f"LLM配额不足: {reason}",
+                }
+                return
+
+        attempt_output_text = ""
+        attempt_started = False
+        attempt_aborted = False
         try:
             # 流式调用 LLM
             buffer = ""
@@ -146,7 +185,8 @@ async def generate_instruction_stream(
             brace_depth = 0  # 花括号深度
             in_string = False  # 是否在字符串内
             escape_next = False  # 下一个字符是否被转义
-            
+
+            attempt_started = True
             async for chunk in chat_model.astream(messages):
                 raw = getattr(chunk, "content", "")
                 if isinstance(raw, str):
@@ -167,6 +207,7 @@ async def generate_instruction_stream(
                 if not content:
                     continue
 
+                attempt_output_text += content
                 buffer += content
                 
                 # 按行解析
@@ -595,7 +636,10 @@ async def generate_instruction_stream(
                     await asyncio.sleep(retry_delay)
                 
                 continue
-            
+
+        except asyncio.CancelledError:
+            attempt_aborted = True
+            raise
         except Exception as e:
             logger.error(f"生成过程出错: {e}")
             yield {
@@ -603,6 +647,19 @@ async def generate_instruction_stream(
                 "text": f"生成失败: {str(e)}"
             }
             break
+        finally:
+            if attempt_started and track_stats:
+                try:
+                    record_usage(
+                        session,
+                        llm_config_id,
+                        attempt_input_tokens,
+                        estimate_tokens(attempt_output_text),
+                        calls=1,
+                        aborted=attempt_aborted,
+                    )
+                except Exception as usage_error:
+                    logger.warning(f"记录指令流 token 统计失败: {usage_error}")
     
     # 只有在未正常完成时才报告失败
     if not generation_completed:
