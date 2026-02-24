@@ -263,6 +263,15 @@ def _chunk_to_message(full_chunk: Optional[AIMessageChunk], fallback_text: str) 
 
 def _extract_usage_from_chunk(full_chunk: AIMessageChunk) -> Tuple[int, int]:
     usage = getattr(full_chunk, "usage_metadata", None)
+    if not isinstance(usage, dict):
+        # 兼容不同 provider/适配层把 usage 放在 additional_kwargs 的情况
+        additional_kwargs = getattr(full_chunk, "additional_kwargs", None)
+        if isinstance(additional_kwargs, dict):
+            usage = (
+                additional_kwargs.get("usage")
+                or additional_kwargs.get("token_usage")
+                or additional_kwargs.get("usage_metadata")
+            )
     if isinstance(usage, dict):
         in_tok = usage.get("input_tokens") or usage.get("input")
         out_tok = usage.get("output_tokens") or usage.get("output")
@@ -276,6 +285,23 @@ def _extract_usage_from_chunk(full_chunk: AIMessageChunk) -> Tuple[int, int]:
             out_tokens = 0
         return in_tokens, out_tokens
     return 0, 0
+
+
+def _estimate_messages_input_tokens(messages: Sequence[Any]) -> int:
+    parts: list[str] = []
+    for msg in messages:
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str) and text:
+                        parts.append(text)
+                elif isinstance(block, str):
+                    parts.append(block)
+    return estimate_tokens("\n".join(parts))
 
 
 async def stream_chat_with_react_protocol(
@@ -353,10 +379,20 @@ async def stream_chat_with_react_protocol(
             full_chunk: Optional[AIMessageChunk] = None
             step_text = ""
             stream_state: dict[str, str] = {"buffer": ""}
+            step_usage_in: Optional[int] = None
+            step_usage_out: Optional[int] = None
+            step_input_fallback = _estimate_messages_input_tokens(messages)
 
             async for chunk in model.astream(messages):
                 if not isinstance(chunk, AIMessageChunk):
                     continue
+
+                chunk_in_tokens, chunk_out_tokens = _extract_usage_from_chunk(chunk)
+                if chunk_in_tokens > 0:
+                    step_usage_in = chunk_in_tokens
+                if chunk_out_tokens > 0:
+                    step_usage_out = chunk_out_tokens
+
                 delta_text, delta_reasonings = _extract_chunk_parts(chunk)
                 if delta_text:
                     step_text += delta_text
@@ -384,10 +420,12 @@ async def stream_chat_with_react_protocol(
             response = _chunk_to_message(full_chunk, step_text)
             messages.append(response)
 
-            if full_chunk:
-                in_tokens, out_tokens = _extract_usage_from_chunk(full_chunk)
-                usage_in_total += in_tokens
-                usage_out_total += out_tokens
+            if step_usage_in is not None and step_usage_out is not None:
+                usage_in_total += max(0, step_usage_in)
+                usage_out_total += max(0, step_usage_out)
+            else:
+                usage_in_total += max(0, step_input_fallback)
+                usage_out_total += max(0, estimate_tokens(step_text))
 
             action_payload = _parse_action_payload(step_text)
             if action_payload:
