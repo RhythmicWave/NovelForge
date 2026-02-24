@@ -58,7 +58,7 @@
   - [内置工作流模板](#workflow-builtins)
   - [项目初始化工作流](#workflow-project-init)
   - [工作流 Agent（自然语言编写工作流）](#workflow-agent)
-  - [工作流使用示例（占位）](#workflow-examples)
+  - [工作流使用示例](#workflow-examples)
 
 ### 协作与规划
 
@@ -330,7 +330,7 @@
 *   安装后，创建一个本地数据库实例，并确保其处于**运行状态**。默认连接信息可在 `.env` 文件中配置。
 ![alt text](docImgs/README/image-6.png)
 
-### 方式一：从源码运行 (开发者/最新功能)
+### 方式一：从源码运行 (开发者/最新功能)（非开发者建议用方式二）
 
 **1. 后端 (Python / FastAPI)**
 ```bash
