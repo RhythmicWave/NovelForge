@@ -25,6 +25,41 @@
         placeholder="例如: https://api.siliconflow.cn/v1（仅 OpenAI兼容 使用）"
       />
     </el-form-item>
+    <el-form-item
+      v-show="form.provider === 'openai_compatible'"
+      label="自定义请求头"
+      prop="extra_headers"
+    >
+      <div class="extra-headers-editor">
+        <div
+          v-for="(row, index) in extraHeadersRows"
+          :key="index"
+          class="extra-headers-row"
+        >
+          <el-input
+            v-model="row.key"
+            placeholder="Header 名称，如 X-Custom-Header"
+            style="width: 200px;"
+            clearable
+          />
+          <el-input
+            v-model="row.value"
+            placeholder="值"
+            style="flex: 1; min-width: 120px;"
+            clearable
+          />
+          <el-button
+            type="danger"
+            :icon="Delete"
+            circle
+            title="删除"
+            @click="removeExtraHeader(index)"
+          />
+        </div>
+        <el-button type="primary" plain @click="addExtraHeader">添加请求头</el-button>
+        <span v-if="form.provider === 'openai_compatible'" class="extra-headers-hint">可选，仅对 OpenAI 兼容接口生效</span>
+      </div>
+    </el-form-item>
     <el-form-item label="API Key" prop="api_key">
       <el-input
         v-model="form.api_key"
@@ -74,7 +109,7 @@ import { ref, reactive, watch } from 'vue'
 import type { components } from '@renderer/types/generated'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, Delete } from '@element-plus/icons-vue'
 import { testLLMConnection, getLLMModels } from '@renderer/api/setting'
 
 type LLMConfig = components['schemas']['LLMConfigRead']
@@ -110,9 +145,35 @@ const form = reactive({
   model_name: '',
   api_base: '',
   api_key: '',
+  extra_headers: null as Record<string, string> | null,
   token_limit: -1,
   call_limit: -1
 })
+
+// 自定义请求头：行编辑，提交时转为 object
+const extraHeadersRows = ref<{ key: string; value: string }[]>([])
+
+function objectToRows(obj: Record<string, string> | null | undefined): { key: string; value: string }[] {
+  if (!obj || typeof obj !== 'object') return []
+  return Object.entries(obj).map(([key, value]) => ({ key, value: value ?? '' }))
+}
+
+function rowsToObject(rows: { key: string; value: string }[]): Record<string, string> | null {
+  const out: Record<string, string> = {}
+  for (const row of rows) {
+    const k = (row.key || '').trim()
+    if (k) out[k] = row.value ?? ''
+  }
+  return Object.keys(out).length ? out : null
+}
+
+function addExtraHeader() {
+  extraHeadersRows.value.push({ key: '', value: '' })
+}
+
+function removeExtraHeader(index: number) {
+  extraHeadersRows.value.splice(index, 1)
+}
 
 const rules = reactive<FormRules>({
   provider: [{ required: true, message: '请选择提供商', trigger: 'change' }],
@@ -143,8 +204,10 @@ watch(
       form.model_name = newData.model_name
       form.api_base = newData.api_base || ''
       form.api_key = newData.api_key || ''
+      form.extra_headers = (newData as any).extra_headers ?? null
       form.token_limit = (newData as any).token_limit ?? -1
       form.call_limit = (newData as any).call_limit ?? -1
+      extraHeadersRows.value = objectToRows(form.extra_headers)
     } else {
       // 新增配置，重置表单
       form.id = null
@@ -153,8 +216,10 @@ watch(
       form.model_name = ''
       form.api_base = ''
       form.api_key = ''
+      form.extra_headers = null
       form.token_limit = -1
       form.call_limit = -1
+      extraHeadersRows.value = []
     }
   },
   { immediate: true }
@@ -163,6 +228,7 @@ watch(
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (valid) {
+    form.extra_headers = rowsToObject(extraHeadersRows.value)
     const submitData = {
       ...form
     }
@@ -181,10 +247,12 @@ async function handleFetchModels() {
   loadingModels.value = true
   fetchedModels.value = []
   try {
+    const extra = rowsToObject(extraHeadersRows.value)
     const models = await getLLMModels({
       provider: form.provider,
       api_base: form.api_base || undefined,
-      api_key: form.api_key
+      api_key: form.api_key,
+      extra_headers: extra ?? undefined
     })
     fetchedModels.value = models
     if (models.length > 0) {
@@ -206,11 +274,13 @@ function handleCancel() {
 
 async function handleTest() {
   try {
+    const extra = rowsToObject(extraHeadersRows.value)
     await testLLMConnection({
       provider: form.provider,
       model_name: form.model_name,
       api_base: form.api_base || undefined,
-      api_key: form.api_key
+      api_key: form.api_key,
+      extra_headers: extra ?? undefined
     } as any)
     ElMessage.success('连接成功')
   } catch (e: any) {
@@ -218,3 +288,20 @@ async function handleTest() {
   }
 }
 </script>
+
+<style scoped>
+.extra-headers-editor {
+  width: 100%;
+}
+.extra-headers-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.extra-headers-hint {
+  margin-left: 8px;
+  color: #888;
+  font-size: 12px;
+}
+</style>

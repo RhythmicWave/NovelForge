@@ -61,6 +61,10 @@ async def get_models_endpoint(request: LLMGetModelsRequest, session: Session = D
                     "Authorization": f"Bearer {request.api_key}",
                     "Content-Type": "application/json"
                 }
+                if getattr(request, "extra_headers", None) and isinstance(request.extra_headers, dict):
+                    for k, v in request.extra_headers.items():
+                        if k and v is not None:
+                            headers[k] = str(v)
                 
                 async with httpx.AsyncClient() as client:
                     # 尝试调用 /models
@@ -105,6 +109,8 @@ async def test_llm_connection_endpoint(connection_data: LLMConnectionTest, sessi
             }
             if connection_data.api_base:
                 kwargs["base_url"] = connection_data.api_base
+            if getattr(connection_data, "extra_headers", None) and isinstance(connection_data.extra_headers, dict):
+                kwargs["default_headers"] = connection_data.extra_headers
             model = ChatQwen(**kwargs)
 
         elif provider == "openai":

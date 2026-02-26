@@ -23,6 +23,8 @@ class LLMConfig(SQLModel, table=True):
     api_base: Optional[str] = None
     api_key: str
     base_url: Optional[str] = None
+    # 自定义请求头（仅 OpenAI 兼容时使用），JSON 如 {"X-Custom-Header": "value"}
+    extra_headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 统计与配额（-1 表示不限）——在 DB 层也设置 server_default，便于 Alembic 自动包含
     token_limit: int = Field(
         default=-1,

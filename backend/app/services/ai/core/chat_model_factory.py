@@ -58,6 +58,8 @@ def build_chat_model(
         }
         if cfg.api_base:
             model_kwargs["base_url"] = cfg.api_base
+        if getattr(cfg, "extra_headers", None) and isinstance(cfg.extra_headers, dict):
+            model_kwargs["default_headers"] = cfg.extra_headers
         if thinking_enabled is not None:
             model_kwargs["extra_body"] = {"enable_thinking": thinking_enabled}
         model_kwargs.update(common_kwargs)

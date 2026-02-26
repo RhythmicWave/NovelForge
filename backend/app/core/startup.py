@@ -22,6 +22,22 @@ def init_database():
     logger.info("[启动] 数据库表结构初始化完成")
 
 
+def ensure_llmconfig_extra_headers():
+    """若 llmconfig 表缺少 extra_headers 列则自动添加，避免手动跑迁移。"""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name != "sqlite":
+            return
+        r = conn.execute(text("PRAGMA table_info(llmconfig)"))
+        columns = [row[1] for row in r.fetchall()]
+        if "extra_headers" in columns:
+            return
+        conn.execute(text("ALTER TABLE llmconfig ADD COLUMN extra_headers JSON"))
+        conn.commit()
+    logger.info("[启动] 已为 llmconfig 表添加 extra_headers 列")
+
+
 def init_application_data():
     """初始化应用数据
     
@@ -105,7 +121,9 @@ def startup():
     
     # 1. 初始化数据库
     init_database()
-    
+    # 1.1 自动补齐 llmconfig.extra_headers 等列（无需手动迁移）
+    ensure_llmconfig_extra_headers()
+
     # 2. 初始化应用数据
     init_application_data()
     

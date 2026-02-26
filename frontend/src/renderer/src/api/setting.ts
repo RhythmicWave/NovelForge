@@ -36,6 +36,7 @@ export interface LLMGetModelsRequest {
   provider: string
   api_base?: string
   api_key: string
+  extra_headers?: Record<string, string> | null
 }
 
 export async function listLLMConfigs(): Promise<LLMConfigRead[]> {
