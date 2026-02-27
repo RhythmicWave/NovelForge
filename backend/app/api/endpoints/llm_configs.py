@@ -150,3 +150,12 @@ def reset_llm_usage(config_id: int, session: Session = Depends(get_session)):
     if not ok:
         raise HTTPException(status_code=404, detail="LLM Config not found")
     return ApiResponse(message="Usage reset")
+
+
+@router.post("/{config_id}/copy", response_model=ApiResponse[LLMConfigRead], summary="复制 LLM 配置")
+def copy_llm_config_endpoint(config_id: int, session: Session = Depends(get_session)):
+    """复制现有的 LLM 配置，创建一个新的配置副本（使用统计会重置为 0）"""
+    config = llm_config_service.copy_llm_config(session=session, config_id=config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="LLM Config not found")
+    return ApiResponse(data=config, message="LLM Config copied successfully")
