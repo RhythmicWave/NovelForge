@@ -5,6 +5,8 @@
 
 from sqlmodel import Session
 from loguru import logger
+from sqlalchemy import inspect, text
+from sqlalchemy.schema import CreateColumn
 
 from app.db.models import SQLModel
 from app.db.session import engine
@@ -22,20 +24,56 @@ def init_database():
     logger.info("[启动] 数据库表结构初始化完成")
 
 
-def ensure_llmconfig_extra_headers():
-    """若 llmconfig 表缺少 extra_headers 列则自动添加，避免手动跑迁移。"""
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        dialect_name = conn.dialect.name
-        if dialect_name != "sqlite":
-            return
-        r = conn.execute(text("PRAGMA table_info(llmconfig)"))
-        columns = [row[1] for row in r.fetchall()]
-        if "extra_headers" in columns:
-            return
-        conn.execute(text("ALTER TABLE llmconfig ADD COLUMN extra_headers JSON"))
-        conn.commit()
-    logger.info("[启动] 已为 llmconfig 表添加 extra_headers 列")
+def _can_auto_add_column(column) -> tuple[bool, str]:
+    """检查列是否适合自动补齐（仅处理安全的追加场景）。"""
+    if column.primary_key:
+        return False, "primary key"
+    if column.unique:
+        return False, "unique constraint"
+    if column.foreign_keys:
+        return False, "foreign key"
+    if not column.nullable and column.server_default is None:
+        return False, "not-null without server_default"
+    return True, ""
+
+
+def ensure_schema_additive_columns():
+    """自动发现模型与现有表结构差异，并补齐可安全追加的缺失列。"""
+    added_columns: list[str] = []
+    skipped_columns: list[str] = []
+
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        existing_tables = set(inspector.get_table_names())
+        preparer = conn.dialect.identifier_preparer
+
+        for table in SQLModel.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+
+            db_columns = {item["name"] for item in inspector.get_columns(table.name)}
+            missing_columns = [column for column in table.columns if column.name not in db_columns]
+
+            for column in missing_columns:
+                allowed, reason = _can_auto_add_column(column)
+                display_name = f"{table.name}.{column.name}"
+
+                if not allowed:
+                    skipped_columns.append(f"{display_name} ({reason})")
+                    continue
+
+                column_ddl = str(CreateColumn(column).compile(dialect=conn.dialect))
+                table_name = preparer.format_table(table)
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_ddl}"))
+                added_columns.append(display_name)
+
+    if added_columns:
+        logger.info(f"[启动] 已自动补齐缺失列: {', '.join(added_columns)}")
+    else:
+        logger.info("[启动] 表结构检查完成，无需补齐缺失列")
+
+    if skipped_columns:
+        logger.warning(f"[启动] 检测到不安全列，已跳过自动补齐: {', '.join(skipped_columns)}")
 
 
 def init_application_data():
@@ -121,8 +159,8 @@ def startup():
     
     # 1. 初始化数据库
     init_database()
-    # 1.1 自动补齐 llmconfig.extra_headers 等列（无需手动迁移）
-    ensure_llmconfig_extra_headers()
+    # 1.1 自动补齐模型新增字段（仅处理安全的追加列场景）
+    ensure_schema_additive_columns()
 
     # 2. 初始化应用数据
     init_application_data()
