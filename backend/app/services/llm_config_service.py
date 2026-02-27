@@ -81,3 +81,33 @@ def reset_usage(session: Session, config_id: int) -> bool:
     session.add(cfg)
     session.commit()
     return True
+
+
+def copy_llm_config(session: Session, config_id: int) -> LLMConfig | None:
+    
+    source_config = session.get(LLMConfig, config_id)
+    if not source_config:
+        return None
+    
+    # 复制配置
+    new_config = LLMConfig(
+        provider=source_config.provider,
+        display_name=f"{source_config.display_name or source_config.model_name} (副本)" if source_config.display_name else f"{source_config.model_name} (副本)",
+        model_name=source_config.model_name,
+        api_base=source_config.api_base,
+        api_key=source_config.api_key,
+        base_url=source_config.base_url,
+        token_limit=source_config.token_limit,
+        call_limit=source_config.call_limit,
+        rpm_limit=source_config.rpm_limit,
+        tpm_limit=source_config.tpm_limit,
+        # 使用统计重置为 0
+        used_tokens_input=0,
+        used_tokens_output=0,
+        used_calls=0
+    )
+    
+    session.add(new_config)
+    session.commit()
+    session.refresh(new_config)
+    return new_config
