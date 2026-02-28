@@ -157,6 +157,23 @@ class StageLine(BaseModel):
     overview: Optional[str] = Field(description="这个阶段剧情内容具体概述，需要详略得当，涉及到的主要实体，如角色、场景/地图、组织等元素都应在这个概述中体现到。另外，若主角有了显著提升（如提升了主角多少实力或地位、增长了主角多少财富或资源之类的），则相关信息需要准确数据描述，不能省略")
     chapter_outline_list:Optional[List[ChapterOutline]]=Field(description="根据reference_chapter、overview生成所需的章节大纲。注意章节大纲的标题不要包含”第x章这种前缀")
     entity_snapshot: Optional[List[str]] = Field(description="阶段末时，关键实体（角色为主）快照状态信息，包括等级/修为境界、财富、功法等准确信息，以便收束剧情，确保最后一个阶段时，剧情发展能够使得实体状态收束到该卷末的实体状态。")
+    @model_validator(mode="after")
+    def validate_chapter_outline_coverage(self):
+        # Allow empty list for workflow post-processing cleanup.
+        if not self.chapter_outline_list:
+            return self
+
+        start, end = self.reference_chapter
+        if start > end:
+            raise ValueError("reference_chapter start must be <= end")
+
+        actual_numbers = [item.chapter_number for item in self.chapter_outline_list]
+        expected_numbers = list(range(start, end + 1))
+        if actual_numbers != expected_numbers:
+            raise ValueError(
+                "chapter_outline_list.chapter_number must be contiguous and fully cover reference_chapter"
+            )
+        return self
 
 
 # === Step 6: Batch Chapter Outline Schemas===

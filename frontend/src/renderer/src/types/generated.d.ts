@@ -485,6 +485,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/cards/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Cards For Project */
+        post: operations["export_cards_for_project_api_projects__project_id__cards_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cards/{card_id}": {
         parameters: {
             query?: never;
@@ -751,6 +768,176 @@ export interface paths {
          *     现在调用新的、更完整的服务函数。
          */
         post: operations["update_dynamic_info_api_memory_update_dynamic_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 分页查询关系图 */
+        post: operations["list_relations_api_relation_graph_list_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/upsert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 新增或更新关系 */
+        post: operations["upsert_relation_api_relation_graph_upsert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 删除单条关系 */
+        post: operations["delete_relation_api_relation_graph_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/batch/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 批量删除关系 */
+        post: operations["batch_delete_api_relation_graph_batch_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/batch/update-kind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 批量修改关系类型 */
+        post: operations["batch_update_kind_api_relation_graph_batch_update_kind_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/batch/update-stance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 批量修改立场 */
+        post: operations["batch_update_stance_api_relation_graph_batch_update_stance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/batch/append-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 批量追加事件摘要 */
+        post: operations["batch_append_events_api_relation_graph_batch_append_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/batch/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 批量新增关系（冲突覆盖） */
+        post: operations["batch_create_api_relation_graph_batch_create_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 导出关系图数据 */
+        post: operations["export_relations_api_relation_graph_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 导入关系图数据 */
+        post: operations["import_relations_api_relation_graph_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1713,6 +1900,36 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * CardExportRequest
+         * @description 项目卡片导出请求
+         */
+        CardExportRequest: {
+            /**
+             * Scope
+             * @description 导出范围
+             * @default all
+             * @enum {string}
+             */
+            scope: "all" | "single" | "type";
+            /**
+             * Card Id
+             * @description 单卡导出时的卡片ID
+             */
+            card_id?: number | null;
+            /**
+             * Card Type Id
+             * @description 按类型导出时的卡片类型ID
+             */
+            card_type_id?: number | null;
+            /**
+             * Format
+             * @description 导出格式
+             * @default txt
+             * @enum {string}
+             */
+            format: "txt" | "md" | "json";
         };
         /**
          * CardOrderItem
@@ -2706,6 +2923,295 @@ export interface components {
         "RelationExtraction-Output": {
             /** Relations */
             relations?: components["schemas"]["RelationItem"][];
+        };
+        /** RelationGraphBatchAppendEventsRequest */
+        RelationGraphBatchAppendEventsRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Keys */
+            keys?: components["schemas"]["RelationGraphKey"][];
+            /** Events */
+            events?: components["schemas"]["RelationGraphEvent"][];
+            /**
+             * Max Size
+             * @default 20
+             */
+            max_size: number;
+        };
+        /** RelationGraphBatchCreateRequest */
+        RelationGraphBatchCreateRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Relations */
+            relations?: components["schemas"]["RelationGraphInput"][];
+        };
+        /** RelationGraphBatchDeleteRequest */
+        RelationGraphBatchDeleteRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Keys */
+            keys?: components["schemas"]["RelationGraphKey"][];
+        };
+        /** RelationGraphBatchUpdateKindRequest */
+        RelationGraphBatchUpdateKindRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Keys */
+            keys?: components["schemas"]["RelationGraphKey"][];
+            /**
+             * New Kind En
+             * @description 新的关系英文键
+             */
+            new_kind_en?: string | null;
+            /**
+             * New Kind Cn
+             * @description 新的关系中文类型
+             */
+            new_kind_cn?: string | null;
+        };
+        /** RelationGraphBatchUpdateStanceRequest */
+        RelationGraphBatchUpdateStanceRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Keys */
+            keys?: components["schemas"]["RelationGraphKey"][];
+            /**
+             * Stance
+             * @description 新立场
+             */
+            stance?: string | null;
+        };
+        /** RelationGraphDeleteRequest */
+        RelationGraphDeleteRequest: {
+            /** Project Id */
+            project_id: number;
+            key: components["schemas"]["RelationGraphKey"];
+        };
+        /** RelationGraphEvent */
+        RelationGraphEvent: {
+            /**
+             * Summary
+             * @description 事件摘要
+             */
+            summary: string;
+            /**
+             * Volume Number
+             * @description 卷号
+             */
+            volume_number?: number | null;
+            /**
+             * Chapter Number
+             * @description 章节号
+             */
+            chapter_number?: number | null;
+        };
+        /** RelationGraphExportRequest */
+        RelationGraphExportRequest: {
+            /** Project Id */
+            project_id: number;
+            /**
+             * Format
+             * @default json
+             * @enum {string}
+             */
+            format: "json" | "csv";
+            /** Keys */
+            keys?: components["schemas"]["RelationGraphKey"][];
+        };
+        /** RelationGraphExportResponse */
+        RelationGraphExportResponse: {
+            /** Filename */
+            filename: string;
+            /** Mime Type */
+            mime_type: string;
+            /** Content */
+            content: string;
+        };
+        /** RelationGraphImportRequest */
+        RelationGraphImportRequest: {
+            /** Project Id */
+            project_id: number;
+            /**
+             * Format
+             * @default json
+             * @enum {string}
+             */
+            format: "json" | "csv";
+            /** Content */
+            content: string;
+        };
+        /** RelationGraphImportResponse */
+        RelationGraphImportResponse: {
+            /**
+             * Created
+             * @default 0
+             */
+            created: number;
+            /**
+             * Updated
+             * @default 0
+             */
+            updated: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /** Errors */
+            errors?: string[];
+        };
+        /** RelationGraphInput */
+        RelationGraphInput: {
+            /**
+             * Source
+             * @description 关系起点实体
+             */
+            source: string;
+            /**
+             * Target
+             * @description 关系终点实体
+             */
+            target: string;
+            /**
+             * Kind En
+             * @description 关系英文键
+             */
+            kind_en?: string | null;
+            /**
+             * Kind Cn
+             * @description 关系中文类型
+             */
+            kind_cn?: string | null;
+            /**
+             * Kind
+             * @description 关系中文类型（兼容字段）
+             */
+            kind?: string | null;
+            /**
+             * Fact
+             * @description 关系事实描述
+             */
+            fact?: string | null;
+            /**
+             * Description
+             * @description 关系描述
+             */
+            description?: string | null;
+            /**
+             * A To B Addressing
+             * @description A 对 B 称呼
+             */
+            a_to_b_addressing?: string | null;
+            /**
+             * B To A Addressing
+             * @description B 对 A 称呼
+             */
+            b_to_a_addressing?: string | null;
+            /**
+             * Recent Dialogues
+             * @description 近期对话证据
+             */
+            recent_dialogues?: string[];
+            /**
+             * Recent Event Summaries
+             * @description 近期事件证据
+             */
+            recent_event_summaries?: components["schemas"]["RelationGraphEvent"][];
+            /**
+             * Stance
+             * @description 立场：友好/中立/敌意
+             */
+            stance?: string | null;
+        };
+        /** RelationGraphKey */
+        RelationGraphKey: {
+            /**
+             * Source
+             * @description 关系起点实体
+             */
+            source: string;
+            /**
+             * Target
+             * @description 关系终点实体
+             */
+            target: string;
+            /**
+             * Kind En
+             * @description 关系英文键
+             */
+            kind_en: string;
+        };
+        /** RelationGraphListRequest */
+        RelationGraphListRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Keyword */
+            keyword?: string | null;
+            /** Kinds */
+            kinds?: string[];
+            /** Stances */
+            stances?: string[];
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+        };
+        /** RelationGraphListResponse */
+        RelationGraphListResponse: {
+            /** Items */
+            items?: components["schemas"]["RelationGraphRecord"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /** RelationGraphRecord */
+        RelationGraphRecord: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Kind En */
+            kind_en: string;
+            /** Kind Cn */
+            kind_cn: string;
+            /** Kind */
+            kind: string;
+            /** Fact */
+            fact: string;
+            /** A To B Addressing */
+            a_to_b_addressing?: string | null;
+            /** B To A Addressing */
+            b_to_a_addressing?: string | null;
+            /** Recent Dialogues */
+            recent_dialogues?: string[];
+            /** Recent Event Summaries */
+            recent_event_summaries?: components["schemas"]["RelationGraphEvent"][];
+            /** Stance */
+            stance?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** RelationGraphUpsertRequest */
+        RelationGraphUpsertRequest: {
+            /** Project Id */
+            project_id: number;
+            relation: components["schemas"]["RelationGraphInput"];
+        };
+        /** RelationGraphWriteResponse */
+        RelationGraphWriteResponse: {
+            /**
+             * Affected
+             * @default 0
+             */
+            affected: number;
         };
         /** RelationItem */
         RelationItem: {
@@ -4400,6 +4906,41 @@ export interface operations {
             };
         };
     };
+    export_cards_for_project_api_projects__project_id__cards_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_card_api_cards__card_id__get: {
         parameters: {
             query?: never;
@@ -5026,6 +5567,336 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateDynamicInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_relations_api_relation_graph_list_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphListRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_relation_api_relation_graph_upsert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_relation_api_relation_graph_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_delete_api_relation_graph_batch_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphBatchDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_update_kind_api_relation_graph_batch_update_kind_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphBatchUpdateKindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_update_stance_api_relation_graph_batch_update_stance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphBatchUpdateStanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_append_events_api_relation_graph_batch_append_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphBatchAppendEventsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_create_api_relation_graph_batch_create_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphBatchCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphWriteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_relations_api_relation_graph_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphExportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_relations_api_relation_graph_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationGraphImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphImportResponse"];
                 };
             };
             /** @description Validation Error */
