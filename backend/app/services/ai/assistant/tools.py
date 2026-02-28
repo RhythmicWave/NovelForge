@@ -542,8 +542,8 @@ def get_card_content(
 def replace_field_text(
     card_id: int,
     field_path: str,
-    old_text: str,
-    new_text: str,
+    old_value: str,
+    new_value: str,
 ) -> Dict[str, Any]:
     """
     替换卡片字段中的指定文本片段
@@ -554,21 +554,21 @@ def replace_field_text(
     Examples:
         1. 精确匹配（短文本）：
         replace_field_text(card_id=42, field_path="content", 
-                            old_text="林风犹豫了片刻", 
-                            new_text="林风毫不犹豫地")
+                            old_value="林风犹豫了片刻",
+                            new_value="林风毫不犹豫地")
         
         2. 模糊匹配（长文本）：
         replace_field_text(card_id=42, field_path="content",
-                            old_text="少年面色苍白，额头青筋暴起...现在却成了个废人。",
-                            new_text="新的完整段落内容...")
+                            old_value="少年面色苍白，额头青筋暴起...现在却成了个废人。",
+                            new_value="新的完整段落内容...")
     
     Args:
         card_id: 目标卡片的ID
         field_path: 字段路径（如 "content" 表示章节正文，"overview" 表示概述）
-        old_text: 要被替换的原文片段，支持两种模式：
+        old_value: 要被替换的原文片段，支持两种模式：
             1. 精确匹配：提供完整的原文（适用于短文本，50字以内）
             2. 模糊匹配：提供开头10字 + "..." + 结尾10字（适用于长文本，50字以上）
-        new_text: 新的文本内容
+        new_value: 新的文本内容
     
     
     
@@ -580,9 +580,11 @@ def replace_field_text(
         message: 用户友好的消息
     """
 
+    deps = _get_deps()
+
     logger.info(f" [Assistant.replace_field_text] card_id={card_id}, path={field_path}")
-    logger.info(f"  要替换的文本长度: {len(old_text)} 字符")
-    logger.info(f"  新文本长度: {len(new_text)} 字符")
+    logger.info(f"  要替换的文本长度: {len(old_value)} 字符")
+    logger.info(f"  新文本长度: {len(new_value)} 字符")
 
     try:
         # Use CardService logic directly
@@ -590,13 +592,32 @@ def replace_field_text(
         result = service.replace_field_text(
             card_id=card_id,
             field_path=field_path,
-            old_text=old_text,
-            new_text=new_text,
+            old_text=old_value,
+            new_text=new_value,
             fuzzy_match=True
         )
 
         # 如果Service执行失败
         if not result.get("success"):
+            raw_error = str(result.get("error") or "替换失败")
+            raw_hint = str(result.get("hint") or "").strip()
+
+            suggestion = ""
+            if raw_error in ("未找到指定的原文片段", "未找到开头文本", "未找到结尾文本", "模糊匹配格式错误"):
+                suggestion = "建议先调用 get_card_content 获取最新内容，再复制准确片段重试；长文本请使用“开头...结尾”格式。"
+            elif "不是文本类型" in raw_error:
+                suggestion = "目标字段不是字符串文本，建议改用 modify_card_field 按结构化方式更新。"
+            elif "字段路径" in raw_error:
+                suggestion = "字段路径可能不正确，建议先查看卡片结构并确认 field_path。"
+
+            if suggestion:
+                result["message"] = f"⚠️ 文本替换失败：{raw_error}。{suggestion}"
+            else:
+                result["message"] = f"⚠️ 文本替换失败：{raw_error}。"
+
+            if raw_hint:
+                result["message"] = f"{result['message']}（定位提示：{raw_hint}）"
+
             logger.warning(
                 f"⚠️ [Assistant.replace_field_text] 替换失败: {result.get('error')}"
             )
