@@ -201,7 +201,7 @@ update_card(
 2. **获取字段结构**：如需修改其他类型卡片，先调用 `get_card_type_schema`。
 3. **选择工具**：
    - 重写整个字段 → `modify_card_field`
-   - 替换部分文本 → `replace_field_text`（精确匹配50字内，模糊匹配50字以上）
+   - 替换部分文本 → `replace_field_text`（参数使用 `old_value` 与 `new_value`；精确匹配50字内，模糊匹配50字以上）
 4. **批量操作**：先列出计划（卡片ID和字段），确认后再执行。
 
 ### 整理对话内容
