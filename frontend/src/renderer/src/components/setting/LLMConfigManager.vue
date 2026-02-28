@@ -43,9 +43,10 @@
           {{ formatNumber((row as any).used_tokens_input || 0) }} / {{ formatNumber((row as any).used_tokens_output || 0) }} / {{ formatNumber((row as any).used_calls || 0) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="260">
         <template #default="{ row }">
           <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
+          <el-button size="small" type="primary" @click="handleCopy(row)" plain>复制</el-button>
           <el-button size="small" type="danger" @click="deleteConfig(row.id)">删除</el-button>
           <el-button size="small" type="warning" @click="handleReset(row)" plain>重置</el-button>
         </template>
@@ -70,7 +71,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import LLMConfigForm from './LLMConfigForm.vue'
 import type { components } from '@renderer/types/generated'
-import { listLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, resetLLMUsage } from '@renderer/api/setting'
+import { listLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, resetLLMUsage, copyLLMConfig } from '@renderer/api/setting'
 
 type LLMConfig = components['schemas']['LLMConfigRead']
 
@@ -171,6 +172,17 @@ async function handleReset(row: LLMConfig) {
     await loadLLMConfigs()
   } catch (e) {
     ElMessage.error('重置失败')
+  }
+}
+
+async function handleCopy(row: LLMConfig) {
+  try {
+    await copyLLMConfig(row.id)
+    ElMessage.success('配置复制成功')
+    await loadLLMConfigs()
+  } catch (error) {
+    console.error('复制配置失败:', error)
+    ElMessage.error('复制配置失败')
   }
 }
 

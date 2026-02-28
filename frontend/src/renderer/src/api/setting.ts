@@ -64,6 +64,10 @@ export async function resetLLMUsage(id: number): Promise<void> {
   await request.post(`/llm-configs/${id}/reset-usage`, {})
 }
 
+export async function copyLLMConfig(id: number): Promise<LLMConfigRead> {
+  return await request.post<LLMConfigRead>(`/llm-configs/${id}/copy`, {})
+}
+
 // --- 提示词 API ---
 export interface Prompt { id: number; name: string; description: string; template: string; built_in?: boolean }
 export async function listPrompts(): Promise<Prompt[]> { return await request.get<Prompt[]>('/prompts') }
