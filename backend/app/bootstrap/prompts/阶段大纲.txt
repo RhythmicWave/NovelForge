@@ -25,6 +25,11 @@
          - 悬念/钩子（跨到下一阶段的未解问题）；
          - 参与实体（仅从提供实体中选择）。
       -  注意，每个阶段生成的章节大纲避免过于单薄，保证章节大纲足以支撑扩写为3000字左右的章节正文剧情。
+    5. chapter_outline_list 强约束：
+       - 必须完整覆盖 reference_chapter 区间内的每一章。
+       - chapter_number 必须严格连续（每次 +1）。
+       - 章节数量必须等于 reference_chapter[1] - reference_chapter[0] + 1。
+       - 示例：reference_chapter=[1,4] 时，chapter_number 必须为 1,2,3,4。
     /nothink
 
 - knowledge:

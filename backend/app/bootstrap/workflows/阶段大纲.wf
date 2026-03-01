@@ -19,13 +19,20 @@ enriched_outlines = Logic.Expression(
 #</node>
 
 
+#@node(description="校验章节号是否完整连续覆盖范围")
+validated_outlines = Logic.Expression(
+    expression="enriched_outlines.result if (stage.content.reference_chapter and len(stage.content.reference_chapter) == 2 and [int(item.get('chapter_number', -1)) for item in enriched_outlines.result] == list(range(int(stage.content.reference_chapter[0]), int(stage.content.reference_chapter[1]) + 1))) else []"
+  )
+#</node>
+
+
 #@node(async=true, description="批量创建章节大纲卡（异步）")
 outline_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="章节大纲",
     title_template="第{item.chapter_number}章 {item.title}",
-    items=enriched_outlines.result
+    items=validated_outlines.result
   )
 #</node>
 
@@ -43,7 +50,7 @@ content_cards = Card.BatchUpsert(
       "title": "第{item.chapter_number}章 {item.title}",
       "entity_list": "{item.entity_list}"
     },
-    items=enriched_outlines.result
+    items=validated_outlines.result
   )
 #</node>
 

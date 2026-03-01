@@ -307,7 +307,7 @@ async def generate_with_instruction_stream(
                 from loguru import logger
                 prompt = prompt_service.get_prompt_by_name(session, request.prompt_template)
                 if prompt and prompt.template:
-                    card_prompt_content = prompt.template
+                    card_prompt_content = prompt_service.inject_knowledge(session, str(prompt.template))
                     logger.info(f"[卡片生成] 加载提示词模板: {request.prompt_template}, 长度: {len(card_prompt_content)}")
                 else:
                     logger.warning(f"[卡片生成] 未找到提示词模板: {request.prompt_template}")
