@@ -16,6 +16,8 @@ RelationKind = Literal[
     # 泛用与兜底
     '影响','克制','关于','其他'
 ]
+RelationStance = Literal['友好', '中立', '敌意']
+RELATION_STANCES: tuple[RelationStance, ...] = ('友好', '中立', '敌意')
 
 # 统一提供中英映射（单一来源）——保留兼容（如已有英文入图/读图逻辑）
 CN_TO_EN_KIND: Dict[str, str] = {
@@ -66,7 +68,7 @@ class RelationItem(BaseModel):
     recent_dialogues: List[str] = Field(default_factory=list, description="近期对话片段（建议包含双方各至少一句，可用 A:“…”, B:“…” 合并片段；长度≥20字）。仅当 A, B 均为角色时提取。")
     recent_event_summaries: List[RecentEventSummary] = Field(default_factory=list, description="近期 A 与 B 直接发生在彼此之间的事件；若同一事实涉及三方或以上，仅在最直接的一对上记录一次。优先记录角色-角色的配对；当事件主体确系 A 与 B 为角色-组织/组织-组织时再记录相应关系，避免将组织背景误当作双边事件。")
     # 立场（可选）：友好/中立/敌意
-    stance: Optional[Literal['友好','中立','敌意']] = Field(default=None, description="A 对 B 的总体立场（可选）")
+    stance: Optional[RelationStance] = Field(default=None, description="A 对 B 的总体立场（可选）")
 
 
 class RelationExtraction(BaseModel):

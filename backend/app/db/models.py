@@ -299,3 +299,25 @@ class NodeExecutionState(SQLModel, table=True):
     
     created_at: datetime = Field(default_factory=datetime.now, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.now, nullable=False)
+
+class KGRelation(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("project_id", "source", "target", "kind_en", name="uq_kg_relation_key"),
+        sa.Index("ix_kg_relation_project_source", "project_id", "source"),
+        sa.Index("ix_kg_relation_project_target", "project_id", "target"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(index=True)
+    source: str = Field(index=True)
+    target: str = Field(index=True)
+    kind_en: str = Field(index=True)
+    kind_cn: str = Field(default="其他")
+    fact: Optional[str] = None
+    a_to_b_addressing: Optional[str] = None
+    b_to_a_addressing: Optional[str] = None
+    recent_dialogues: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    recent_event_summaries: List[dict] = Field(default_factory=list, sa_column=Column(JSON))
+    stance: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.now, nullable=False)

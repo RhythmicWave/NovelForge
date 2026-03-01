@@ -56,7 +56,7 @@ class KnowledgeGraphSettings(BaseSettings):
     """知识图谱配置"""
     
     # 知识图谱Provider
-    provider: str = Field(default="neo4j", alias="KNOWLEDGE_GRAPH_PROVIDER")
+    provider: str = Field(default="sqlmodel", alias="KNOWLEDGE_GRAPH_PROVIDER")
     
     class Config:
         env_file = ".env"
