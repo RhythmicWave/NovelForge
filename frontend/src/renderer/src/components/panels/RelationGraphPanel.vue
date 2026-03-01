@@ -6,9 +6,7 @@
         <el-option v-for="k in kindOptions" :key="k" :label="k" :value="k" />
       </el-select>
       <el-select v-model="filters.stance" clearable placeholder="立场" class="w-select">
-        <el-option label="友好" value="友好" />
-        <el-option label="中立" value="中立" />
-        <el-option label="敌意" value="敌意" />
+        <el-option v-for="s in stanceOptions" :key="s" :label="s" :value="s" />
       </el-select>
       <el-button type="primary" @click="reload">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
@@ -64,9 +62,7 @@
         <el-form-item label="实体 B"><el-input v-model="form.target" /></el-form-item>
         <el-form-item label="立场">
           <el-select v-model="form.stance" clearable>
-            <el-option label="友好" value="友好" />
-            <el-option label="中立" value="中立" />
-            <el-option label="敌意" value="敌意" />
+            <el-option v-for="s in stanceOptions" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
         <el-form-item label="事实"><el-input v-model="form.fact" type="textarea" :rows="2" /></el-form-item>
@@ -97,9 +93,7 @@
 
     <el-dialog v-model="batchStanceVisible" title="批量修改立场" width="420px">
       <el-select v-model="batchStance" clearable placeholder="选择新立场" style="width: 100%">
-        <el-option label="友好" value="友好" />
-        <el-option label="中立" value="中立" />
-        <el-option label="敌意" value="敌意" />
+        <el-option v-for="s in stanceOptions" :key="s" :label="s" :value="s" />
       </el-select>
       <template #footer>
         <el-button @click="batchStanceVisible = false">取消</el-button>
@@ -143,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import {
@@ -154,12 +148,17 @@ import {
   batchUpdateStanceRelationGraph,
   deleteRelationGraph,
   exportRelationGraph,
+  getRelationGraphMeta,
   importRelationGraph,
   listRelationGraph,
   upsertRelationGraph,
+  type RelationGraphKind,
   type RelationGraphKey,
   type RelationGraphRecord,
+  type RelationGraphStance,
 } from '@renderer/api/relationGraph'
+
+const props = defineProps<{ refreshSeq?: number }>()
 
 const projectStore = useProjectStore()
 const loading = ref(false)
@@ -169,35 +168,14 @@ const page = ref(1)
 const pageSize = ref(20)
 const selectedRows = ref<RelationGraphRecord[]>([])
 
-const filters = reactive({ keyword: '', kind: '', stance: '' })
+const filters = reactive<{ keyword: string; kind: RelationGraphKind | ''; stance: RelationGraphStance | '' }>({
+  keyword: '',
+  kind: '',
+  stance: '',
+})
 
-const kindOptions = [
-  '同盟', '队友', '同门', '敌对', '亲属', '师徒', '对手', '伙伴', '上级', '下属', '指导',
-  '隶属', '成员', '领导', '创立', '控制', '位于', '影响', '克制', '关于', '其他'
-]
-const kindCnToEn: Record<string, string> = {
-  '同盟': 'ally',
-  '队友': 'team',
-  '同门': 'fellow',
-  '敌对': 'enemy',
-  '亲属': 'family',
-  '师徒': 'mentor',
-  '对手': 'rival',
-  '伙伴': 'partner',
-  '上级': 'superior',
-  '下属': 'subordinate',
-  '指导': 'guide',
-  '隶属': 'member_of',
-  '成员': 'member',
-  '领导': 'lead',
-  '创立': 'found',
-  '控制': 'control',
-  '位于': 'locate_in',
-  '影响': 'influence',
-  '克制': 'counter',
-  '关于': 'about',
-  '其他': 'other',
-}
+const kindOptions = ref<RelationGraphKind[]>([])
+const stanceOptions = ref<RelationGraphStance[]>([])
 
 const editVisible = ref(false)
 const editMode = ref<'create' | 'edit'>('create')
@@ -205,8 +183,8 @@ const editingKey = ref<RelationGraphKey | null>(null)
 const form = reactive({
   source: '',
   target: '',
-  kind_cn: '',
-  stance: '',
+  kind_cn: '' as RelationGraphKind | '',
+  stance: '' as RelationGraphStance | '',
   fact: '',
   a_to_b_addressing: '',
   b_to_a_addressing: '',
@@ -215,9 +193,9 @@ const form = reactive({
 })
 
 const batchKindVisible = ref(false)
-const batchKind = ref('')
+const batchKind = ref<RelationGraphKind | ''>('')
 const batchStanceVisible = ref(false)
-const batchStance = ref('')
+const batchStance = ref<RelationGraphStance | ''>('')
 const batchEventsVisible = ref(false)
 const batchEventsText = ref('')
 const batchCreateVisible = ref(false)
@@ -268,8 +246,8 @@ function openEdit(row: RelationGraphRecord) {
   editingKey.value = { source: row.source!, target: row.target!, kind_en: row.kind_en! }
   form.source = row.source || ''
   form.target = row.target || ''
-  form.kind_cn = row.kind_cn || row.kind || ''
-  form.stance = row.stance || ''
+  form.kind_cn = ((row.kind_cn || row.kind || '') as RelationGraphKind | '')
+  form.stance = ((row.stance || '') as RelationGraphStance | '')
   form.fact = row.fact || ''
   form.a_to_b_addressing = row.a_to_b_addressing || ''
   form.b_to_a_addressing = row.b_to_a_addressing || ''
@@ -314,13 +292,12 @@ function onSelectionChange(list: RelationGraphRecord[]) {
 async function submitEdit() {
   try {
     const projectId = getProjectId()
-    const nextKindEn = kindCnToEn[form.kind_cn] || editingKey.value?.kind_en || ''
-    await upsertRelationGraph({
+    const saved = await upsertRelationGraph({
       project_id: projectId,
       relation: {
         source: form.source,
         target: form.target,
-        kind_cn: form.kind_cn,
+        kind_cn: form.kind_cn || undefined,
         fact: form.fact || undefined,
         a_to_b_addressing: form.a_to_b_addressing || undefined,
         b_to_a_addressing: form.b_to_a_addressing || undefined,
@@ -333,9 +310,9 @@ async function submitEdit() {
     if (editMode.value === 'edit' && editingKey.value) {
       const oldKey = editingKey.value
       const changedKey =
-        oldKey.source !== form.source ||
-        oldKey.target !== form.target ||
-        oldKey.kind_en !== nextKindEn
+        oldKey.source !== saved.source ||
+        oldKey.target !== saved.target ||
+        oldKey.kind_en !== saved.kind_en
       if (changedKey) {
         await deleteRelationGraph({ project_id: projectId, key: oldKey })
       }
@@ -372,7 +349,11 @@ async function batchDelete() {
 async function applyBatchKind() {
   try {
     const projectId = getProjectId()
-    const resp = await batchUpdateKindRelationGraph({ project_id: projectId, keys: selectedKeys.value, new_kind_cn: batchKind.value })
+    const resp = await batchUpdateKindRelationGraph({
+      project_id: projectId,
+      keys: selectedKeys.value,
+      new_kind_cn: batchKind.value || undefined,
+    })
     ElMessage.success(`已更新 ${resp.affected || 0} 条`)
     batchKindVisible.value = false
     batchKind.value = ''
@@ -385,7 +366,11 @@ async function applyBatchKind() {
 async function applyBatchStance() {
   try {
     const projectId = getProjectId()
-    const resp = await batchUpdateStanceRelationGraph({ project_id: projectId, keys: selectedKeys.value, stance: batchStance.value || undefined })
+    const resp = await batchUpdateStanceRelationGraph({
+      project_id: projectId,
+      keys: selectedKeys.value,
+      stance: batchStance.value || undefined,
+    })
     ElMessage.success(`已更新 ${resp.affected || 0} 条`)
     batchStanceVisible.value = false
     batchStance.value = ''
@@ -492,8 +477,25 @@ async function submitImport() {
   }
 }
 
-onMounted(() => {
+async function loadMeta() {
+  try {
+    const meta = await getRelationGraphMeta()
+    kindOptions.value = (meta.kinds || []).map((item) => item.kind_cn).filter(Boolean)
+    stanceOptions.value = (meta.stances || []).filter(Boolean)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '加载关系元数据失败')
+  }
+}
+
+onMounted(async () => {
+  await loadMeta()
   reload()
+})
+
+watch(() => props.refreshSeq, (next, prev) => {
+  if (next !== prev) {
+    reload()
+  }
 })
 </script>
 

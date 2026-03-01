@@ -148,6 +148,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm-configs/{config_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 复制 LLM 配置
+         * @description 复制现有的 LLM 配置，创建一个新的配置副本（使用统计会重置为 0）
+         */
+        post: operations["copy_llm_config_endpoint_api_llm_configs__config_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ai/schemas": {
         parameters: {
             query?: never;
@@ -768,6 +788,23 @@ export interface paths {
          *     现在调用新的、更完整的服务函数。
          */
         post: operations["update_dynamic_info_api_memory_update_dynamic_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/relation-graph/meta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 关系类型与立场元数据 */
+        get: operations["get_meta_api_relation_graph_meta_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2967,7 +3004,7 @@ export interface components {
              * New Kind Cn
              * @description 新的关系中文类型
              */
-            new_kind_cn?: string | null;
+            new_kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
         };
         /** RelationGraphBatchUpdateStanceRequest */
         RelationGraphBatchUpdateStanceRequest: {
@@ -2979,7 +3016,7 @@ export interface components {
              * Stance
              * @description 新立场
              */
-            stance?: string | null;
+            stance?: ("友好" | "中立" | "敌意") | null;
         };
         /** RelationGraphDeleteRequest */
         RelationGraphDeleteRequest: {
@@ -3081,12 +3118,12 @@ export interface components {
              * Kind Cn
              * @description 关系中文类型
              */
-            kind_cn?: string | null;
+            kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
             /**
              * Kind
              * @description 关系中文类型（兼容字段）
              */
-            kind?: string | null;
+            kind?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
             /**
              * Fact
              * @description 关系事实描述
@@ -3121,7 +3158,7 @@ export interface components {
              * Stance
              * @description 立场：友好/中立/敌意
              */
-            stance?: string | null;
+            stance?: ("友好" | "中立" | "敌意") | null;
         };
         /** RelationGraphKey */
         RelationGraphKey: {
@@ -3141,6 +3178,16 @@ export interface components {
              */
             kind_en: string;
         };
+        /** RelationGraphKindOption */
+        RelationGraphKindOption: {
+            /**
+             * Kind Cn
+             * @enum {string}
+             */
+            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            /** Kind En */
+            kind_en: string;
+        };
         /** RelationGraphListRequest */
         RelationGraphListRequest: {
             /** Project Id */
@@ -3148,9 +3195,9 @@ export interface components {
             /** Keyword */
             keyword?: string | null;
             /** Kinds */
-            kinds?: string[];
+            kinds?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他")[];
             /** Stances */
-            stances?: string[];
+            stances?: ("友好" | "中立" | "敌意")[];
             /**
              * Offset
              * @default 0
@@ -3172,6 +3219,13 @@ export interface components {
              */
             total: number;
         };
+        /** RelationGraphMetaResponse */
+        RelationGraphMetaResponse: {
+            /** Kinds */
+            kinds?: components["schemas"]["RelationGraphKindOption"][];
+            /** Stances */
+            stances?: ("友好" | "中立" | "敌意")[];
+        };
         /** RelationGraphRecord */
         RelationGraphRecord: {
             /** Source */
@@ -3180,10 +3234,16 @@ export interface components {
             target: string;
             /** Kind En */
             kind_en: string;
-            /** Kind Cn */
-            kind_cn: string;
-            /** Kind */
-            kind: string;
+            /**
+             * Kind Cn
+             * @enum {string}
+             */
+            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
             /** Fact */
             fact: string;
             /** A To B Addressing */
@@ -3195,7 +3255,7 @@ export interface components {
             /** Recent Event Summaries */
             recent_event_summaries?: components["schemas"]["RelationGraphEvent"][];
             /** Stance */
-            stance?: string | null;
+            stance?: ("友好" | "中立" | "敌意") | null;
             /** Updated At */
             updated_at?: string | null;
         };
@@ -4094,6 +4154,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_llm_config_endpoint_api_llm_configs__config_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                config_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_LLMConfigRead_"];
                 };
             };
             /** @description Validation Error */
@@ -5576,6 +5667,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_meta_api_relation_graph_meta_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationGraphMetaResponse"];
                 };
             };
         };

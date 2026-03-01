@@ -117,7 +117,7 @@
           <el-empty v-else description="请从左侧选择一个卡片进行编辑" />
         </el-tab-pane>
         <el-tab-pane label="关系图管理" name="relation-graph">
-          <RelationGraphPanel />
+          <RelationGraphPanel :refresh-seq="relationGraphRefreshSeq" />
         </el-tab-pane>
       </el-tabs>
     </el-main>
@@ -468,6 +468,7 @@ const groupedTree = computed(() => buildGroupedNodes(cardTree.value as unknown a
 
 // Local State
 const activeTab = ref('market')
+const relationGraphRefreshSeq = ref(0)
 const activeRightTab = ref('assistant')
 const isCreateCardDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
@@ -1413,6 +1414,12 @@ async function refreshAssistantContext() {
 }
 
 watch(activeCard, () => { if (!assistantSelectionCleared.value) refreshAssistantContext() })
+
+watch(activeTab, (tab) => {
+  if (tab === 'relation-graph') {
+    relationGraphRefreshSeq.value += 1
+  }
+})
 
 function resetAssistantSelection() {
   assistantSelectionCleared.value = true

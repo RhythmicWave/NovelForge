@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 from sqlmodel import Session
 
-from app.schemas.relation_extract import CN_TO_EN_KIND, EN_TO_CN_KIND
+from app.schemas.relation_extract import CN_TO_EN_KIND, EN_TO_CN_KIND, RELATION_STANCES
 from app.schemas.relation_graph import (
     RelationGraphBatchAppendEventsRequest,
     RelationGraphBatchCreateRequest,
@@ -21,8 +21,10 @@ from app.schemas.relation_graph import (
     RelationGraphImportRequest,
     RelationGraphImportResponse,
     RelationGraphInput,
+    RelationGraphKindOption,
     RelationGraphListRequest,
     RelationGraphListResponse,
+    RelationGraphMetaResponse,
     RelationGraphRecord,
     RelationGraphUpsertRequest,
     RelationGraphWriteResponse,
@@ -34,6 +36,15 @@ class RelationGraphService:
     def __init__(self, session: Session, graph_provider: KnowledgeGraphProvider | None = None):
         self.session = session
         self.graph = graph_provider or get_provider()
+
+    def get_meta(self) -> RelationGraphMetaResponse:
+        return RelationGraphMetaResponse(
+            kinds=[
+                RelationGraphKindOption(kind_cn=kind_cn, kind_en=kind_en)
+                for kind_cn, kind_en in CN_TO_EN_KIND.items()
+            ],
+            stances=list(RELATION_STANCES),
+        )
 
     def _resolve_kind_en(self, relation: RelationGraphInput) -> str:
         if relation.kind_en and relation.kind_en.strip():

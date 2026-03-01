@@ -23,6 +23,15 @@ export type RelationGraphExportRequest = components['schemas']['RelationGraphExp
 export type RelationGraphExportResponse = components['schemas']['RelationGraphExportResponse']
 export type RelationGraphImportRequest = components['schemas']['RelationGraphImportRequest']
 export type RelationGraphImportResponse = components['schemas']['RelationGraphImportResponse']
+export type RelationGraphKindOption = components['schemas']['RelationGraphKindOption']
+export type RelationGraphMetaResponse = components['schemas']['RelationGraphMetaResponse']
+
+export type RelationGraphKind = NonNullable<components['schemas']['RelationGraphInput']['kind_cn']>
+export type RelationGraphStance = NonNullable<components['schemas']['RelationGraphInput']['stance']>
+
+export function getRelationGraphMeta() {
+  return http.get<RelationGraphMetaResponse>('/relation-graph/meta')
+}
 
 export function listRelationGraph(data: RelationGraphListRequest) {
   return http.post<RelationGraphListResponse>('/relation-graph/list', data)

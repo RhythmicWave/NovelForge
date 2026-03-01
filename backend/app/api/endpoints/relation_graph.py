@@ -17,6 +17,7 @@ from app.schemas.relation_graph import (
     RelationGraphImportResponse,
     RelationGraphListRequest,
     RelationGraphListResponse,
+    RelationGraphMetaResponse,
     RelationGraphRecord,
     RelationGraphUpsertRequest,
     RelationGraphWriteResponse,
@@ -29,6 +30,11 @@ router = APIRouter()
 
 def _service(session: Session) -> RelationGraphService:
     return RelationGraphService(session)
+
+
+@router.get("/meta", response_model=RelationGraphMetaResponse, summary="关系类型与立场元数据")
+def get_meta(session: Session = Depends(get_session)):
+    return _service(session).get_meta()
 
 
 @router.post("/list", response_model=RelationGraphListResponse, summary="分页查询关系图")
