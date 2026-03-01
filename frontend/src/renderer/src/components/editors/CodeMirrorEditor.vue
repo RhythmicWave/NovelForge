@@ -130,8 +130,8 @@
 		<div v-if="pendingAiEdit && !pendingAiEdit.generating" class="ai-replace-review-bar">
 			<span class="review-hint">已生成替换建议：灰色为原文，蓝色为新文本</span>
 			<div class="review-actions">
-				<el-button type="primary" size="small" @click="acceptPendingAiEdit">接受替换</el-button>
-				<el-button size="small" @click="rejectPendingAiEdit">拒绝还原</el-button>
+				<el-button type="primary" size="small" @click="acceptPendingAiEdit">接受并替换</el-button>
+				<el-button size="small" @click="rejectPendingAiEdit">拒绝并还原</el-button>
 			</div>
 		</div>
 	</div>
@@ -990,18 +990,10 @@ async function executeAIContinuation() {
 	}
 
 	// 2. 格式化事实子图（参与实体）
-	let factsText = ''
-	try {
-		factsText = formatFactsFromContext(props.prefetched)
-	} catch {}
-
 	// 3. 组合完整的上下文信息
 	const contextParts: string[] = []
 	if (resolvedContextTemplate) {
 		contextParts.push(`【引用上下文】\n${resolvedContextTemplate}`)
-	}
-	if (factsText) {
-		contextParts.push(`【事实子图】\n${factsText}`)
 	}
 	const contextInfoBlock = contextParts.join('\n\n')
 
@@ -1030,6 +1022,8 @@ async function executeAIContinuation() {
 		const autoParticipants = extractParticipantsForCurrentChapter()
 		if (autoParticipants.length) (requestData as any).participants = autoParticipants
 	} catch {}
+
+	applyContinuationScope(requestData)
 
 	if (view) { view.focus(); const end = view.state.doc.length; view.dispatch({ selection: { anchor: end } }) }
 
@@ -1195,18 +1189,11 @@ async function executeAIEdit(
 	}
 
 	// 2. 格式化事实子图（参与实体）
-	let factsText = ''
-	try {
-		factsText = formatFactsFromContext(props.prefetched)
-	} catch {}
 
 	// 3. 组合上下文信息：引用上下文 + 事实子图 + 用户要求 + 上文 + 选中内容 + 下文
 	const contextParts: string[] = []
 	if (resolvedContextTemplate) {
 		contextParts.push(`【引用上下文】\n${resolvedContextTemplate}`)
-	}
-	if (factsText) {
-		contextParts.push(`【事实子图】\n${factsText}`)
 	}
 	if (userRequirement) {
 		contextParts.push(`【用户要求】\n${userRequirement}`)
@@ -1253,6 +1240,8 @@ async function executeAIEdit(
 		const autoParticipants = extractParticipantsForCurrentChapter()
 		if (autoParticipants.length) (requestData as any).participants = autoParticipants
 	} catch {}
+
+	applyContinuationScope(requestData)
 
 	executeAIGeneration(requestData, true, promptName, selectedText.from, selectedText.to)
 }
@@ -1419,6 +1408,28 @@ function executeAIGeneration(
 
 function interruptStream() {
 	try { streamHandle?.cancel(); } catch {}
+}
+
+function applyContinuationScope(requestData: ContinuationRequest) {
+	try {
+		const scopeProjectId =
+			(projectStore.currentProject?.id as number | undefined)
+			?? ((localCard as any)?.project_id as number | undefined)
+			?? ((props.card as any)?.project_id as number | undefined)
+			?? ((props.contextParams as any)?.project_id as number | undefined)
+
+		const scopeVolumeNumber =
+			((props.contextParams as any)?.volume_number as number | undefined)
+			?? ((localCard.content as any)?.volume_number as number | undefined)
+
+		const scopeChapterNumber =
+			((props.contextParams as any)?.chapter_number as number | undefined)
+			?? ((localCard.content as any)?.chapter_number as number | undefined)
+
+		if (Number.isFinite(scopeProjectId as number)) (requestData as any).project_id = scopeProjectId
+		if (Number.isFinite(scopeVolumeNumber as number)) (requestData as any).volume_number = scopeVolumeNumber
+		if (Number.isFinite(scopeChapterNumber as number)) (requestData as any).chapter_number = scopeChapterNumber
+	} catch {}
 }
 
 function extractParticipantsForCurrentChapter(): string[] {

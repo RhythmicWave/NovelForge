@@ -155,6 +155,7 @@
               :chapter-number="chapterChapterNumber"
               :participants="chapterParticipants"
               @update:participants="handleContextParticipantsUpdate"
+              @context-updated="handleContextAssembledUpdate"
             />
           </el-tab-pane>
           
@@ -1373,6 +1374,10 @@ async function handleContextParticipantsUpdate(names: string[]) {
   } catch (e) {
     console.error('Failed to update participants on card:', e)
   }
+}
+
+function handleContextAssembledUpdate(ctx: any) {
+  prefetchedContext.value = ctx || null
 }
 
 

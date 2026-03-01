@@ -273,6 +273,8 @@ async def generate_continuation_streaming(
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
     ]
+    
+    logger.info(f"开始续写，提示词: {system_prompt} \n\n {user_prompt}")
 
     accumulated: str = ""
 
