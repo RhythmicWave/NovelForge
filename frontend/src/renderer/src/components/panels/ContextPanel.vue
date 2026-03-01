@@ -68,7 +68,13 @@ import { ElMessage } from 'element-plus'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
 
 const props = defineProps<{ projectId?: number; participants?: string[]; volumeNumber?: number | null; stageNumber?: number | null; chapterNumber?: number | null; draftTail?: string; prefetched?: AssembleContextResponse | null }>()
-const emit = defineEmits<{ (e:'update:participants', v: string[]): void; (e:'update:volumeNumber', v: number | null): void; (e:'update:stageNumber', v: number | null): void; (e:'update:chapterNumber', v: number | null): void }>()
+const emit = defineEmits<{
+  (e:'update:participants', v: string[]): void;
+  (e:'update:volumeNumber', v: number | null): void;
+  (e:'update:stageNumber', v: number | null): void;
+  (e:'update:chapterNumber', v: number | null): void;
+  (e:'context-updated', v: AssembleContextResponse): void;
+}>()
 
 const assembling = ref(false)
 const assembled = ref<AssembleContextResponse | null>(null)
@@ -173,6 +179,7 @@ async function assemble() {
       current_draft_tail: props.draftTail || ''
     })
     assembled.value = res
+    emit('context-updated', res)
     // 将最新本地值回写父层，确保保存时同步
     emitParticipants(); emitVolume(); emitStage(); emitChapter();
     ElMessage.success('上下文已装配')

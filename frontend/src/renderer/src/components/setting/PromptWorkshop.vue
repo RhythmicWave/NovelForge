@@ -113,7 +113,7 @@ const dialogTitle = computed(() => (currentPrompt.value.id ? '编辑提示词' :
 const isBuiltInPrompt = (row: Prompt) => !!row.built_in
 
 // 结构化编辑相关
-const useStructured = ref(true)
+const useStructured = ref(false)
 const structured = ref({ role: '', skills: '', goals: '', knowledge: '', outputFormat: DEFAULT_OUTPUT_FORMAT })
 
 // 知识库选择与模式
@@ -179,7 +179,7 @@ function resetStructuredDefaults() {
 function handleCreate() {
   currentPrompt.value = { name: '', description: '', template: '' }
   resetStructuredDefaults()
-  useStructured.value = true
+  useStructured.value = false
   drawerVisible.value = true
 }
 
@@ -242,7 +242,7 @@ async function handleEdit(prompt: any) {
   await fetchKnowledgeList()
   // 尝试解析为结构化表单，若失败则回退到原始模板模式
   await tryParseStructured(prompt.template)
-  useStructured.value = true
+  useStructured.value = false
   drawerVisible.value = true
 }
 
