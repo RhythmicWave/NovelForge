@@ -66,6 +66,8 @@ async def stream_agent_with_tools(
     reasoning_accumulated = ""
     usage_input_tokens: Optional[int] = None
     usage_output_tokens: Optional[int] = None
+    tool_end_count = 0
+    tool_end_failed_count = 0
 
     initial_messages: list[dict[str, str]] = []
     for item in history_messages or []:
@@ -139,6 +141,10 @@ async def stream_agent_with_tools(
                                     "result": result_obj,
                                 },
                             }
+
+                            tool_end_count += 1
+                            if isinstance(result_obj, dict) and result_obj.get("success") is False:
+                                tool_end_failed_count += 1
                 continue
 
             if stream_mode == "messages":
@@ -243,6 +249,21 @@ async def stream_agent_with_tools(
         yield {
             "type": "reasoning",
             "data": {"text": reasoning_accumulated},
+        }
+
+    if not accumulated_text.strip() and not reasoning_accumulated.strip():
+        if tool_end_count > 0:
+            if tool_end_failed_count == tool_end_count:
+                fallback_text = "已执行工具调用，但工具结果均未成功，请查看工具结果并调整后重试。"
+            else:
+                fallback_text = "已执行工具调用，请查看工具结果。"
+        else:
+            fallback_text = "本轮未产生可见回复文本，请重试或调整提问。"
+
+        accumulated_text += fallback_text
+        yield {
+            "type": "token",
+            "data": {"text": fallback_text, "delta": False},
         }
 
     if usage_input_tokens is not None and usage_output_tokens is not None:
