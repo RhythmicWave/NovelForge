@@ -8,6 +8,7 @@ from contextvars import ContextVar
 
 from loguru import logger
 from langchain_core.tools import tool
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.services.card_service import CardService
 from app.db.models import Card, CardType
@@ -281,9 +282,10 @@ def _update_card_impl(
         schema = _get_card_type_schema(deps.session, card.card_type.name)
         
         # 3. 创建执行器（使用现有数据）
+        initial_data = copy.deepcopy(card.content) if isinstance(card.content, dict) else {}
         executor = InstructionExecutor(
             schema=schema,
-            initial_data=card.content or {}
+            initial_data=initial_data
         )
         
         # 4. 执行指令
@@ -291,6 +293,7 @@ def _update_card_impl(
         
         # 5. 保存并标记为 AI 修改
         card.content = result["data"]
+        flag_modified(card, "content")
         card.ai_modified = True
         card.needs_confirmation = True
         card.last_modified_by = "ai"
@@ -315,11 +318,13 @@ def _update_card_impl(
             missing_fields_str = ", ".join(result["missing_fields"])
             logger.warning(f"⚠️ [_update_card_impl] 卡片已更新但仍不完整: {missing_fields_str}")
             return {
-                "success": False,
+                "success": True,
                 "card_id": card_id,
                 "card_title": card.title,
                 "message": f"⚠️ 卡片已更新但仍不完整，需要继续补充字段。补充完成后请在前端点击保存以触发工作流。",
-                "error": f"缺失必填字段：{missing_fields_str}",
+                "is_complete": False,
+                "completion_status": "incomplete",
+                "warning": f"缺失必填字段：{missing_fields_str}",
                 "missing_fields": result["missing_fields"],
                 "current_data": result["data"],
                 "applied": result["applied"],

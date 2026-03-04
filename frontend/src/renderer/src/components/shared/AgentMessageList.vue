@@ -1,115 +1,147 @@
 <template>
   <div class="agent-message-list" ref="listEl">
     <div v-for="(msg, idx) in props.messages" :key="idx" :class="['msg-row', msg.role]">
-      <div class="msg-bubble">
-        <template v-if="msg.role === 'assistant'">
-          <div class="timeline-block">
-            <div
-              v-for="(timelineItem, timelineIndex) in getRenderSequence(msg)"
-              :key="`${idx}-timeline-${timelineIndex}`"
-              class="timeline-item"
-            >
-              <template v-if="timelineItem.kind === 'reasoning'">
-                <div class="timeline-thinking-wrap">
-                  <div class="thinking-card">
-                    <button class="thinking-trigger" type="button" @click="toggleThinkingItem(idx, timelineIndex)">
-                      <span class="thinking-status-dot" :class="{ spinning: isThinkingInProgress(idx, timelineIndex) }">
-                        <el-icon v-if="isThinkingInProgress(idx, timelineIndex)"><Loading /></el-icon>
-                        <template v-else>✓</template>
-                      </span>
-                      <span class="thinking-title">
-                        {{ isThinkingInProgress(idx, timelineIndex) ? '思考中…' : (isThinkingItemOpen(idx, timelineIndex) ? '思考过程' : '思考完成') }}
-                      </span>
-                      <el-icon class="thinking-arrow">
-                        <ArrowUp v-if="isThinkingItemOpen(idx, timelineIndex)" />
-                        <ArrowDown v-else />
-                      </el-icon>
-                    </button>
-                    <div v-if="isThinkingItemOpen(idx, timelineIndex)" class="thinking-content">
-                      <XMarkdown
-                        :markdown="timelineItem.text || ''"
-                        :default-theme-mode="isDarkMode ? 'dark' : 'light'"
-                        class="bubble-markdown"
-                      />
+      <div class="msg-stack">
+        <div class="msg-bubble">
+          <template v-if="msg.role === 'assistant'">
+            <div class="timeline-block">
+              <div
+                v-for="(timelineItem, timelineIndex) in getRenderSequence(msg)"
+                :key="`${idx}-timeline-${timelineIndex}`"
+                class="timeline-item"
+              >
+                <template v-if="timelineItem.kind === 'reasoning'">
+                  <div class="timeline-thinking-wrap">
+                    <div class="thinking-card">
+                      <button class="thinking-trigger" type="button" @click="toggleThinkingItem(idx, timelineIndex)">
+                        <span class="thinking-status-dot" :class="{ spinning: isThinkingInProgress(idx, timelineIndex) }">
+                          <el-icon v-if="isThinkingInProgress(idx, timelineIndex)"><Loading /></el-icon>
+                          <template v-else>✓</template>
+                        </span>
+                        <span class="thinking-title">
+                          {{ isThinkingInProgress(idx, timelineIndex) ? '思考中…' : (isThinkingItemOpen(idx, timelineIndex) ? '思考过程' : '思考完成') }}
+                        </span>
+                        <el-icon class="thinking-arrow">
+                          <ArrowUp v-if="isThinkingItemOpen(idx, timelineIndex)" />
+                          <ArrowDown v-else />
+                        </el-icon>
+                      </button>
+                      <div v-if="isThinkingItemOpen(idx, timelineIndex)" class="thinking-content">
+                        <XMarkdown
+                          :markdown="timelineItem.text || ''"
+                          :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                          class="bubble-markdown"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </template>
+                </template>
 
-              <template v-else-if="timelineItem.kind === 'tool' && timelineItem.tool">
-                <div class="tool-summary-card timeline-tool-card">
-                  <div class="tool-item-head">
-                    <el-tag size="small" effect="plain">{{ timelineItem.tool.tool_name }}</el-tag>
-                    <span class="tool-status">{{ formatToolStatus(timelineItem.tool) }}</span>
+                <template v-else-if="timelineItem.kind === 'tool' && timelineItem.tool">
+                  <div class="tool-summary-card timeline-tool-card">
+                    <div class="tool-item-head">
+                      <el-tag size="small" effect="plain">{{ timelineItem.tool.tool_name }}</el-tag>
+                      <span class="tool-status">{{ formatToolStatus(timelineItem.tool) }}</span>
+                    </div>
+
+                    <div v-if="showJumpLink(timelineItem.tool)" class="tool-jump-row">
+                      <el-link type="primary" size="small" @click="emitJumpToCard(timelineItem.tool)">
+                        跳转到卡片 →
+                      </el-link>
+                    </div>
+
+                    <div v-if="timelineItem.tool.result !== undefined" class="tool-result-toggle-row">
+                      <el-button text size="small" @click="toggleToolResult(idx, timelineIndex)">
+                        {{ isToolResultOpen(idx, timelineIndex) ? '收起结果' : '展开结果' }}
+                      </el-button>
+                    </div>
+                    <pre
+                      v-if="timelineItem.tool.result !== undefined && isToolResultOpen(idx, timelineIndex)"
+                      class="tool-result"
+                    >{{ formatToolValue(timelineItem.tool.result) }}</pre>
                   </div>
+                </template>
 
-                  <div v-if="showJumpLink(timelineItem.tool)" class="tool-jump-row">
-                    <el-link type="primary" size="small" @click="emitJumpToCard(timelineItem.tool)">
-                      跳转到卡片 →
-                    </el-link>
+                <template v-else>
+                  <div class="markdown-wrap">
+                    <XMarkdown
+                      :markdown="timelineItem.text || ''"
+                      :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                      class="bubble-markdown"
+                    />
                   </div>
-
-                  <div v-if="timelineItem.tool.result !== undefined" class="tool-result-toggle-row">
-                    <el-button text size="small" @click="toggleToolResult(idx, timelineIndex)">
-                      {{ isToolResultOpen(idx, timelineIndex) ? '收起结果' : '展开结果' }}
-                    </el-button>
-                  </div>
-                  <pre
-                    v-if="timelineItem.tool.result !== undefined && isToolResultOpen(idx, timelineIndex)"
-                    class="tool-result"
-                  >{{ formatToolValue(timelineItem.tool.result) }}</pre>
-                </div>
-              </template>
-
-              <template v-else>
-                <div class="markdown-wrap">
-                  <XMarkdown
-                    :markdown="timelineItem.text || ''"
-                    :default-theme-mode="isDarkMode ? 'dark' : 'light'"
-                    class="bubble-markdown"
-                  />
-                </div>
-              </template>
+                </template>
+              </div>
             </div>
-          </div>
 
-          <div v-if="msg.toolsInProgress" class="tools-in-progress">
-            <el-icon class="tools-icon spinning"><Loading /></el-icon>
-            <pre class="tools-progress-text">{{ msg.toolsInProgress }}</pre>
-          </div>
+            <div v-if="msg.toolsInProgress" class="tools-in-progress">
+              <el-icon class="tools-icon spinning"><Loading /></el-icon>
+              <pre class="tools-progress-text">{{ msg.toolsInProgress }}</pre>
+            </div>
+          </template>
 
-          <div
-            v-if="shouldShowAssistantActions(msg, idx)"
-            class="assistant-actions"
-          >
-            <el-tooltip content="复制回复" placement="top">
-              <el-button
-                circle
-                size="small"
-                :icon="CopyDocument"
-                @click="emitCopyAssistant(idx)"
+          <template v-else>
+            <div class="markdown-wrap">
+              <XMarkdown
+                :markdown="msg.content"
+                :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+                class="bubble-markdown"
               />
-            </el-tooltip>
-            <el-tooltip content="重新生成" placement="top">
-              <el-button
-                circle
-                size="small"
-                :icon="RefreshRight"
-                @click="emitRegenerateAssistant(idx)"
-              />
-            </el-tooltip>
-          </div>
-        </template>
+            </div>
+          </template>
+        </div>
 
-        <template v-else>
-          <div class="markdown-wrap">
-            <XMarkdown
-              :markdown="msg.content"
-              :default-theme-mode="isDarkMode ? 'dark' : 'light'"
-              class="bubble-markdown"
+        <div
+          v-if="msg.role === 'assistant' && shouldShowAssistantActions(msg, idx)"
+          class="assistant-actions"
+        >
+          <el-tooltip content="复制回复" placement="top">
+            <el-button
+              circle
+              size="small"
+              :icon="CopyDocument"
+              @click="emitCopyAssistant(idx)"
             />
-          </div>
-        </template>
+          </el-tooltip>
+          <el-tooltip content="重新生成" placement="top">
+            <el-button
+              circle
+              size="small"
+              :icon="RefreshRight"
+              @click="emitRegenerateAssistant(idx)"
+            />
+          </el-tooltip>
+          <el-tooltip content="删除回复" placement="top">
+            <el-button
+              circle
+              size="small"
+              :icon="Delete"
+              @click="emitDeleteAssistant(idx)"
+            />
+          </el-tooltip>
+        </div>
+
+        <div
+          v-if="msg.role === 'user' && shouldShowUserActions(msg, idx)"
+          class="assistant-actions"
+        >
+          <el-tooltip content="复制消息" placement="top">
+            <el-button
+              circle
+              size="small"
+              :icon="CopyDocument"
+              @click="emitCopyUser(idx)"
+            />
+          </el-tooltip>
+          <el-tooltip content="删除消息" placement="top">
+            <el-button
+              circle
+              size="small"
+              :icon="Delete"
+              @click="emitDeleteUser(idx)"
+            />
+          </el-tooltip>
+        </div>
       </div>
     </div>
 
@@ -120,7 +152,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { XMarkdown } from 'vue-element-plus-x'
-import { Loading, CopyDocument, RefreshRight, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { Loading, CopyDocument, RefreshRight, ArrowUp, ArrowDown, Delete } from '@element-plus/icons-vue'
 
 import { useAppStore } from '@renderer/stores/useAppStore'
 import type { AgentChatMessage } from '@/types/agentChat'
@@ -133,6 +165,7 @@ const props = withDefaults(
     jumpProjectId?: number | null
     showAssistantActions?: boolean
     assistantActionsLatestOnly?: boolean
+    showUserActions?: boolean
   }>(),
   {
     emptyDescription: '请输入需求，我会先给出可审阅的结果。',
@@ -140,6 +173,7 @@ const props = withDefaults(
     jumpProjectId: null,
     showAssistantActions: false,
     assistantActionsLatestOnly: true,
+    showUserActions: false,
   },
 )
 
@@ -147,6 +181,9 @@ const emit = defineEmits<{
   (e: 'jump-to-card', payload: { projectId: number; cardId: number }): void
   (e: 'copy-assistant', payload: { index: number }): void
   (e: 'regenerate-assistant', payload: { index: number }): void
+  (e: 'delete-assistant', payload: { index: number }): void
+  (e: 'copy-user', payload: { index: number }): void
+  (e: 'delete-user', payload: { index: number }): void
 }>()
 
 const listEl = ref<HTMLElement | null>(null)
@@ -295,12 +332,32 @@ function shouldShowAssistantActions(message: AgentChatMessage, index: number): b
   return !props.assistantActionsLatestOnly || isLatestAssistantIndex(index)
 }
 
+function shouldShowUserActions(message: AgentChatMessage, index: number): boolean {
+  if (!props.showUserActions) return false
+  if (message.role !== 'user') return false
+  if (!(message.content || '').trim()) return false
+  if (props.streaming && index === props.messages.length - 1) return false
+  return true
+}
+
 function emitCopyAssistant(index: number): void {
   emit('copy-assistant', { index })
 }
 
 function emitRegenerateAssistant(index: number): void {
   emit('regenerate-assistant', { index })
+}
+
+function emitDeleteAssistant(index: number): void {
+  emit('delete-assistant', { index })
+}
+
+function emitCopyUser(index: number): void {
+  emit('copy-user', { index })
+}
+
+function emitDeleteUser(index: number): void {
+  emit('delete-user', { index })
 }
 
 defineExpose({
@@ -328,8 +385,14 @@ defineExpose({
   justify-content: flex-start;
 }
 
-.msg-bubble {
+.msg-stack {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
   max-width: 88%;
+}
+
+.msg-bubble {
   border-radius: 10px;
   padding: 10px 12px;
   border: 1px solid var(--el-border-color-light);

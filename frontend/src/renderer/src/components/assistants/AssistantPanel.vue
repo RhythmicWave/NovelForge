@@ -36,9 +36,13 @@
         :jump-project-id="projectStore.currentProject?.id || null"
         :show-assistant-actions="true"
         :assistant-actions-latest-only="false"
+        :show-user-actions="true"
         @jump-to-card="payload => emit('jump-to-card', payload)"
         @copy-assistant="payload => handleCopyAssistantAt(payload.index)"
         @regenerate-assistant="payload => handleRegenerateAt(payload.index)"
+        @delete-assistant="payload => handleDeleteAssistantAt(payload.index)"
+        @copy-user="payload => handleCopyUserAt(payload.index)"
+        @delete-user="payload => handleDeleteUserAt(payload.index)"
       />
       <div v-if="isStreaming" class="streaming-tip">正在生成中…</div>
     </div>
@@ -471,6 +475,19 @@ function handleCopyAssistantAt(index: number) {
   })
 }
 
+function handleCopyUserAt(index: number) {
+  const target = messages.value[index]
+  if (!target || target.role !== 'user') return
+  const text = (target.content || '').trim()
+  if (!text) return
+
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('已复制')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
 function handleRegenerateAt(index: number) {
   if (isStreaming.value) return
   if (index < 0 || index >= messages.value.length) return
@@ -484,6 +501,44 @@ function handleRegenerateAt(index: number) {
   scrollToBottom()
   startStreaming(index)
 }
+
+function handleDeleteAssistantAt(index: number) {
+  if (isStreaming.value) return
+  if (index < 0 || index >= messages.value.length) return
+  if (messages.value[index]?.role !== 'assistant') return
+
+  deleteMessageAt(index)
+  ElMessage.success('已删除该回复')
+}
+
+function handleDeleteUserAt(index: number) {
+  if (isStreaming.value) return
+  if (index < 0 || index >= messages.value.length) return
+  if (messages.value[index]?.role !== 'user') return
+
+  deleteMessageAt(index)
+  ElMessage.success('已删除该消息')
+}
+
+function deleteMessageAt(index: number) {
+  if (index < 0 || index >= messages.value.length) return
+
+  messages.value.splice(index, 1)
+
+  if (lastRun.value) {
+    if (lastRun.value.targetIdx === index) {
+      lastRun.value = null
+    } else if (lastRun.value.targetIdx > index) {
+      lastRun.value = {
+        ...lastRun.value,
+        targetIdx: lastRun.value.targetIdx - 1,
+      }
+    }
+  }
+
+  saveCurrentSession()
+}
+
 function handleRegenerate() { if (!canRegenerate.value || !lastRun.value) return; messages.value[lastRun.value.targetIdx].content = ''; scrollToBottom(); startStreaming(lastRun.value.targetIdx) }
 function regenerateFromCurrent() {
   if (isStreaming.value) return

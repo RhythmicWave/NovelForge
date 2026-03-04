@@ -105,11 +105,14 @@ async def generate_assistant_chat_streaming(
     _ = track_stats
     react_enabled = bool(getattr(request, "react_mode_enabled", False))
     logger.info(
-        "[LangChain] generate_assistant_chat_streaming: 使用{}模式",
+        "[LangChain] generate_assistant_chat_streaming: 使用{}模式，模型id:{}",
         "React" if react_enabled else "标准",
+        request.llm_config_id
     )
 
     engine = stream_chat_with_react if react_enabled else stream_chat_with_tools
+    has_visible_output = False
+    has_tool_events = False
 
     try:
         async for evt in engine(
@@ -117,7 +120,31 @@ async def generate_assistant_chat_streaming(
             request=request,
             system_prompt=system_prompt,
         ):
+            evt_type = evt.get("type") if isinstance(evt, dict) else None
+            evt_data = evt.get("data") if isinstance(evt, dict) else None
+
+            if evt_type in ("token", "reasoning") and isinstance(evt_data, dict):
+                evt_text = str(evt_data.get("text") or "")
+                if evt_text.strip():
+                    has_visible_output = True
+            elif evt_type in ("tool_start", "tool_end", "tool_summary"):
+                has_tool_events = True
+
             yield json.dumps(evt, ensure_ascii=False)
+
+        if not has_visible_output:
+            fallback_text = (
+                "已执行工具调用，请查看工具结果。"
+                if has_tool_events
+                else "本轮未产生可见回复文本，请重试或调整提问。"
+            )
+            yield json.dumps(
+                {
+                    "type": "token",
+                    "data": {"text": fallback_text, "delta": False},
+                },
+                ensure_ascii=False,
+            )
     except asyncio.CancelledError:
         logger.info("[LangChain] 助手调用被取消（CancelledError）")
         return
