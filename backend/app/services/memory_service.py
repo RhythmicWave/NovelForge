@@ -237,7 +237,7 @@ class MemoryService:
         triples_with_attrs: List[tuple[str, str, str, Dict[str, Any]]] = []
 
         DIALOGUES_QUEUE_SIZE = 2
-        EVENTS_QUEUE_SIZE = 2
+        EVENTS_QUEUE_SIZE = 10
 
         # 创建参与者类型映射以便快速查找
         participant_type_map = {p.name: p.type for p in participants_with_type} if participants_with_type else {}
@@ -333,26 +333,53 @@ class MemoryService:
 
             # 事件摘要（补全卷章）
             new_summaries: List[Dict[str, Any]] = []
+            old_summaries_by_summary: Dict[str, Dict[str, Any]] = {}
+            key = (r.a, r.b, pred)
+            prev = existing_index.get(key, {})
+            old_summaries: List[Dict[str, Any]] = list(prev.get("recent_event_summaries") or [])
+            for old_item in old_summaries:
+                summary_key = str(old_item.get("summary") or "").strip()
+                if summary_key and summary_key not in old_summaries_by_summary:
+                    old_summaries_by_summary[summary_key] = old_item
+
             for s in (r.recent_event_summaries or []):
                 try:
                     item = s.model_dump()
+                    summary_text = str(item.get("summary") or "").strip()
+                    if not summary_text:
+                        continue
+
+                    matched_old = old_summaries_by_summary.get(summary_text)
+                    if matched_old:
+                        if item.get("volume_number") is None and matched_old.get("volume_number") is not None:
+                            item["volume_number"] = matched_old.get("volume_number")
+                        if item.get("chapter_number") is None and matched_old.get("chapter_number") is not None:
+                            item["chapter_number"] = matched_old.get("chapter_number")
+
                     if volume_number is not None and item.get("volume_number") is None:
                         item["volume_number"] = int(volume_number)
                     if chapter_number is not None and item.get("chapter_number") is None:
                         item["chapter_number"] = int(chapter_number)
-                    if str(item.get("summary") or "").strip():
+
+                    if summary_text:
                         new_summaries.append(item)
                 except Exception:
                     continue
 
             # 读取现存并合并为队列
-            key = (r.a, r.b, pred)
-            prev = existing_index.get(key, {})
             old_dialogues: List[str] = list(prev.get("recent_dialogues") or [])
-            old_summaries: List[Dict[str, Any]] = list(prev.get("recent_event_summaries") or [])
 
             merged_dialogues = _merge_queue(old_dialogues, new_dialogues, key_fn=lambda x: x, max_size=DIALOGUES_QUEUE_SIZE)
-            merged_summaries = _merge_queue(old_summaries, new_summaries, key_fn=lambda x: (x.get("summary") or ""), max_size=EVENTS_QUEUE_SIZE)
+            merged_summaries = _merge_queue(
+                old_summaries,
+                new_summaries,
+                key_fn=lambda x: (
+                    str((x or {}).get("summary") or "").strip(),
+                    (x or {}).get("volume_number"),
+                    (x or {}).get("chapter_number"),
+                ),
+                max_size=EVENTS_QUEUE_SIZE,
+            )
 
             if merged_dialogues:
                 attributes["recent_dialogues"] = merged_dialogues

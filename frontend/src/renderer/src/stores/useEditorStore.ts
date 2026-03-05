@@ -45,6 +45,8 @@ export const useEditorStore = defineStore('editor', () => {
 
   // 用于跨组件触发“提取动态信息”的回调
   const triggerExtractDynamicInfoRef = ref<null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)>(null)
+  // 用于跨组件触发“提取关系入图”的回调
+  const triggerExtractRelationsRef = ref<null | ((opts: { llm_config_id?: number }) => Promise<void>)>(null)
 
   // 写作上下文共享：卷号/章节号/标题（供其它面板使用）
   const currentVolumeNumber = ref<number | null>(null)
@@ -150,6 +152,16 @@ export const useEditorStore = defineStore('editor', () => {
     }
   }
 
+  function setTriggerExtractRelations(fn: null | ((opts: { llm_config_id?: number }) => Promise<void>)) {
+    triggerExtractRelationsRef.value = fn
+  }
+
+  async function triggerExtractRelations(opts: { llm_config_id?: number }) {
+    if (triggerExtractRelationsRef.value) {
+      await triggerExtractRelationsRef.value(opts)
+    }
+  }
+
   function setCurrentContextInfo(payload: { volume?: number | null; chapter?: number | null; title?: string }) {
     if (payload.volume !== undefined) currentVolumeNumber.value = payload.volume ?? null
     if (payload.chapter !== undefined) currentChapterNumber.value = payload.chapter ?? null
@@ -166,6 +178,7 @@ export const useEditorStore = defineStore('editor', () => {
     resizing.value = null
     applyChapterReplacements.value = null
     triggerExtractDynamicInfoRef.value = null
+    triggerExtractRelationsRef.value = null
     currentVolumeNumber.value = null
     currentChapterNumber.value = null
     currentChapterTitle.value = ''
@@ -207,6 +220,8 @@ export const useEditorStore = defineStore('editor', () => {
     applyReplacements,
     setTriggerExtractDynamicInfo,
     triggerExtractDynamicInfo,
+    setTriggerExtractRelations,
+    triggerExtractRelations,
     setCurrentContextInfo,
     reset
   }
