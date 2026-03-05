@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, AsyncIterator, Union, TYPE_CHECKIN
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlmodel import select
+from sqlalchemy.orm.attributes import flag_modified
 
 if TYPE_CHECKING:
     from ...engine.async_executor import ProgressEvent
@@ -161,6 +162,7 @@ class CardBatchUpsertNode(BaseNode[CardBatchUpsertInput, CardBatchUpsertOutput])
                     if not isinstance(existing_card.content, dict):
                         existing_card.content = {}
                     existing_card.content.update(content)
+                    flag_modified(existing_card, "content")
                     updated = True
                 
                 # 如果父ID变化（移动）
