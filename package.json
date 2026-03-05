@@ -1,0 +1,7 @@
+{
+  "name": "novelforge",
+  "private": true,
+  "scripts": {
+    "dev": "start \"NovelForge Backend\" powershell -NoExit -Command \"cd backend; python main.py\" && npm --prefix frontend run dev"
+  }
+}
