@@ -27,7 +27,7 @@
     "build:win:unsigned": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false CSC_LINK= WIN_CSC_LINK= electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "gen:types": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/renderer/src/types/generated.d.ts"
+    "gen:types": "openapi-typescript http://127.0.0.1:54321/openapi.json -o src/renderer/src/types/generated.d.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.6",
