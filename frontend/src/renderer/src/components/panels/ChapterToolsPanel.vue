@@ -176,16 +176,12 @@ async function handleExtractRelations() {
 	}
 	extractingRelations.value = true
 	try {
-		// 发送自定义事件给 CodeMirrorEditor
-		window.dispatchEvent(new CustomEvent('nf:extract-relations', { 
-			detail: { llm_config_id: relationsLLM.value } 
-		}))
-		// 延迟重置 loading，等待提取完成
-		setTimeout(() => {
-			extractingRelations.value = false
-		}, 1000)
+		await editorStore.triggerExtractRelations({
+			llm_config_id: relationsLLM.value
+		})
 	} catch (e) {
 		console.error('提取关系失败:', e)
+	} finally {
 		extractingRelations.value = false
 	}
 }
@@ -213,4 +209,3 @@ async function handleExtractRelations() {
 	color: var(--el-text-color-primary);
 }
 </style>
-

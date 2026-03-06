@@ -28,6 +28,21 @@ from .tools import (
 MAX_REACT_STEPS = 100
 
 
+ASSISTANT_REACT_PROTOCOL_INSTRUCTIONS = """
+你处于写作助手 React-Tool 模式。
+
+工具调用格式（严格）：
+<Action>{"tool":"工具名","args":{"参数名":参数值}}</Action>
+
+执行规则：
+1) 只能调用“可用工具列表”里的工具，禁止调用任何 wf_* 工具。
+2) 用户要求创建/修改卡片内容时，必须通过工具执行（如 create_card / update_card / modify_card_field / replace_field_text）。
+3) 每一轮最多输出一个 Action 块；工具执行结果会以 Observation 返回，再决定下一步。
+4) 若参数中包含长文本，必须输出合法 JSON（换行与引号要正确转义）。
+5) 不要输出伪调用文本（例如 tool(...)）。
+""".strip()
+
+
 async def stream_chat_with_react(
     session: Session,
     request: AssistantChatRequest,
@@ -49,6 +64,7 @@ async def stream_chat_with_react(
         timeout=request.timeout,
         thinking_enabled=getattr(request, "thinking_enabled", None),
         max_steps=MAX_REACT_STEPS,
+        protocol_instructions=ASSISTANT_REACT_PROTOCOL_INSTRUCTIONS,
         log_tag="Assistant-React",
     ):
         yield event

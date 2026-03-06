@@ -1512,6 +1512,15 @@ editorStore.setTriggerExtractDynamicInfo(async (opts) => {
 	}
 })
 
+// 触发“关系提取入图”（右栏调用）
+editorStore.setTriggerExtractRelations(async (opts) => {
+	if (typeof opts?.llm_config_id === 'number') {
+		await extractRelationsWithLlm(opts.llm_config_id)
+	} else {
+		await handleIngestRelations()
+	}
+})
+
 // 跨组件替换
 editorStore.setApplyChapterReplacements(async (pairs) => {
 	if (!view) return
@@ -1664,21 +1673,6 @@ function removePreviewItem(roleName: string, catKey: string, index: number) {
 	}
 }
 
-// 处理来自ChapterToolsPanel的提取事件
-function handleExtractDynamicInfoEvent(e: CustomEvent) {
-	const payload = (e as any)?.detail
-	if (payload?.llm_config_id) {
-		extractDynamicInfoWithLlm(payload.llm_config_id)
-	}
-}
-
-function handleExtractRelationsEvent(e: CustomEvent) {
-	const payload = (e as any)?.detail
-	if (payload?.llm_config_id) {
-		extractRelationsWithLlm(payload.llm_config_id)
-	}
-}
-
 async function extractRelationsWithLlm(llmConfigId: number) {
 	try {
 		const text = getText() || ''
@@ -1711,10 +1705,6 @@ onMounted(() => {
 		editorStore.setCurrentContextInfo({ title, volume: Number.isNaN(vol) ? null : vol, chapter: Number.isNaN(ch) ? null : ch })
 	} catch {}
 	
-	// 监听提取事件
-	window.addEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
-	window.addEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
-	
 	// ESC 键关闭右键菜单
 	window.addEventListener('keydown', handleKeyDown)
 })
@@ -1746,11 +1736,11 @@ onUnmounted(() => {
 	
 	try { view?.destroy() } catch {}
 	editorStore.setApplyChapterReplacements(null)
+	editorStore.setTriggerExtractDynamicInfo(null)
+	editorStore.setTriggerExtractRelations(null)
 	try { streamHandle?.cancel(); } catch {}
 	
 	// 移除事件监听
-	window.removeEventListener('nf:extract-dynamic-info', handleExtractDynamicInfoEvent as any)
-	window.removeEventListener('nf:extract-relations', handleExtractRelationsEvent as any)
 	window.removeEventListener('keydown', handleKeyDown)
 	
 	// 清理右键菜单的点击监听器（如果还在）

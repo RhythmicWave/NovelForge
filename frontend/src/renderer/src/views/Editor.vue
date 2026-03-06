@@ -1513,8 +1513,6 @@ onMounted(async () => {
   window.addEventListener('nf:navigate', onNavigate as any)
   window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
   window.addEventListener('nf:switch-right-tab', onSwitchRightTab as any)
-  window.addEventListener('nf:extract-dynamic-info', onExtractDynamicInfo as any)
-  window.addEventListener('nf:extract-relations', onExtractRelations as any)
   await refreshAssistantContext()
 })
 
@@ -1522,8 +1520,6 @@ onMounted(async () => {
    window.removeEventListener('nf:navigate', onNavigate as any)
    window.removeEventListener('nf:assistant-finalize', onAssistantFinalize as any)
    window.removeEventListener('nf:switch-right-tab', onSwitchRightTab as any)
-   window.removeEventListener('nf:extract-dynamic-info', onExtractDynamicInfo as any)
-   window.removeEventListener('nf:extract-relations', onExtractRelations as any)
  })
 
  function onNavigate(e: CustomEvent) {
@@ -1537,16 +1533,6 @@ onMounted(async () => {
    if (tab && isChapterContent.value) {
      activeRightTab.value = tab
    }
- }
-
- function onExtractDynamicInfo(e: CustomEvent) {
-   // 转发事件，实际处理在CodeMirrorEditor中
-   // 这里只是保持事件链
- }
-
- function onExtractRelations(e: CustomEvent) {
-   // 转发事件，实际处理在CodeMirrorEditor中
-   // 这里只是保持事件链
  }
 
  // 点击页面任意处隐藏空白菜单

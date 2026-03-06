@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, Optional, AsyncIterator
 from pydantic import BaseModel, Field
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.services.workflow.nodes.base import BaseNode
 from app.services.workflow.registry import register_node
@@ -76,6 +77,7 @@ class CardUpdateNode(BaseNode):
         # 深度合并内容
         if input_data.content_merge:
             card.content = self._deep_merge(card.content or {}, input_data.content_merge)
+            flag_modified(card, "content")
         
         # 保存
         self.context.session.add(card)

@@ -263,31 +263,31 @@ function parseFilterExpr(expr: string): { conditions: FilterCond[] } | null {
   const parts = body.split(/\s*&&\s*/).map(s => s.trim()).filter(Boolean)
   const conds: FilterCond[] = []
   for (const p of parts) {
-    // 优先匹配 in
-    const inIdx = p.indexOf(' in ')
-    if (inIdx >= 0) {
-      let field = p.slice(0, inIdx).trim()
-      let rhsRaw = p.slice(inIdx + 4).trim()
+    // 优先匹配 in（允许任意空白）
+    const inMatch = p.match(/^(.*?)\s+in\s+(.+)$/i)
+    if (inMatch) {
+      let field = inMatch[1].trim()
+      let rhsRaw = inMatch[2].trim()
+      if (!field || !rhsRaw) return null
       if (field.startsWith('card.')) field = field.substring('card.'.length)
       if (!field.startsWith('content.')) field = `content.${field}`
       conds.push({ field, op: 'in', rhsRaw })
       continue
     }
-    // 其次匹配 < 或 >（只取第一个出现的位置）
-    let opIdx = -1
-    let opChar: '<' | '>' | '=' | null = null
-    for (const ch of ['<','>','='] as const) {
-      const idx = p.indexOf(` ${ch} `)
-      if (idx >= 0) { opIdx = idx; opChar = ch; break }
-    }
-    if (opIdx >= 0 && opChar) {
-      let field = p.slice(0, opIdx).trim()
-      let rhsRaw = p.slice(opIdx + 3).trim() // 跳过空格+op+空格
+
+    // 其次匹配 = / < / >（允许两侧无空格，如 a=1）
+    const cmpMatch = p.match(/^(.*?)\s*([=<>])\s*(.+)$/)
+    if (cmpMatch) {
+      let field = cmpMatch[1].trim()
+      const opChar = cmpMatch[2] as '=' | '<' | '>'
+      let rhsRaw = cmpMatch[3].trim()
+      if (!field || !rhsRaw) return null
       if (field.startsWith('card.')) field = field.substring('card.'.length)
       if (!field.startsWith('content.')) field = `content.${field}`
       conds.push({ field, op: opChar, rhsRaw })
       continue
     }
+
     // 未识别
     return null
   }
@@ -592,6 +592,10 @@ function resolveToken(rawToken: string, ctx: ResolveContext, vars: ResolveVars):
           const collected = matched.map(c => getPathValue(c, multiPaths[0]))
           return stringifyValue(collected)
         }
+      }
+      // 显式 filter: 但未解析成功时，不回退到首项，避免注入错误上下文
+      if (expr.startsWith('filter:')) {
+        return ''
       }
       // 否则按原有数字/表达式处理
       const idx = evalIndexExpr(expr, vars, ctx, candidates.length)

@@ -3,6 +3,7 @@
 提供单轮 LLM 调用能力，支持提示词模板和结构化输出。
 """
 
+import json
 from typing import Any, Dict, Optional, AsyncIterator
 from pydantic import BaseModel, Field
 from loguru import logger
@@ -32,6 +33,64 @@ class LLMOutput(BaseModel):
     """LLM 生成输出"""
     response: str = Field(..., description="生成的文本")
     usage: Dict[str, Any] = Field(default_factory=dict, description="Token 使用统计")
+
+
+def _extract_text(value: Any) -> str:
+    """将模型返回内容稳健转换为纯文本，避免 list/dict 触发 response:str 校验失败。"""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+
+    if isinstance(value, list):
+        parts = [_extract_text(item) for item in value]
+        return "".join([part for part in parts if part])
+
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str):
+            return text
+
+        content = value.get("content")
+        if content is not None:
+            extracted = _extract_text(content)
+            if extracted:
+                return extracted
+
+        for key in ("output_text", "message", "reasoning_content", "value"):
+            field_val = value.get(key)
+            if field_val is None:
+                continue
+            extracted = _extract_text(field_val)
+            if extracted:
+                return extracted
+
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value)
+
+    if hasattr(value, "model_dump"):
+        try:
+            dumped = value.model_dump()
+            return _extract_text(dumped)
+        except Exception:
+            pass
+
+    if hasattr(value, "content"):
+        try:
+            return _extract_text(getattr(value, "content"))
+        except Exception:
+            pass
+
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return str(value)
 
 
 # ============================================================
@@ -79,8 +138,9 @@ class LLMGenerateNode(BaseNode[LLMInput, LLMOutput]):
                 # 调用模型
                 response = await model.ainvoke(messages)
                 
-                # 提取文本
-                response_text = response.content if hasattr(response, 'content') else str(response)
+                # 提取文本（兼容 content 为 list/dict 的模型返回）
+                payload = response.content if hasattr(response, 'content') else response
+                response_text = _extract_text(payload)
                 
                 # 提取 usage 信息
                 usage = {}

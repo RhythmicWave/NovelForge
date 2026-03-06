@@ -31,7 +31,7 @@ export default defineConfig({
         name: 'configure-response-headers',
         configureServer: (server) => {
           server.middlewares.use((_req, res, next) => {
-            res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' http://127.0.0.1:8000 https://api.github.com; style-src 'self' 'unsafe-inline';");
+            res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' http://127.0.0.1:54321 https://api.github.com; style-src 'self' 'unsafe-inline';");
             next();
           });
         }
