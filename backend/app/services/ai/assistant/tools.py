@@ -208,6 +208,7 @@ def create_card(
         
         # 5. 保存数据并标记为 AI 修改
         card.content = result["data"]
+        flag_modified(card, "content")
         card.ai_modified = True
         card.needs_confirmation = True
         card.last_modified_by = "ai"

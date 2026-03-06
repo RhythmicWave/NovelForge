@@ -13,11 +13,17 @@ from app.services.ai.core.chat_model_factory import build_chat_model
 from app.services.ai.core.quota_manager import precheck_quota, record_usage
 from app.services.ai.core.token_utils import calc_input_tokens, estimate_tokens
 
+try:
+    from json_repair import repair_json as _repair_json
+except Exception:
+    _repair_json = None
+
 
 ACTION_TAG_RE = re.compile(r"<Action>(.*?)</Action>", re.IGNORECASE | re.DOTALL)
 CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 JSON_BLOCK_RE = re.compile(r"Action\s*:?\s*(\{.*\})", re.IGNORECASE | re.DOTALL)
 PROTOCOL_TAGS = ("action",)
+ACTION_LINE_RE = re.compile(r"\bAction\s*:", re.IGNORECASE)
 
 
 def _extract_first(pattern: re.Pattern, text: str) -> Optional[str]:
@@ -38,28 +44,113 @@ def _clean_code_fence(block: str) -> str:
     return block.strip()
 
 
+def _try_parse_json_dict(candidate: str) -> Optional[Dict[str, Any]]:
+    if not candidate:
+        return None
+
+    text = candidate.strip()
+    if not text:
+        return None
+
+    tried_candidates = [
+        text,
+        text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'"),
+        text.replace("'", '"'),
+    ]
+
+    for attempted in tried_candidates:
+        try:
+            parsed = json.loads(attempted)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+
+    if _repair_json is not None:
+        try:
+            repaired = _repair_json(text)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+    return None
+
+
+def _extract_balanced_json_object(text: str, start_index: int) -> Optional[str]:
+    start = text.find("{", start_index)
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for idx in range(start, len(text)):
+        ch = text[idx]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+            continue
+
+        if ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1]
+
+    return text[start:] if depth > 0 else None
+
+
+def _extract_fallback_action_json_block(text: str) -> Optional[str]:
+    marker = ACTION_LINE_RE.search(text or "")
+    if not marker:
+        return None
+
+    balanced = _extract_balanced_json_object(text, marker.end())
+    if balanced:
+        return balanced
+
+    regex_matched = _extract_first(JSON_BLOCK_RE, text)
+    if regex_matched:
+        return regex_matched
+
+    return None
+
+
+def _contains_action_marker(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower()
+    return "<action" in lower or "</action>" in lower or bool(ACTION_LINE_RE.search(text))
+
+
 def _parse_action_payload(text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     if not text:
         return None
 
     raw_block = _extract_first(ACTION_TAG_RE, text)
     if not raw_block:
-        raw_block = _extract_first(JSON_BLOCK_RE, text)
+        raw_block = _extract_fallback_action_json_block(text)
     if not raw_block:
         return None
 
     cleaned = _clean_code_fence(raw_block)
-    candidate = cleaned
-    try:
-        data = json.loads(candidate)
-    except Exception:
-        try:
-            candidate = cleaned.replace("'", '"')
-            data = json.loads(candidate)
-        except Exception:
-            return None
-
-    if not isinstance(data, dict):
+    data = _try_parse_json_dict(cleaned)
+    if not data:
         return None
 
     tool_name = (
@@ -148,7 +239,18 @@ def _flush_react_stream_state(state: dict[str, str]) -> str:
     state["buffer"] = ""
     if not buffer:
         return ""
-    return _process_react_stream_text(state, "")
+
+    temp_state = {"buffer": ""}
+    visible = _process_react_stream_text(temp_state, buffer)
+    residue = temp_state.get("buffer", "")
+    if not residue:
+        return visible
+
+    residue_lstripped = residue.lstrip().lower()
+    if any(residue_lstripped.startswith(f"<{tag}") for tag in PROTOCOL_TAGS):
+        return visible
+
+    return visible + residue
 
 
 def _render_tool_catalog(tool_descriptions: Mapping[str, Any]) -> str:
@@ -176,8 +278,9 @@ def build_react_user_prompt(
     context_info: str,
     user_prompt: str,
     tool_descriptions: Mapping[str, Any],
+    protocol_instructions: Optional[str] = None,
 ) -> str:
-    protocol = """
+    protocol = (protocol_instructions or """
 你处于 React-Tool 模式，必须真实调用工具。
 
 工具调用格式（严格）：
@@ -192,7 +295,7 @@ def build_react_user_prompt(
 3) 每次改动后必须检查 parse/validation。
 4) 若 parse/validation 未通过，继续调用工具修复，直到通过再结束。
 5) 不要输出“wf_xxx(...)”伪调用文本替代工具调用。
-""".strip()
+""").strip()
 
     parts: list[str] = [protocol]
     if context_info:
@@ -321,12 +424,14 @@ async def stream_chat_with_react_protocol(
     thinking_enabled: Optional[bool] = None,
     max_steps: int = 100,
     history_messages: Optional[Sequence[dict[str, str]]] = None,
+    protocol_instructions: Optional[str] = None,
     log_tag: str = "React-Agent",
 ) -> AsyncGenerator[dict, None]:
     final_user_prompt = build_react_user_prompt(
         context_info=context_info or "",
         user_prompt=user_prompt or "",
         tool_descriptions=tool_descriptions,
+        protocol_instructions=protocol_instructions,
     )
 
     ok, reason = precheck_quota(
@@ -460,6 +565,25 @@ async def stream_chat_with_react_protocol(
                 messages.append(
                     HumanMessage(
                         content=f"Observation ({tool_name}):\n{json.dumps(tool_result, ensure_ascii=False)}"
+                    )
+                )
+                continue
+
+            if _contains_action_marker(step_text):
+                logger.warning(
+                    "[{}] 检测到 Action 标记但解析失败，要求模型按规范重发。step={} preview={}",
+                    log_tag,
+                    _step + 1,
+                    (step_text or "")[:240],
+                )
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            "你上一条消息包含工具调用意图，但格式无法解析。"
+                            "请严格只输出一个可解析的工具调用块："
+                            "<Action>{\"tool\":\"工具名\",\"args\":{...}}</Action>。"
+                            "不要输出多余解释文本。"
+                        )
                     )
                 )
                 continue

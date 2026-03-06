@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 from sqlmodel import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from loguru import logger
 
@@ -433,6 +434,7 @@ class MemoryService:
                             item for item in model.dynamic_info[del_item.dynamic_type] if item.id != del_item.id
                         ]
                         card.content = model.model_dump(exclude_unset=True)
+                        flag_modified(card, "content")
                         self.session.add(card)
                 except Exception as e:
                     logger.warning(f"Failed to process deletion for {del_item.name}: {e}")
@@ -496,6 +498,7 @@ class MemoryService:
                         model.dynamic_info[cat] = existing_items[:limit]
 
                 card.content = model.model_dump(exclude_unset=True)
+                flag_modified(card, "content")
                 updated_cards[card.title] = card
             except Exception as e:
                 logger.warning(f"Failed to process addition for {info_group.name}: {e}")
