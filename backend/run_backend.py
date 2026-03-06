@@ -36,4 +36,4 @@ from uvicorn import run
 from main import app
  
 if __name__ == "__main__":
-	run(app, host="0.0.0.0", port=8000, log_level="info") 
+	run(app, host="0.0.0.0", port=54321, log_level="info") 
