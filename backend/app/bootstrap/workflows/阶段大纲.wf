@@ -14,7 +14,7 @@ stage = Card.Read(card_id=trigger.card_id)
 
 #@node(description="提取并增强章节大纲列表")
 enriched_outlines = Logic.Expression(
-    expression="[{**outline, 'entity_list': (outline.get('entity_list') or []), 'volume_number': stage.content.volume_number, 'stage_number': stage.content.stage_number} for outline in stage.content.chapter_outline_list or []]"
+    expression="[{**outline, 'title': (str(outline.get('title') or '') if str(outline.get('title') or '').startswith('第' + str(outline.get('chapter_number')) + '章 ') else ('第' + str(outline.get('chapter_number')) + '章 ' + str(outline.get('title') or ''))), 'entity_list': (outline.get('entity_list') or []), 'volume_number': stage.content.volume_number, 'stage_number': stage.content.stage_number} for outline in stage.content.chapter_outline_list or []]"
   )
 #</node>
 
@@ -31,7 +31,7 @@ outline_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="章节大纲",
-    title_template="第{item.chapter_number}章 {item.title}",
+    title_template="{item.title}",
     items=validated_outlines.result
   )
 #</node>
@@ -42,12 +42,12 @@ content_cards = Card.BatchUpsert(
     project_id=trigger.project_id,
     parent_id=trigger.card_id,
     card_type="章节正文",
-    title_template="第{item.chapter_number}章 {item.title}",
+    title_template="{item.title}",
     content_template={
       "volume_number": "{item.volume_number}",
       "stage_number": "{item.stage_number}",
       "chapter_number": "{item.chapter_number}",
-      "title": "第{item.chapter_number}章 {item.title}",
+      "title": "{item.title}",
       "entity_list": "{item.entity_list}"
     },
     items=validated_outlines.result
