@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy.orm import joinedload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
@@ -352,6 +353,7 @@ class CardService:
         target[parts[-1]] = updated_value
         
         card.content = new_content
+        flag_modified(card, "content")
         self.db.add(card)
         self.db.commit()
         self.db.refresh(card)
