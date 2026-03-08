@@ -1111,7 +1111,17 @@ function onNodeExpand(_: any, node: any) {
 }
 
 function onNodeCollapse(_: any, node: any) {
-  editorStore.removeExpandedKey(String(node.key))
+  // 递归移除该节点及其所有子节点的展开状态
+  // 这样可以防止刷新数据时，一下子节点触发父节点自动展开
+  const removeRecursively = (n: any) => {
+    if (n.key) {
+      editorStore.removeExpandedKey(String(n.key))
+    }
+    if (n.childNodes && n.childNodes.length > 0) {
+      n.childNodes.forEach((child: any) => removeRecursively(child))
+    }
+  }
+  removeRecursively(node)
 }
 
 function handleEditCard(cardId: number) {
