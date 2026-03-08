@@ -161,6 +161,11 @@ def create_card_for_project(project_id: int, card: CardCreate, db: Session = Dep
     except BusinessException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
+@router.get("/projects/{project_id}/cards/search", response_model=List[CardRead])
+def search_cards(project_id: int, q: str, db: Session = Depends(get_session)):
+    service = CardService(db)
+    return service.search(project_id, q)
+
 @router.get("/projects/{project_id}/cards", response_model=List[CardRead])
 def get_all_cards_for_project(project_id: int, db: Session = Depends(get_session)):
     service = CardService(db)

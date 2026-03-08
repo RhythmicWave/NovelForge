@@ -35,58 +35,86 @@
             </el-button>
           </div>
         </div>
-        <el-tree
-          ref="treeRef"
-          v-if="groupedTree.length > 0"
-          :data="groupedTree"
-          node-key="id"
-          :default-expanded-keys="expandedKeys"
-          :expand-on-click-node="false"
-          @node-click="handleNodeClick"
-          @node-expand="onNodeExpand"
-          @node-collapse="onNodeCollapse"
-          draggable
-          :allow-drop="handleAllowDrop"
-          :allow-drag="handleAllowDrag"
-          @node-drop="handleNodeDrop"
-          class="card-tree"
-        >
-          <template #default="{ node, data }">
-            <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
-              <div 
-                class="custom-tree-node full-row" 
-                :class="{ 'selected': isCardSelected(data.id) }"
-                @click.stop="handleCardClick($event, data)"
-                @dragover.prevent 
-                @drop="(e:any) => onExternalDropToNode(e, data)" 
-                @dragenter.prevent
-              >
-                <el-icon class="card-icon"> 
-                  <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
-                </el-icon>
-                <span class="label">{{ node.label || data.title }}</span>
-                <span v-if="data.children && data.children.length > 0" class="child-count">{{ data.children.length }}</span>
-              </div>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <template v-if="!data.__isGroup">
-                    <el-dropdown-item command="create-child" :disabled="selectedCardIds.length > 1">新建子卡片</el-dropdown-item>
-                    <el-dropdown-item command="rename" :disabled="selectedCardIds.length > 1">重命名</el-dropdown-item>
-                    <el-dropdown-item command="edit-structure" :disabled="selectedCardIds.length > 1">结构编辑</el-dropdown-item>
-                    <el-dropdown-item command="add-as-reference" :disabled="selectedCardIds.length > 1">添加为引用</el-dropdown-item>
-                    <el-dropdown-item v-if="selectedCardIds.length > 1" command="batch-delete" divided>删除选中的卡片 ({{ selectedCardIds.length }})</el-dropdown-item>
-                    <el-dropdown-item v-else command="delete" divided>删除卡片</el-dropdown-item>
-                  </template>
-                  <template v-else>
-                    <el-dropdown-item command="create-child-in-group">新建子卡片</el-dropdown-item>
-                    <el-dropdown-item command="delete-group" divided>删除该分组下所有卡片</el-dropdown-item>
-                  </template>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </el-tree>
-        <el-empty v-else description="暂无卡片" :image-size="80"></el-empty>
+        
+        <!-- 搜索框 -->
+        <div class="search-box" style="padding: 0 8px 8px;">
+           <el-input 
+             v-model="searchQuery" 
+             placeholder="搜索卡片..." 
+             :prefix-icon="Search"
+             clearable
+             @input="handleSearch"
+           />
+        </div>
+
+        <!-- 搜索结果 -->
+        <div v-if="isSearching" class="search-results-list" v-loading="searchLoading">
+           <div 
+             v-for="card in searchResults" 
+             :key="card.id" 
+             class="search-item" 
+             @click="handleNodeClick({ id: card.id, title: card.title, card_type: card.card_type })"
+           >
+              <el-icon class="card-icon"><component :is="getIconByCardType(card.card_type?.name)" /></el-icon>
+              <span class="search-item-title">{{ card.title }}</span>
+           </div>
+           <el-empty v-if="!searchLoading && searchResults.length === 0" description="无搜索结果" :image-size="60" />
+        </div>
+
+        <template v-else>
+          <el-tree
+            v-if="groupedTree.length > 0"
+            ref="treeRef"
+            :data="groupedTree"
+            node-key="id"
+            :default-expanded-keys="expandedKeys"
+            :expand-on-click-node="false"
+            @node-click="handleNodeClick"
+            @node-expand="onNodeExpand"
+            @node-collapse="onNodeCollapse"
+            draggable
+            :allow-drop="handleAllowDrop"
+            :allow-drag="handleAllowDrag"
+            @node-drop="handleNodeDrop"
+            class="card-tree"
+          >
+            <template #default="{ node, data }">
+              <el-dropdown class="full-row-dropdown" trigger="contextmenu" @command="(cmd:string) => handleContextCommand(cmd, data)">
+                <div 
+                  class="custom-tree-node full-row" 
+                  :class="{ 'selected': isCardSelected(data.id) }"
+                  @click.stop="handleCardClick($event, data)"
+                  @dragover.prevent 
+                  @drop="(e:any) => onExternalDropToNode(e, data)" 
+                  @dragenter.prevent
+                >
+                  <el-icon class="card-icon"> 
+                    <component :is="getIconByCardType(data.card_type?.name || data.__groupType)" />
+                  </el-icon>
+                  <span class="label">{{ node.label || data.title }}</span>
+                  <span v-if="data.children && data.children.length > 0" class="child-count">{{ data.children.length }}</span>
+                </div>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <template v-if="!data.__isGroup">
+                      <el-dropdown-item command="create-child" :disabled="selectedCardIds.length > 1">新建子卡片</el-dropdown-item>
+                      <el-dropdown-item command="rename" :disabled="selectedCardIds.length > 1">重命名</el-dropdown-item>
+                      <el-dropdown-item command="edit-structure" :disabled="selectedCardIds.length > 1">结构编辑</el-dropdown-item>
+                      <el-dropdown-item command="add-as-reference" :disabled="selectedCardIds.length > 1">添加为引用</el-dropdown-item>
+                      <el-dropdown-item v-if="selectedCardIds.length > 1" command="batch-delete" divided>删除选中的卡片 ({{ selectedCardIds.length }})</el-dropdown-item>
+                      <el-dropdown-item v-else command="delete" divided>删除卡片</el-dropdown-item>
+                    </template>
+                    <template v-else>
+                      <el-dropdown-item command="create-child-in-group">新建子卡片</el-dropdown-item>
+                      <el-dropdown-item command="delete-group" divided>删除该分组下所有卡片</el-dropdown-item>
+                    </template>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </el-tree>
+          <el-empty v-else description="暂无卡片" :image-size="80"></el-empty>
+        </template>
       </div>
 
       <!-- 空白区域右键菜单（手动触发） -->
@@ -283,8 +311,9 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, defineAsyncComponent, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { debounce } from 'lodash-es'
 import { 
   CollectionTag,
   MagicStick,
@@ -311,7 +340,7 @@ import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import SchemaStudio from '@renderer/components/shared/SchemaStudio.vue'
 import { getCardSchema, createCardType } from '@renderer/api/setting'
 import { getProjects } from '@renderer/api/projects'
-import { getCardsForProject, copyCard, getCardAIParams } from '@renderer/api/cards'
+import { getCardsForProject, copyCard, getCardAIParams, searchCards } from '@renderer/api/cards'
 import { generateAIContent } from '@renderer/api/ai'
  
  // Mock components that will be created later
@@ -489,6 +518,30 @@ const blankMenuVisible = ref(false)
 const blankMenuX = ref(0)
 const blankMenuY = ref(0)
 const blankMenuRef = ref<HTMLElement | null>(null)
+
+// Search State
+const searchQuery = ref('')
+const searchResults = ref<CardRead[]>([])
+const isSearching = computed(() => searchQuery.value.trim().length > 0)
+const searchLoading = ref(false)
+
+const handleSearch = debounce(async (query: string) => {
+  if (!query.trim()) {
+    searchResults.value = []
+    return
+  }
+  searchLoading.value = true
+  try {
+    const pid = projectStore.currentProject?.id
+    if (pid) {
+      searchResults.value = await searchCards(pid, query)
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    searchLoading.value = false
+  }
+}, 300)
 
 // Composables
   const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
@@ -808,6 +861,11 @@ async function onExternalDropToNode(e: DragEvent, nodeData: any) {
 // 点击行为对"分组节点"不做打开编辑，仅用于展开/折叠。对实际卡片才触发编辑。
 function handleNodeClick(data: any) {
   if (data.__isGroup) return
+  
+  // 确保点击的卡片被选中（用于UI高亮），同时覆盖 handleCardClick 中的清空操作
+  selectedCardIds.value = [data.id]
+  lastSelectedCardId.value = data.id
+
   // 章节正文现在也在中栏编辑器中打开
   cardStore.setActiveCard(data.id)
   assistantSelectionCleared.value = false
@@ -882,9 +940,7 @@ function handleCardClick(event: MouseEvent, data: any) {
     return
   }
   
-  // 普通点击：清空多选，打开卡片
-  selectedCardIds.value = []
-  lastSelectedCardId.value = cardId
+  // 普通点击：交由 handleNodeClick 处理选中和激活
   handleNodeClick(data)
 }
 
@@ -1007,6 +1063,10 @@ watch(activeCard, (c) => {
 watch(() => projectStore.currentProject, (newProject) => {
   if (!newProject?.id) return
   
+  // 切换项目时重置搜索
+  searchQuery.value = ''
+  searchResults.value = []
+
   try {
     // 加载操作历史
     assistantStore.loadOperations(newProject.id)
@@ -1738,5 +1798,31 @@ onMounted(async () => {
 .right-tabs :deep(.el-tab-pane) {
   height: 100%;
   overflow-y: auto;
+}
+
+.search-results-list {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+.search-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+.search-item:hover {
+  background-color: var(--el-fill-color-light);
+}
+.search-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
