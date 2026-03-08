@@ -325,6 +325,7 @@ import {
   User,
   OfficeBuilding,
   Document,
+  Folder,
 } from '@element-plus/icons-vue'
 import type { components } from '@renderer/types/generated'
 import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
@@ -1169,6 +1170,8 @@ function getIconByCardType(typeName?: string) {
       return User
     case '场景卡':
       return OfficeBuilding
+    case '文件夹':
+      return Folder
     default:
       return Document // 通用默认图标
   }
@@ -1601,8 +1604,17 @@ onMounted(async () => {
  const treeRef = ref<any>(null)
 
  watch(groupedTree, async () => {
+   // Wait for the tree to re-render with new data
    await nextTick()
-   try { treeRef.value?.setExpandedKeys?.(expandedKeys) } catch {}
+   try { 
+     if (expandedKeys.value.length > 0) {
+       // Using Element Plus Tree store API to set expanded keys
+       // This is more reliable than manipulating nodes directly
+       treeRef.value?.store?.setDefaultExpandedKeys(expandedKeys.value)
+     }
+   } catch (e) {
+     console.error('Failed to restore expanded state:', e)
+   }
  }, { deep: true })
 </script>
 

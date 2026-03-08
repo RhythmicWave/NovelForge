@@ -3,7 +3,7 @@
 # 触发器：分卷大纲卡片保存时自动触发
 
 #@node(description="触发器：监听分卷大纲卡片保存")
-trigger = Trigger.CardSaved(card_type="分卷大纲")
+trigger = Trigger.CardSaved(card_type="分卷大纲", on_create=True, on_update=False)
 #</node>
 
 
