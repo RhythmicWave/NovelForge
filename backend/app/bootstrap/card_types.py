@@ -217,6 +217,7 @@ def create_default_card_types(session: Session) -> None:
         "角色卡": {"default_ai_context_template": None},
         "场景卡": {"default_ai_context_template": None},
         "组织卡": {"default_ai_context_template": None},
+        "文件夹": {"is_singleton": False, "is_ai_enabled": False, "default_ai_context_template": None},
     }
 
     # 类型默认 AI 参数预设（不包含 llm_config_id）
@@ -253,6 +254,7 @@ def create_default_card_types(session: Session) -> None:
         "角色卡": "CharacterCard",
         "场景卡": "SceneCard",
         "组织卡": "OrganizationCard",
+        "文件夹": "Text",
     }
 
     existing_types = session.exec(select(CardType)).all()

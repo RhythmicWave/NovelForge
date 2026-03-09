@@ -18,6 +18,7 @@ export const deleteCardType = (id: number): Promise<void> => request.delete(`/ca
 
 // --- Card API ---
 export const getCardsForProject = (projectId: number): Promise<CardRead[]> => request.get(`/projects/${projectId}/cards`)
+export const searchCards = (projectId: number, query: string): Promise<CardRead[]> => request.get(`/projects/${projectId}/cards/search`, { q: query })
 export const createCard = (projectId: number, data: CardCreate): Promise<CardRead> => request.post(`/projects/${projectId}/cards`, data)
 export const updateCard = (id: number, data: CardUpdate): Promise<CardRead> => request.put(`/cards/${id}`, data)
 // 原始响应：用于读取 X-Workflows-Started

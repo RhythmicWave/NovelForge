@@ -1,0 +1,7 @@
+{
+  "name": "novelforge",
+  "private": true,
+  "scripts": {
+    "dev": "start \"Backend\" powershell -NoExit -Command \"python backend/main.py\" && start \"Frontend\" powershell -NoExit -Command \"Start-Sleep -Seconds 5; npm --prefix frontend run dev\""
+  }
+}
