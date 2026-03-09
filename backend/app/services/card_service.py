@@ -125,6 +125,18 @@ class CardService:
         cards = self.db.exec(statement).all()
         return cards
 
+    def search(self, project_id: int, query: str) -> List[Card]:
+        """Search cards in a project by title or content."""
+        import sqlalchemy as sa
+        statement = select(Card).where(
+            Card.project_id == project_id,
+            sa.or_(
+                Card.title.contains(query),
+                sa.cast(Card.content, sa.String).contains(query)
+            )
+        )
+        return self.db.exec(statement).all()
+
     def get_by_id(self, card_id: int) -> Optional[Card]:
         return self.db.get(Card, card_id)
 

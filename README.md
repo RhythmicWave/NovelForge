@@ -384,6 +384,11 @@ npm run dev
 // npm run dev:web
 ```
 
+**3. 一行命令同时启动前后端（npm）**
+```bash
+npm run dev
+```
+
 #### 重要：.env 的 BOOTSTRAP_OVERWRITE
 
 > 启动后端时，系统会按需初始化/更新内置资源（知识库、提示词、工作流等）。是否覆盖更新由 `.env` 中的 `BOOTSTRAP_OVERWRITE` 控制。

@@ -64,3 +64,6 @@ backend/build
 *.spec
 *.sh
 *.mako
+
+# Node modules
+node_modules/
