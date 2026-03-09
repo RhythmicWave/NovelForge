@@ -2,12 +2,6 @@
   "name": "novelforge",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run frontend\"",
-    "backend": "python backend/main.py",
-    "frontend": "wait-on tcp:54321 && npm --prefix frontend run dev"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1",
-    "wait-on": "^9.0.4"
+    "dev": "start \"Backend\" powershell -NoExit -Command \"python backend/main.py\" && start \"Frontend\" powershell -NoExit -Command \"Start-Sleep -Seconds 5; npm --prefix frontend run dev\""
   }
 }
