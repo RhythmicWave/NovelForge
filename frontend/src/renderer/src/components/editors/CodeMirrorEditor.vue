@@ -41,7 +41,7 @@
 			<!-- AI功能组 -->
 			<div class="toolbar-group toolbar-group-ai">
 				<span class="group-label">AI</span>
-				<el-button type="primary" size="small" :loading="aiLoading" @click="executeAIContinuation">
+				<el-button type="primary" size="small" :loading="aiLoading" :disabled="reviewLoading" @click="executeAIContinuation">
 					<el-icon><MagicStick /></el-icon> 续写
 				</el-button>
 				<div class="ai-toolbar-grid">
@@ -240,13 +240,18 @@
 							{{ formatReviewVerdict(reviewRecord.quality_gate) }}
 						</el-tag>
 						<span v-if="reviewRecord" class="review-score">
-							已记录于 {{ formatReviewCreatedAt(reviewRecord.created_at) }}
+							记录于 {{ formatReviewCreatedAt(reviewRecord.created_at) }}
 						</span>
 					</div>
 					<p class="review-summary">本次审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
 				</div>
 
-				<pre class="review-text-block">{{ reviewText }}</pre>
+				<div class="review-text-block">
+					<SimpleMarkdown
+						:markdown="reviewText || '（暂无内容）'"
+						class="review-markdown"
+					/>
+				</div>
 			</div>
 		</el-dialog>
 
@@ -321,10 +326,12 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
+import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/stores/usePerCardAISettingsStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
+import { useAppStore } from '@renderer/stores/useAppStore'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
 import { runChapterReview, type ChapterReviewRunRequest, type PreviousChapterInput, type ReviewRecord } from '@renderer/api/chapterReviews'
@@ -333,24 +340,37 @@ import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOu
 import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select } from '@element-plus/icons-vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 import { resolveTemplate } from '@renderer/services/contextResolver'
+import { getCardContextTemplates, getContextTemplateByKind, normalizeContextTemplateKind, type ContextTemplateKind, type ContextTemplates } from '@renderer/services/contextSlots'
 
 import { EditorState, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, keymap, Decoration, DecorationSet } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewline } from '@codemirror/commands'
 
-const props = defineProps<{ card: CardRead; chapter?: any; prefetched?: any | null; contextParams?: { project_id?: number; volume_number?: number; chapter_number?: number; participants?: string[]; extra_context_fn?: Function } }>()
+const props = defineProps<{
+	card: CardRead
+	chapter?: any
+	prefetched?: any | null
+	contextParams?: { project_id?: number; volume_number?: number; chapter_number?: number; participants?: string[]; extra_context_fn?: Function }
+	contextTemplates?: ContextTemplates
+	generationContextKind?: ContextTemplateKind
+	reviewContextKind?: ContextTemplateKind
+}>()
 const emit = defineEmits<{ 
 	(e: 'update:chapter', value: any): void
 	(e: 'save'): void
 	(e: 'switch-tab', tab: string): void
 	(e: 'update:dirty', value: boolean): void
+	(e: 'update:generation-context-kind', value: ContextTemplateKind): void
+	(e: 'update:review-context-kind', value: ContextTemplateKind): void
 }>()
 
 const cardStore = useCardStore()
 const projectStore = useProjectStore()
 const perCardStore = usePerCardAISettingsStore()
 const editorStore = useEditorStore()
+const appStore = useAppStore()
 const { cards } = storeToRefs(cardStore)
+const isDarkMode = computed(() => appStore.isDarkMode)
 
 const ready = ref(false)
 const cmRoot = ref<HTMLElement | null>(null)
@@ -410,6 +430,40 @@ const localCard = reactive({
 		...(props.card.content as any || {})
 	}
 })
+
+const generationContextKindValue = computed(() => normalizeContextTemplateKind(props.generationContextKind, 'generation'))
+const reviewContextKindValue = computed(() => normalizeContextTemplateKind(props.reviewContextKind, 'review'))
+
+function getResolvedContext(kind: ContextTemplateKind | string, fallbackKind: ContextTemplateKind) {
+	const currentCardWithContent = {
+		...props.card,
+		content: {
+			...(props.card.content as any || {}),
+			...(localCard.content as any || {}),
+		},
+	}
+	const template = getContextTemplateByKind(
+		props.card,
+		props.contextTemplates || getCardContextTemplates(props.card),
+		kind,
+		fallbackKind
+	)
+	return template
+		? resolveTemplate({
+			template,
+			cards: cards.value,
+			currentCard: currentCardWithContent as any,
+		})
+		: ''
+}
+
+function handleGenerationContextKindChange(value: ContextTemplateKind | string) {
+	emit('update:generation-context-kind', normalizeContextTemplateKind(value, 'generation'))
+}
+
+function handleReviewContextKindChange(value: ContextTemplateKind | string) {
+	emit('update:review-context-kind', normalizeContextTemplateKind(value, 'review'))
+}
 
 // 每卡片参数
 const editingParams = ref<PerCardAIParams>({})
@@ -1151,23 +1205,9 @@ async function executeReview() {
 	try {
 		let resolvedContextTemplate = ''
 		try {
-			const aiContextTemplate = (props.card as any)?.ai_context_template || ''
-			if (aiContextTemplate) {
-				const currentCardWithContent = {
-					...props.card,
-					content: {
-						...localCard.content,
-						content: getText()
-					}
-				}
-				resolvedContextTemplate = resolveTemplate({
-					template: aiContextTemplate,
-					cards: cards.value,
-					currentCard: currentCardWithContent as any
-				})
-			}
+			resolvedContextTemplate = getResolvedContext(reviewContextKindValue.value, 'review')
 		} catch (e) {
-			console.error('Failed to resolve ai_context_template for review:', e)
+			console.error('Failed to resolve context template for review:', e)
 		}
 		const volumeNumber = (props.contextParams as any)?.volume_number ?? (localCard.content as any)?.volume_number
 		const chapterNumber = (props.contextParams as any)?.chapter_number ?? (localCard.content as any)?.chapter_number
@@ -1230,26 +1270,12 @@ async function executeAIContinuation() {
 
 	aiLoading.value = true
 
-	// 1. 解析卡片的 ai_context_template（上下文注入的引用内容）
+	// 1. 解析卡片的上下文槽位（上下文注入的引用内容）
 	let resolvedContextTemplate = ''
 	try {
-		const aiContextTemplate = (props.card as any)?.ai_context_template || ''
-		if (aiContextTemplate) {
-			const currentCardWithContent = { 
-				...props.card, 
-				content: {
-					...localCard.content,
-					content: getText()
-				}
-			}
-			resolvedContextTemplate = resolveTemplate({ 
-				template: aiContextTemplate, 
-				cards: cards.value, 
-				currentCard: currentCardWithContent as any 
-			})
-		}
+		resolvedContextTemplate = getResolvedContext(generationContextKindValue.value, 'generation')
 	} catch (e) {
-		console.error('Failed to resolve ai_context_template:', e)
+		console.error('Failed to resolve context template:', e)
 	}
 
 	// 2. 格式化事实子图（参与实体）
@@ -1453,26 +1479,12 @@ async function executeAIEdit(
 	// 获取完整文本
 	const fullText = getText()
 
-	// 1. 解析 ai_context_template（引用上下文）
+	// 1. 解析上下文槽位（引用上下文）
 	let resolvedContextTemplate = ''
 	try {
-		const aiContextTemplate = (props.card as any)?.ai_context_template || ''
-		if (aiContextTemplate) {
-			const currentCardWithContent = { 
-				...props.card, 
-				content: {
-					...localCard.content,
-					content: fullText
-				}
-			}
-			resolvedContextTemplate = resolveTemplate({ 
-				template: aiContextTemplate, 
-				cards: cards.value, 
-				currentCard: currentCardWithContent as any 
-			})
-		}
+		resolvedContextTemplate = getResolvedContext(generationContextKindValue.value, 'generation')
 	} catch (e) {
-		console.error('Failed to resolve ai_context_template:', e)
+		console.error('Failed to resolve context template:', e)
 	}
 
 	// 2. 格式化事实子图（参与实体）
@@ -2379,17 +2391,43 @@ defineExpose({
 }
 
 .review-text-block {
-	margin: 0;
 	padding: 16px;
 	border-radius: 10px;
 	border: 1px solid var(--el-border-color-lighter);
 	background: var(--el-bg-color);
+}
+
+:deep(.review-markdown) {
 	color: var(--el-text-color-primary);
-	font-family: inherit;
 	font-size: 14px;
 	line-height: 1.8;
-	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+:deep(.review-markdown h1),
+:deep(.review-markdown h2),
+:deep(.review-markdown h3),
+:deep(.review-markdown h4),
+:deep(.review-markdown h5),
+:deep(.review-markdown h6) {
+	margin-top: 0;
+	color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown p),
+:deep(.review-markdown li),
+:deep(.review-markdown blockquote) {
+	color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown pre) {
+	background: var(--el-fill-color-extra-light);
+	border: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.review-markdown code) {
+	background: var(--el-fill-color-light);
+	color: var(--el-text-color-primary);
 }
 
 /* 右键快速编辑菜单 */

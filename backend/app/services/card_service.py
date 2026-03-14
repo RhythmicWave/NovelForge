@@ -13,6 +13,33 @@ from sqlalchemy import update as sa_update
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_context_template_slots(source: object, fallback: object | None = None, is_free_project: bool = False) -> dict[str, Optional[str]]:
+    if is_free_project:
+        return {
+            "ai_context_template": None,
+            "ai_context_template_review": None,
+            "ai_context_template_custom": None,
+        }
+
+    generation_template = getattr(source, "ai_context_template", None)
+    review_template = getattr(source, "ai_context_template_review", None)
+    custom_template = getattr(source, "ai_context_template_custom", None)
+
+    if fallback is not None:
+        if not generation_template:
+            generation_template = getattr(fallback, "default_ai_context_template", None)
+        if not review_template:
+            review_template = getattr(fallback, "default_ai_context_template_review", None)
+        if not custom_template:
+            custom_template = getattr(fallback, "default_ai_context_template_custom", None)
+
+    return {
+        "ai_context_template": generation_template,
+        "ai_context_template_review": review_template,
+        "ai_context_template_custom": custom_template,
+    }
+
 # 每类动态信息的建议上限（超过则保留更重要/较新者）。可按需调整。
 MAX_ITEMS_BY_TYPE: dict[str, int] = {
     "心理想法/目标快照": 3,
@@ -67,6 +94,8 @@ def _shallow_clone(src: Card, project_id: int, parent_id: Optional[int], display
         project_id=project_id,
         display_order=display_order,
         ai_context_template=src.ai_context_template,
+        ai_context_template_review=src.ai_context_template_review,
+        ai_context_template_custom=src.ai_context_template_custom,
     )
 
 # ---- 标题后缀生成 ----
@@ -163,13 +192,7 @@ class CardService:
         sibling_cards = self.db.exec(statement).all()
         display_order = len(sibling_cards)
 
-        # 如果没有显式提供 ai_context_template，则从卡片类型继承默认模板
-        ai_context_template = getattr(card_create, 'ai_context_template', None)
-        # 自由卡默认不注入上下文：强制清空模板
-        if is_free_project:
-            ai_context_template = None
-        elif not ai_context_template:
-            ai_context_template = card_type.default_ai_context_template
+        context_template_slots = _resolve_context_template_slots(card_create, card_type, is_free_project=is_free_project)
 
         # 自动处理标题冲突：相同类型的卡片标题追加 (n)
         final_title = _generate_non_conflicting_title(
@@ -183,7 +206,7 @@ class CardService:
             **{ **card_create.model_dump(), 'title': final_title },
             project_id=project_id,
             display_order=display_order,
-            ai_context_template=ai_context_template,
+            **context_template_slots,
         )
         self.db.add(card)
         self.db.commit()
@@ -220,6 +243,8 @@ class CardService:
                         card_type_id=card_type.id,
                             display_order=setup["order"],
                             ai_context_template=card_type.default_ai_context_template,
+                            ai_context_template_review=card_type.default_ai_context_template_review,
+                            ai_context_template_custom=card_type.default_ai_context_template_custom,
                         )
                     db.add(new_card)
                     db.commit()
@@ -241,6 +266,8 @@ class CardService:
                     card_type_id=ct.id,
                     display_order=item.get('display_order', 0),
                     ai_context_template=ct.default_ai_context_template,
+                    ai_context_template_review=ct.default_ai_context_template_review,
+                    ai_context_template_custom=ct.default_ai_context_template_custom,
                 )
                 db.add(new_card)
                 db.commit()

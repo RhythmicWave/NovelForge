@@ -20,22 +20,14 @@ from app.services.ai.core import llm_service
 
 router = APIRouter()
 
-_QUALITY_GATE_PATTERN = re.compile(r"结论\s*[:：]?\s*(pass|revise|block)", re.IGNORECASE)
+_QUALITY_GATE_PATTERN = re.compile(
+    r"结论(?:\*\*)?\s*[:：]\s*(?:\*\*)?(pass|revise|block)(?:\*\*)?",
+    re.IGNORECASE,
+)
 
 
 def _count_words(text: str) -> int:
     return len((text or "").replace(" ", "").replace("\n", ""))
-
-
-def _build_plain_text_review_rules() -> str:
-    return (
-        "【输出格式补充约束】\n"
-        "1. 全文必须使用纯文本，不要使用 Markdown 标题、加粗、引用块、代码块、表格或列表装饰符号。\n"
-        "2. 禁止出现 **、#、``` 这类依赖 Markdown 渲染的符号。\n"
-        "3. 保留模板中要求的固定小节标题，其余内容用正常中文句子填写即可。\n"
-        "4. 如需引用原文，只能用短句纯文本引用，格式参考：\"xxx, ..., yyy\"。\n"
-        "5. 不要输出任何额外说明、前言、结尾致谢或格式解释。"
-    )
 
 
 def _build_review_user_prompt(request: ChapterReviewRunRequest) -> str:
@@ -72,7 +64,6 @@ def _build_review_user_prompt(request: ChapterReviewRunRequest) -> str:
         parts.append(f"【已知事实子图】\n{request.facts_info.strip()}")
 
     parts.append(f"【正文】\n{(request.chapter_content or '').strip()}")
-    parts.append(_build_plain_text_review_rules())
     return "\n\n".join(parts)
 
 
@@ -162,8 +153,6 @@ def _build_stage_review_user_prompt(request: StageReviewRunRequest) -> str:
 
     if request.facts_info:
         parts.append(f"【已知事实子图】\n{request.facts_info.strip()}")
-
-    parts.append(_build_plain_text_review_rules())
     return "\n\n".join(parts)
 
 

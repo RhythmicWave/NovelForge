@@ -10,9 +10,11 @@
       :last-saved-at="lastSavedAt"
       :is-chapter-content="!!activeContentEditor"
       :needs-confirmation="props.card.needs_confirmation"
+      :active-context-template-kind="activeContextTemplateKind"
       @save="handleSave"
       @generate="handleGenerateClick"
       @open-context="openDrawer = true"
+      @update:active-context-template-kind="handleActiveContextTemplateKindChange"
       @delete="handleDelete"
       @open-versions="showVersions = true"
     />
@@ -24,6 +26,11 @@
         ref="contentEditorRef"
         :card="props.card"
         :prefetched="props.prefetched"
+        :context-templates="localAiContextTemplates"
+        :generation-context-kind="generationContextKind"
+        :review-context-kind="reviewContextKind"
+        @update:generation-context-kind="handleGenerationContextKindChange"
+        @update:review-context-kind="handleReviewContextKindChange"
         @switch-tab="handleSwitchTab"
         @update:dirty="handleContentEditorDirtyChange"
       />
@@ -70,7 +77,8 @@
 
     <ContextDrawer
       v-model="openDrawer"
-      :context-template="localAiContextTemplate"
+      :context-templates="localAiContextTemplates"
+      v-model:active-context-template-kind="activeContextTemplateKind"
       :preview-text="previewText"
       @apply-context="applyContextTemplateAndSave"
       @open-selector="openSelectorFromDrawer"
@@ -87,7 +95,7 @@
       :project-id="projectStore.currentProject!.id"
       :card-id="props.card.id"
       :current-content="wrapperName ? innerData : localData"
-      :current-context-template="localAiContextTemplate"
+      :current-context-templates="localAiContextTemplates"
       @restore="handleRestoreVersion"
     />
 
@@ -130,7 +138,12 @@
           <p class="stage-review-summary">本次阶段审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
         </div>
 
-        <pre class="stage-review-text-block">{{ stageReviewText }}</pre>
+        <div class="stage-review-text-block">
+          <SimpleMarkdown
+            :markdown="stageReviewText || '（暂无内容）'"
+            class="review-markdown"
+          />
+        </div>
       </div>
     </el-dialog>
   </div>
@@ -157,13 +170,24 @@ import CardVersionsDialog from '../common/CardVersionsDialog.vue'
 import { cloneDeep, isEqual } from 'lodash-es'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { addVersion } from '@renderer/services/versionService'
 import { List } from '@element-plus/icons-vue'
+import { useAppStore } from '@renderer/stores/useAppStore'
 import { useAIStore as useAIStoreForOptions } from '@renderer/stores/useAIStore'
 import SchemaStudio from '../shared/SchemaStudio.vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 // 移除 AssistantSidebar 相关导入与逻辑
 import { resolveTemplate } from '@renderer/services/contextResolver'
+import {
+  buildContextTemplateUpdatePayload,
+  cloneContextTemplates,
+  getCardContextTemplates,
+  getContextTemplateByKind,
+  normalizeContextTemplateKind,
+  type ContextTemplateKind,
+  type ContextTemplates,
+} from '@renderer/services/contextSlots'
 import {
   runStageReview,
   type PreviousStageInput,
@@ -188,8 +212,10 @@ const aiStore = useAIStore()
 const perCardStore = usePerCardAISettingsStore()
 const projectStore = useProjectStore()
 const aiStoreForOptions = useAIStoreForOptions()
+const appStore = useAppStore()
 
 const { cards } = storeToRefs(cardStore)
+const isDarkMode = computed(() => appStore.isDarkMode)
 
 const openDrawer = ref(false)
 const isSelectorVisible = ref(false)
@@ -247,11 +273,27 @@ function handleContentEditorDirtyChange(dirty: boolean) {
   contentEditorDirty.value = dirty
 }
 
-function openAssistant() {
-  const editingContent = wrapperName.value ? innerData.value : localData.value
+function getResolvedContextByKind(kind: ContextTemplateKind | string | null | undefined, currentContent?: any) {
+  const editingContent = currentContent ?? (wrapperName.value ? innerData.value : localData.value)
   const currentCardForResolve = { ...props.card, content: editingContent }
-  const resolved = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
-  assistantResolvedContext.value = resolved
+  const template = getContextTemplateByKind(props.card, localAiContextTemplates.value, kind, 'generation')
+  return resolveTemplate({ template, cards: cards.value, currentCard: currentCardForResolve as any })
+}
+
+function handleGenerationContextKindChange(kind: ContextTemplateKind | string) {
+  generationContextKind.value = normalizeContextTemplateKind(kind, 'generation')
+}
+
+function handleReviewContextKindChange(kind: ContextTemplateKind | string) {
+  reviewContextKind.value = normalizeContextTemplateKind(kind, 'review')
+}
+
+function handleActiveContextTemplateKindChange(kind: ContextTemplateKind | string) {
+  activeContextTemplateKind.value = normalizeContextTemplateKind(kind, 'generation')
+}
+
+function openAssistant() {
+  assistantResolvedContext.value = getResolvedContextByKind(generationContextKind.value)
   // 读取有效 Schema 作为对话指导
   import('@renderer/api/setting').then(async ({ getCardSchema }) => {
     try {
@@ -264,9 +306,12 @@ function openAssistant() {
 
 const isSaving = ref(false)
 const localData = ref<any>({})
-const localAiContextTemplate = ref<string>('')
+const localAiContextTemplates = ref<ContextTemplates>(cloneContextTemplates())
 const originalData = ref<any>({})
-const originalAiContextTemplate = ref<string>('')
+const originalAiContextTemplates = ref<ContextTemplates>(cloneContextTemplates())
+const activeContextTemplateKind = ref<ContextTemplateKind>('generation')
+const generationContextKind = ref<ContextTemplateKind>('generation')
+const reviewContextKind = ref<ContextTemplateKind>('review')
 const schema = ref<JSONSchema | undefined>(undefined)
 const schemaIsLoading = ref(false)
 let atIndexForInsertion = -1
@@ -325,7 +370,7 @@ watch(
 )
 
 const isDirty = computed(() => {
-  const ctxDirty = localAiContextTemplate.value !== originalAiContextTemplate.value
+  const ctxDirty = !isEqual(localAiContextTemplates.value, originalAiContextTemplates.value)
   const titleDirty = titleProxy.value !== props.card.title
 
   // 使用自定义内容编辑器（如章节正文）：
@@ -343,9 +388,12 @@ watch(
   async (newCard) => {
     if (newCard) {
       localData.value = cloneDeep(newCard.content) || {}
-      localAiContextTemplate.value = newCard.ai_context_template || ''
+      localAiContextTemplates.value = getCardContextTemplates(newCard)
       originalData.value = cloneDeep(newCard.content) || {}
-      originalAiContextTemplate.value = newCard.ai_context_template || ''
+      originalAiContextTemplates.value = getCardContextTemplates(newCard)
+      activeContextTemplateKind.value = 'generation'
+      generationContextKind.value = 'generation'
+      reviewContextKind.value = 'review'
       titleProxy.value = newCard.title
       await loadSchemaForCard(newCard)
       // 载入每卡片参数
@@ -763,27 +811,38 @@ async function loadSchemaForCard(card: CardRead) {
 }
 
 function handleReferenceConfirm(reference: string) {
+  const kind = activeContextTemplateKind.value
+  const currentText = localAiContextTemplates.value[kind]
   if (atIndexForInsertion < 0) {
     // 若未通过 @ 触发，则直接在末尾追加
-    localAiContextTemplate.value = `${localAiContextTemplate.value}${reference}`
+    localAiContextTemplates.value = {
+      ...localAiContextTemplates.value,
+      [kind]: `${currentText}${reference}`,
+    }
     ElMessage.success('已插入引用')
     return
   }
-  const text = localAiContextTemplate.value
-  const isAt = text.charAt(atIndexForInsertion) === '@'
-  const before = text.substring(0, atIndexForInsertion)
-  const after = text.substring(atIndexForInsertion + (isAt ? 1 : 0))
-  localAiContextTemplate.value = before + reference + after
+  const isAt = currentText.charAt(atIndexForInsertion) === '@'
+  const before = currentText.substring(0, atIndexForInsertion)
+  const after = currentText.substring(atIndexForInsertion + (isAt ? 1 : 0))
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [kind]: before + reference + after,
+  }
   atIndexForInsertion = -1
   ElMessage.success('已插入引用')
 }
 
-function applyContextTemplate(text: string) {
-  localAiContextTemplate.value = text
+function applyContextTemplate(payload: { kind: ContextTemplateKind; text: string }) {
+  const kind = normalizeContextTemplateKind(payload?.kind, activeContextTemplateKind.value)
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [kind]: typeof payload?.text === 'string' ? payload.text : String(payload?.text || ''),
+  }
 }
 
-async function applyContextTemplateAndSave(text: string) {
-  localAiContextTemplate.value = typeof text === 'string' ? text : String(text)
+async function applyContextTemplateAndSave(payload: { kind: ContextTemplateKind; text: string }) {
+  applyContextTemplate(payload)
   ElMessage.success('上下文模板已应用')
   openDrawer.value = false
   await handleSave()
@@ -825,7 +884,10 @@ watch(() => openDrawer.value, (v) => {
 function handleDrawerInput(ev: Event) {
   const textarea = ev.target as HTMLTextAreaElement
   // 同步抽屉内文本到本地模板，避免选择器插入时丢失前缀
-  localAiContextTemplate.value = textarea.value
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [activeContextTemplateKind.value]: textarea.value,
+  }
   const cursorPos = textarea.selectionStart
   const lastChar = textarea.value.substring(cursorPos - 1, cursorPos)
   if (lastChar === '@') {
@@ -834,35 +896,36 @@ function handleDrawerInput(ev: Event) {
   }
 }
 
-function openSelectorFromDrawer() {
+function openSelectorFromDrawer(payload?: { kind?: ContextTemplateKind; text?: string }) {
+  if (payload?.kind) activeContextTemplateKind.value = normalizeContextTemplateKind(payload.kind, activeContextTemplateKind.value)
   const textarea = document.querySelector('.context-area textarea') as HTMLTextAreaElement | null
   if (textarea) {
-    localAiContextTemplate.value = textarea.value
+    localAiContextTemplates.value = {
+      ...localAiContextTemplates.value,
+      [activeContextTemplateKind.value]: textarea.value,
+    }
     // 在光标当前位置插入，不回退一位
     atIndexForInsertion = textarea.selectionStart
   }
   isSelectorVisible.value = true
 }
 
-const previewText = computed(() => localAiContextTemplate.value)
+const previewText = computed(() => localAiContextTemplates.value[activeContextTemplateKind.value] || '')
 
 async function handleSave() {
+  const templatesBeforeSave = cloneContextTemplates(localAiContextTemplates.value)
+  const previousTemplatesOnCard = getCardContextTemplates(props.card)
   // 自定义内容编辑器的保存逻辑（如 CodeMirrorEditor）
   if (activeContentEditor.value && contentEditorRef.value) {
     try {
       isSaving.value = true
-      // 在保存正文前先截取当前模板与旧值，避免保存正文时触发的 card 更新把本地模板重置为旧值
-      const templateBeforeSave = localAiContextTemplate.value
-      const prevTemplateOnCard = props.card.ai_context_template || ''
-
       // 将当前标题传递给内容编辑器，由内容编辑器统一负责保存 title 与正文内容
       const savedContent = await contentEditorRef.value.handleSave(titleProxy.value)
 
-      // 如有上下文模板变更，单独保存 ai_context_template（不覆盖正文内容）
-      if (templateBeforeSave !== prevTemplateOnCard) {
+      if (!isEqual(templatesBeforeSave, previousTemplatesOnCard)) {
         try {
           await cardStore.modifyCard(props.card.id, {
-            ai_context_template: templateBeforeSave,
+            ...buildContextTemplateUpdatePayload(templatesBeforeSave),
           } as any)
         } catch {}
       }
@@ -875,7 +938,7 @@ async function handleSave() {
             projectId: projectStore.currentProject.id,
             title: titleProxy.value,
             content: savedContent,
-            ai_context_template: templateBeforeSave,
+            ...buildContextTemplateUpdatePayload(templatesBeforeSave),
           })
         }
       } catch (e) {
@@ -883,7 +946,7 @@ async function handleSave() {
       }
 
       contentEditorDirty.value = false
-      originalAiContextTemplate.value = templateBeforeSave
+      originalAiContextTemplates.value = cloneContextTemplates(templatesBeforeSave)
       lastSavedAt.value = new Date().toLocaleTimeString()
       ElMessage.success('保存成功')
     } catch (e) {
@@ -900,7 +963,7 @@ async function handleSave() {
     const updatePayload: CardUpdate = {
       title: titleProxy.value,
       content: cloneDeep(localData.value),
-      ai_context_template: localAiContextTemplate.value,
+      ...buildContextTemplateUpdatePayload(templatesBeforeSave),
       needs_confirmation: false,  // 清除 AI 修改标记，触发工作流
     }
     await cardStore.modifyCard(props.card.id, updatePayload)
@@ -910,11 +973,11 @@ async function handleSave() {
         projectId: projectStore.currentProject!.id!,
         title: titleProxy.value,
         content: updatePayload.content as any,
-        ai_context_template: localAiContextTemplate.value,
+        ...buildContextTemplateUpdatePayload(templatesBeforeSave),
       })
     } catch {}
     originalData.value = cloneDeep(localData.value)
-    originalAiContextTemplate.value = localAiContextTemplate.value
+    originalAiContextTemplates.value = cloneContextTemplates(templatesBeforeSave)
     lastSavedAt.value = new Date().toLocaleTimeString()
     ElMessage.success('保存成功！')
   } finally { isSaving.value = false }
@@ -948,12 +1011,7 @@ async function executeStageReview() {
   stageReviewAbortController.value = abortController
 
   try {
-    const currentCardForResolve = { ...props.card, content: currentContent }
-    const resolvedContext = resolveTemplate({
-      template: localAiContextTemplate.value,
-      cards: cards.value,
-      currentCard: currentCardForResolve as any,
-    })
+    const resolvedContext = getResolvedContextByKind(reviewContextKind.value, currentContent)
 
     const payload: StageReviewRunRequest = {
       card_id: props.card.id,
@@ -1043,12 +1101,7 @@ async function handleStartGeneration(userPrompt: string, useExistingContent: boo
 
     // 2. 解析上下文
     const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContext = resolveTemplate({
-      template: localAiContextTemplate.value,
-      cards: cards.value,
-      currentCard: currentCardForResolve as any
-    })
+    const resolvedContext = getResolvedContextByKind(generationContextKind.value)
 
     // 3. 初始化指令执行器（根据选项决定是否使用现有内容）
     const initialData = useExistingContent ? (editingContent || {}) : {}
@@ -1256,13 +1309,7 @@ async function handleContinueGeneration(userMessage: string) {
       return
     }
 
-    const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContext = resolveTemplate({
-      template: localAiContextTemplate.value,
-      cards: cards.value,
-      currentCard: currentCardForResolve as any
-    })
+    const resolvedContext = getResolvedContextByKind(generationContextKind.value)
 
     // 继续生成（总是基于现有内容）
     await performGeneration(userMessage, effective, resolvedContext, p, true)
@@ -1300,9 +1347,7 @@ function handleRestartGeneration() {
 async function handleGenerate() {
   const p = perCardStore.getByCardId(props.card.id) || editingParams.value
   if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
-  const editingContent = wrapperName.value ? innerData.value : localData.value
-  const currentCardForResolve = { ...props.card, content: editingContent }
-  const resolvedContext = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+  const resolvedContext = getResolvedContextByKind(generationContextKind.value)
   try {
     // 直接读取有效 Schema 并作为 response_model_schema 发送
     const { getCardSchema } = await import('@renderer/api/setting')
@@ -1345,7 +1390,11 @@ async function handleRestoreVersion(v: any) {
       }
 
       // 恢复上下文模板
-      localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
+      localAiContextTemplates.value = cloneContextTemplates({
+        generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
+        review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
+        custom: v.ai_context_template_custom ?? localAiContextTemplates.value.custom,
+      })
 
       // 保存恢复的内容
       await handleSave()
@@ -1364,7 +1413,11 @@ async function handleRestoreVersion(v: any) {
   // 默认表单编辑器的恢复逻辑
   if (wrapperName.value) innerData.value = v.content
   else localData.value = v.content
-  localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
+  localAiContextTemplates.value = cloneContextTemplates({
+    generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
+    review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
+    custom: v.ai_context_template_custom ?? localAiContextTemplates.value.custom,
+  })
   ElMessage.success('已恢复版本，自动保存中...')
   await handleSave()
 }
@@ -1379,9 +1432,7 @@ async function handleAssistantFinalize(summary: string) {
     const p = perCardStore.getByCardId(props.card.id) || editingParams.value
     if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
     // 将对话要点与上下文合并，作为输入文本（不再附加卡片提示词模板）
-    const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContextText = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+    const resolvedContextText = getResolvedContextByKind(generationContextKind.value)
     const inputText = `${resolvedContextText}\n\n[对话要点]\n${summary}`
     // 读取有效 Schema
     const { getCardSchema } = await import('@renderer/api/setting')
@@ -1478,16 +1529,42 @@ async function handleAssistantFinalize(summary: string) {
 }
 
 .stage-review-text-block {
-  margin: 0;
   padding: 16px;
   border-radius: 10px;
   border: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);
+}
+
+:deep(.review-markdown) {
   color: var(--el-text-color-primary);
-  font-family: inherit;
   font-size: 14px;
   line-height: 1.8;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+:deep(.review-markdown h1),
+:deep(.review-markdown h2),
+:deep(.review-markdown h3),
+:deep(.review-markdown h4),
+:deep(.review-markdown h5),
+:deep(.review-markdown h6) {
+  margin-top: 0;
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown p),
+:deep(.review-markdown li),
+:deep(.review-markdown blockquote) {
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown pre) {
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.review-markdown code) {
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
 }
 </style>

@@ -92,16 +92,23 @@
           <p class="review-summary">本次审核已按标准审校单格式存档，可直接用于回看和历史查询。</p>
         </div>
 
-        <pre class="review-text-block">{{ selectedReview.result_text || '（暂无内容）' }}</pre>
+        <div class="review-text-block">
+          <SimpleMarkdown
+            :markdown="selectedReview.result_text || '（暂无内容）'"
+            class="review-markdown"
+          />
+        </div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { deleteReview, listProjectReviews, type ReviewRecord } from '@renderer/api/chapterReviews'
+import { useAppStore } from '@renderer/stores/useAppStore'
 
 const props = defineProps<{
   projectId?: number | null
@@ -113,6 +120,8 @@ const reviewType = ref<'all' | 'chapter' | 'stage'>(props.defaultReviewType ?? '
 const targetTitleKeyword = ref('')
 const reviews = ref<ReviewRecord[]>([])
 const selectedReview = ref<ReviewRecord | null>(null)
+const appStore = useAppStore()
+const isDarkMode = computed(() => appStore.isDarkMode)
 
 function formatVerdict(verdict?: string | null): string {
   switch (verdict) {
@@ -367,17 +376,44 @@ onBeforeUnmount(() => {
 }
 
 .review-text-block {
-  margin: 0;
   max-height: 60vh;
   overflow: auto;
   padding: 12px;
   border: 1px solid var(--el-border-color-light);
   border-radius: 8px;
   background: var(--el-bg-color);
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+
+:deep(.review-markdown) {
   font-size: 13px;
   line-height: 1.7;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+
+:deep(.review-markdown h1),
+:deep(.review-markdown h2),
+:deep(.review-markdown h3),
+:deep(.review-markdown h4),
+:deep(.review-markdown h5),
+:deep(.review-markdown h6) {
+  margin-top: 0;
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown p),
+:deep(.review-markdown li),
+:deep(.review-markdown blockquote) {
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown pre) {
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.review-markdown code) {
+  background: var(--el-fill-color-light);
   color: var(--el-text-color-primary);
 }
 </style>
