@@ -4,7 +4,8 @@
 """
 
 from loguru import logger
-from sqlalchemy import inspect, text
+from sqlalchemy import UniqueConstraint, inspect
+from sqlalchemy.schema import CreateColumn
 from sqlmodel import Session
 
 from app.bootstrap.registry import discover_and_run_initializers
@@ -21,39 +22,89 @@ def init_database():
     """
     logger.info("[启动] 初始化数据库表结构...")
     SQLModel.metadata.create_all(engine)
-    # 补齐旧数据库缺失的上下文模板字段，避免已有库升级后启动报错
-    _ensure_context_template_columns()
+    # 对已有数据库执行轻量补齐：自动发现模型新增的安全追加列并补齐。
+    # 仅处理“加列”场景；复杂变更仍建议使用 Alembic 迁移。
+    _ensure_safe_additive_columns()
     logger.info("[启动] 数据库表结构初始化完成")
 
 
-def _ensure_context_template_columns():
-    """补齐上下文模板相关字段
+def _column_has_table_level_unique_constraint(column) -> bool:
+    table = column.table
+    for constraint in table.constraints:
+        if isinstance(constraint, UniqueConstraint) and column.name in constraint.columns.keys():
+            return True
+    return False
 
-    本次新增了卡片和卡片类型的上下文模板字段。
-    对已有数据库执行轻量补齐，避免要求用户手动删库或迁移。
+
+def _can_auto_add_column(column) -> tuple[bool, str]:
+    """检查列是否适合自动补齐（仅处理安全的追加场景）。"""
+    if column.primary_key:
+        return False, "primary key"
+    if column.unique or _column_has_table_level_unique_constraint(column):
+        return False, "unique constraint"
+    if column.foreign_keys:
+        return False, "foreign key"
+    if getattr(column, "computed", None) is not None:
+        return False, "computed column"
+    if not column.nullable and column.server_default is None:
+        return False, "not-null without server_default"
+    return True, ""
+
+
+def _ensure_safe_additive_columns():
+    """自动发现模型与现有表结构差异，并补齐可安全追加的缺失列。
+
+    职责边界：
+    - 处理已存在数据表上的“新增列”场景
+    - 仅补齐安全追加的列
+    - 不处理删列、改列类型、改约束、索引补建、数据回填等复杂迁移
+
+    新表的创建仍由 `SQLModel.metadata.create_all(engine)` 负责。
     """
-    additions = {
-        "card": {
-            "ai_context_template_review": "TEXT",
-        },
-        "cardtype": {
-            "default_ai_context_template_review": "TEXT",
-        },
-    }
+    added_columns: list[str] = []
+    skipped_columns: list[str] = []
+
     with engine.begin() as conn:
-        for table_name, columns in additions.items():
-            try:
-                inspector = inspect(engine)
-                existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
-            except Exception:
-                logger.exception(f"[启动] 检查数据表字段失败: {table_name}")
+        inspector = inspect(conn)
+        existing_tables = set(inspector.get_table_names())
+        preparer = conn.dialect.identifier_preparer
+
+        for table in SQLModel.metadata.sorted_tables:
+            if table.name not in existing_tables:
                 continue
 
-            for column_name, column_type in columns.items():
-                if column_name in existing_columns:
+            try:
+                db_columns = {item["name"] for item in inspector.get_columns(table.name)}
+            except Exception:
+                logger.exception(f"[启动] 读取现有表结构失败: {table.name}")
+                continue
+
+            missing_columns = [column for column in table.columns if column.name not in db_columns]
+
+            for column in missing_columns:
+                allowed, reason = _can_auto_add_column(column)
+                display_name = f"{table.name}.{column.name}"
+
+                if not allowed:
+                    skipped_columns.append(f"{display_name} ({reason})")
                     continue
-                logger.info(f"[启动] 补充字段: {table_name}.{column_name}")
-                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+
+                try:
+                    column_ddl = str(CreateColumn(column).compile(dialect=conn.dialect))
+                    table_name = preparer.format_table(table)
+                    conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_ddl}")
+                    added_columns.append(display_name)
+                except Exception as exc:
+                    skipped_columns.append(f"{display_name} (add failed: {exc})")
+                    logger.exception(f"[启动] 自动补齐列失败: {display_name}")
+
+    if added_columns:
+        logger.info(f"[启动] 已自动补齐缺失列: {', '.join(added_columns)}")
+    else:
+        logger.info("[启动] 表结构检查完成，无需补齐缺失列")
+
+    if skipped_columns:
+        logger.warning(f"[启动] 检测到不安全或失败列，已跳过自动补齐: {', '.join(skipped_columns)}")
 
 
 def init_application_data():
