@@ -15,11 +15,16 @@
       <div class="right">
         <div class="context-action-combo">
           <el-tooltip content="打开上下文抽屉（Alt+K）">
-            <el-button type="primary" plain class="context-main-button" @click="$emit('open-context')">上下文注入</el-button>
+            <el-button type="primary" plain class="context-main-button" @click="$emit('open-context')">
+              上下文注入
+              <el-tag size="small" class="context-slot-tag" :type="getSlotTagType(activeContextTemplateKind)">
+                {{ contextTemplateLabels[activeContextTemplateKind] }}
+              </el-tag>
+            </el-button>
           </el-tooltip>
           <el-popover v-model:visible="slotPickerVisible" trigger="click" width="220" popper-class="context-slot-popper">
             <template #reference>
-              <el-button type="primary" plain class="context-trigger-button">
+              <el-button type="primary" plain class="context-trigger-button" title="切换上下文槽位">
                 <el-icon><ArrowDown /></el-icon>
               </el-button>
             </template>
@@ -107,6 +112,19 @@ function selectContextTemplateKind(kind: ContextTemplateKind) {
   emit('update:active-context-template-kind', kind)
   slotPickerVisible.value = false
 }
+
+function getSlotTagType(kind: ContextTemplateKind): 'success' | 'warning' | 'info' {
+  switch (kind) {
+    case 'generation':
+      return 'success'
+    case 'review':
+      return 'warning'
+    case 'custom':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
 </script>
 
 <style scoped>
@@ -126,7 +144,17 @@ function selectContextTemplateKind(kind: ContextTemplateKind) {
 .left { display: flex; align-items: center; gap: 10px; }
 .right { display: flex; align-items: center; gap: 8px; }
 .context-action-combo { display: inline-flex; align-items: stretch; }
-.context-main-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.context-main-button { 
+  border-top-right-radius: 0; 
+  border-bottom-right-radius: 0; 
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.context-slot-tag {
+  margin-left: 4px;
+  font-weight: 500;
+}
 .context-trigger-button { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; padding-inline: 9px; }
 .slot-picker-panel { display: flex; flex-direction: column; gap: 6px; }
 .slot-picker-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; border: 1px solid var(--el-border-color-light); border-radius: 8px; background: var(--el-fill-color-blank); padding: 8px 10px; cursor: pointer; color: var(--el-text-color-primary); }
