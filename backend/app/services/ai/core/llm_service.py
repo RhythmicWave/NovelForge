@@ -93,6 +93,76 @@ async def generate_structured(
     return native_result
 
 
+async def generate_review(
+    session: Session,
+    llm_config_id: int,
+    user_prompt: str,
+    system_prompt: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    timeout: Optional[float] = None,
+    track_stats: bool = True,
+) -> str:
+    """审核文本生成。"""
+    if track_stats:
+        ok, reason = precheck_quota(
+            session, llm_config_id,
+            calc_input_tokens(system_prompt, user_prompt),
+            need_calls=1
+        )
+        if not ok:
+            raise ValueError(f"LLM配额不足: {reason}")
+
+    try:
+        model = build_chat_model(
+            session=session,
+            llm_config_id=llm_config_id,
+            temperature=temperature or 0.7,
+            max_tokens=16384 if max_tokens is None else max_tokens,
+            timeout=timeout or 150,
+        )
+
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=user_prompt))
+
+        logger.info(f"开始审核，提示词: {system_prompt} \n\n {user_prompt}")
+        response = await model.ainvoke(messages)
+        content = getattr(response, "content", response)
+        if isinstance(content, list):
+            text = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            text = "" if content is None else str(content)
+
+        if not text.strip():
+            raise ValueError("LLM返回了空响应")
+
+        if track_stats:
+            in_tokens = calc_input_tokens(system_prompt, user_prompt)
+            out_tokens = estimate_tokens(text)
+            record_usage(
+                session, llm_config_id,
+                in_tokens, out_tokens,
+                calls=1, aborted=False
+            )
+
+        return text.strip()
+    except asyncio.CancelledError:
+        logger.info("[LangChain-Text] LLM调用被取消（CancelledError），立即中止。")
+        if track_stats:
+            in_tokens = calc_input_tokens(system_prompt, user_prompt)
+            record_usage(
+                session, llm_config_id,
+                in_tokens, 0,
+                calls=1, aborted=True
+            )
+        raise
+
+
 async def _generate_structured_native(
     *,
     session: Session,

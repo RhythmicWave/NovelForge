@@ -13,9 +13,36 @@
         <span v-if="lastSavedAt" class="last-saved">上次保存：{{ lastSavedAt }}</span>
       </div>
       <div class="right">
-        <el-tooltip content="打开上下文抽屉（Alt+K）">
-          <el-button type="primary" plain @click="$emit('open-context')">上下文注入</el-button>
-        </el-tooltip>
+        <div class="context-action-combo">
+          <el-tooltip content="打开上下文抽屉（Alt+K）">
+            <el-button type="primary" plain class="context-main-button" @click="$emit('open-context')">
+              上下文注入
+              <el-tag size="small" class="context-slot-tag" :type="getSlotTagType(activeContextTemplateKind)">
+                {{ contextTemplateLabels[activeContextTemplateKind] }}
+              </el-tag>
+            </el-button>
+          </el-tooltip>
+          <el-popover v-model:visible="slotPickerVisible" trigger="click" width="220" popper-class="context-slot-popper">
+            <template #reference>
+              <el-button type="primary" plain class="context-trigger-button" title="切换上下文槽位">
+                <el-icon><ArrowDown /></el-icon>
+              </el-button>
+            </template>
+            <div class="slot-picker-panel">
+              <button
+                v-for="kind in contextTemplateKinds"
+                :key="kind"
+                type="button"
+                class="slot-picker-item"
+                :class="{ 'is-active': activeContextTemplateKind === kind }"
+                @click="selectContextTemplateKind(kind)"
+              >
+                <span>{{ contextTemplateLabels[kind] }}</span>
+                <el-icon v-if="activeContextTemplateKind === kind" class="check-icon"><Select /></el-icon>
+              </button>
+            </div>
+          </el-popover>
+        </div>
         <el-button v-if="!isChapterContent" type="success" plain @click="$emit('generate')">AI 生成</el-button>
         <el-button 
           :type="canSaveComputed ? 'primary' : 'info'" 
@@ -42,6 +69,8 @@
 
 <script setup lang="ts">
 import { computed, watch, ref } from 'vue'
+import { ArrowDown, Select } from '@element-plus/icons-vue'
+import { CONTEXT_TEMPLATE_LABELS, type ContextTemplateKind } from '@renderer/services/contextSlots'
 
 const props = defineProps<{
   projectName?: string
@@ -53,6 +82,7 @@ const props = defineProps<{
   canSave?: boolean
   isChapterContent?: boolean
   needsConfirmation?: boolean  // AI 修改需要确认
+  activeContextTemplateKind?: ContextTemplateKind
 }>()
 
 // 计算是否可以保存：如果需要确认，即使没有修改也可以保存
@@ -61,7 +91,11 @@ const canSaveComputed = computed(() => {
   return props.canSave
 })
 
-const emit = defineEmits(['update:title','save','generate','open-versions','delete','open-context'])
+const emit = defineEmits(['update:title','save','generate','open-versions','delete','open-context','update:active-context-template-kind'])
+const slotPickerVisible = ref(false)
+const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review']
+const contextTemplateLabels = CONTEXT_TEMPLATE_LABELS
+const activeContextTemplateKind = computed<ContextTemplateKind>(() => props.activeContextTemplateKind || 'generation')
 
 const titleProxy = ref(props.title)
 watch(() => props.title, v => titleProxy.value = v)
@@ -73,6 +107,22 @@ const statusTag = computed(() => {
   if (props.dirty) return { type: 'info', label: '未保存' }
   return { type: 'success', label: '已保存' }
 })
+
+function selectContextTemplateKind(kind: ContextTemplateKind) {
+  emit('update:active-context-template-kind', kind)
+  slotPickerVisible.value = false
+}
+
+function getSlotTagType(kind: ContextTemplateKind): 'success' | 'warning' | 'info' {
+  switch (kind) {
+    case 'generation':
+      return 'success'
+    case 'review':
+      return 'warning'
+    default:
+      return 'info'
+  }
+}
 </script>
 
 <style scoped>
@@ -91,6 +141,23 @@ const statusTag = computed(() => {
 
 .left { display: flex; align-items: center; gap: 10px; }
 .right { display: flex; align-items: center; gap: 8px; }
+.context-action-combo { display: inline-flex; align-items: stretch; }
+.context-main-button { 
+  border-top-right-radius: 0; 
+  border-bottom-right-radius: 0; 
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.context-slot-tag {
+  margin-left: 4px;
+  font-weight: 500;
+}
+.context-trigger-button { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; padding-inline: 9px; }
+.slot-picker-panel { display: flex; flex-direction: column; gap: 6px; }
+.slot-picker-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; border: 1px solid var(--el-border-color-light); border-radius: 8px; background: var(--el-fill-color-blank); padding: 8px 10px; cursor: pointer; color: var(--el-text-color-primary); }
+.slot-picker-item.is-active { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.check-icon { color: var(--el-color-primary); }
 .title-input { width: 280px; }
 .last-saved { color: var(--el-text-color-secondary); font-size: 12px; }
 

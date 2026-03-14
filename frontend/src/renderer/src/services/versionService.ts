@@ -5,6 +5,7 @@ export interface CardVersionSnapshot {
   title: string
   content: any
   ai_context_template?: string
+  ai_context_template_review?: string
   createdAt: string
 }
 

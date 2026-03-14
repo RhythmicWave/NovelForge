@@ -10,30 +10,46 @@
       :last-saved-at="lastSavedAt"
       :is-chapter-content="!!activeContentEditor"
       :needs-confirmation="props.card.needs_confirmation"
+      :active-context-template-kind="activeContextTemplateKind"
       @save="handleSave"
       @generate="handleGenerateClick"
       @open-context="openDrawer = true"
+      @update:active-context-template-kind="handleActiveContextTemplateKindChange"
       @delete="handleDelete"
       @open-versions="showVersions = true"
     />
-    
+
     <!-- 自定义内容编辑器（如 CodeMirrorEditor）-->
     <template v-if="activeContentEditor">
-      <component 
+      <component
         :is="activeContentEditor"
         ref="contentEditorRef"
         :card="props.card"
         :prefetched="props.prefetched"
+        :context-templates="localAiContextTemplates"
+        :generation-context-kind="generationContextKind"
+        :review-context-kind="reviewContextKind"
+        @update:generation-context-kind="handleGenerationContextKindChange"
+        @update:review-context-kind="handleReviewContextKindChange"
         @switch-tab="handleSwitchTab"
         @update:dirty="handleContentEditorDirtyChange"
       />
     </template>
-    
+
     <!-- 默认表单编辑器 -->
     <template v-else>
       <!-- 参数配置：显示当前模型ID，点击弹出就地配置面板 -->
       <div class="toolbar-row param-toolbar">
         <div class="param-inline">
+          <el-button
+            v-if="isStageOutlineCard"
+            size="small"
+            plain
+            :loading="stageReviewLoading"
+            @click="executeStageReview"
+          >
+            <el-icon><List /></el-icon> 阶段审核
+          </el-button>
           <AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
           <el-button size="small" type="primary" plain @click="schemaStudioVisible = true">结构</el-button>
         </div>
@@ -61,7 +77,8 @@
 
     <ContextDrawer
       v-model="openDrawer"
-      :context-template="localAiContextTemplate"
+      :context-templates="localAiContextTemplates"
+      v-model:active-context-template-kind="activeContextTemplateKind"
       :preview-text="previewText"
       @apply-context="applyContextTemplateAndSave"
       @open-selector="openSelectorFromDrawer"
@@ -78,7 +95,7 @@
       :project-id="projectStore.currentProject!.id"
       :card-id="props.card.id"
       :current-content="wrapperName ? innerData : localData"
-      :current-context-template="localAiContextTemplate"
+      :current-context-templates="localAiContextTemplates"
       @restore="handleRestoreVersion"
     />
 
@@ -102,6 +119,33 @@
       @stop="handleStopGeneration"
       @restart="handleRestartGeneration"
     />
+
+    <el-dialog v-model="stageReviewDialogVisible" title="阶段审核结果" width="72%">
+      <div v-if="stageReviewText" class="stage-review-dialog-body">
+        <div class="stage-review-overview">
+          <div class="stage-review-overview-main">
+            <el-tag
+              v-if="stageReviewRecord"
+              :type="getReviewVerdictTagType(stageReviewRecord.quality_gate)"
+              effect="dark"
+            >
+              {{ formatReviewVerdict(stageReviewRecord.quality_gate) }}
+            </el-tag>
+            <span v-if="stageReviewRecord" class="stage-review-score">
+              记录于 {{ formatReviewCreatedAt(stageReviewRecord.created_at) }}
+            </span>
+          </div>
+          <p class="stage-review-summary">本次阶段审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
+        </div>
+
+        <div class="stage-review-text-block">
+          <SimpleMarkdown
+            :markdown="stageReviewText || '（暂无内容）'"
+            class="review-markdown"
+          />
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -126,13 +170,31 @@ import CardVersionsDialog from '../common/CardVersionsDialog.vue'
 import { cloneDeep, isEqual } from 'lodash-es'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { addVersion } from '@renderer/services/versionService'
-import { Setting } from '@element-plus/icons-vue'
+import { List } from '@element-plus/icons-vue'
+import { useAppStore } from '@renderer/stores/useAppStore'
 import { useAIStore as useAIStoreForOptions } from '@renderer/stores/useAIStore'
 import SchemaStudio from '../shared/SchemaStudio.vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 // 移除 AssistantSidebar 相关导入与逻辑
 import { resolveTemplate } from '@renderer/services/contextResolver'
+import {
+  buildContextTemplateUpdatePayload,
+  cloneContextTemplates,
+  getCardContextTemplates,
+  getContextTemplateByKind,
+  normalizeContextTemplateKind,
+  type ContextTemplateKind,
+  type ContextTemplates,
+} from '@renderer/services/contextSlots'
+import {
+  runStageReview,
+  type PreviousStageInput,
+  type ReviewRecord,
+  type StageChapterOutlineInput,
+  type StageReviewRunRequest,
+} from '@renderer/api/chapterReviews'
 // 指令流生成相关导入
 import GenerationPanel from '../generation/GenerationPanel.vue'
 import InitialPromptDialog from '../generation/InitialPromptDialog.vue'
@@ -140,7 +202,7 @@ import { InstructionExecutor } from '@renderer/services/instructionExecutor'
 import { generateWithInstructionStream } from '@renderer/api/generation'
 import type { Instruction, ConversationMessage } from '@renderer/types/instruction'
 
-const props = defineProps<{ 
+const props = defineProps<{
   card: CardRead
   prefetched?: any
 }>()
@@ -150,14 +212,21 @@ const aiStore = useAIStore()
 const perCardStore = usePerCardAISettingsStore()
 const projectStore = useProjectStore()
 const aiStoreForOptions = useAIStoreForOptions()
+const appStore = useAppStore()
 
 const { cards } = storeToRefs(cardStore)
+const isDarkMode = computed(() => appStore.isDarkMode)
 
 const openDrawer = ref(false)
 const isSelectorVisible = ref(false)
 const showVersions = ref(false)
 const schemaStudioVisible = ref(false)
 const assistantVisible = ref(false)
+const stageReviewLoading = ref(false)
+const stageReviewDialogVisible = ref(false)
+const stageReviewText = ref('')
+const stageReviewRecord = ref<ReviewRecord | null>(null)
+const stageReviewAbortController = ref<AbortController | null>(null)
 const assistantResolvedContext = ref<string>('')
 const assistantEffectiveSchema = ref<any>(null)
 const prefetchedContext = ref<any>(null)
@@ -189,6 +258,8 @@ const activeContentEditor = computed(() => {
   return null // null 表示使用默认的表单编辑器
 })
 
+const isStageOutlineCard = computed(() => props.card.card_type?.name === '阶段大纲')
+
 // 通用的内容编辑器引用（可以是 CodeMirrorEditor 或其他）
 const contentEditorRef = ref<any>(null)
 const contentEditorDirty = ref(false)
@@ -202,11 +273,27 @@ function handleContentEditorDirtyChange(dirty: boolean) {
   contentEditorDirty.value = dirty
 }
 
-function openAssistant() {
-  const editingContent = wrapperName.value ? innerData.value : localData.value
+function getResolvedContextByKind(kind: ContextTemplateKind | string | null | undefined, currentContent?: any) {
+  const editingContent = currentContent ?? (wrapperName.value ? innerData.value : localData.value)
   const currentCardForResolve = { ...props.card, content: editingContent }
-  const resolved = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
-  assistantResolvedContext.value = resolved
+  const template = getContextTemplateByKind(props.card, localAiContextTemplates.value, kind, 'generation')
+  return resolveTemplate({ template, cards: cards.value, currentCard: currentCardForResolve as any })
+}
+
+function handleGenerationContextKindChange(kind: ContextTemplateKind | string) {
+  generationContextKind.value = normalizeContextTemplateKind(kind, 'generation')
+}
+
+function handleReviewContextKindChange(kind: ContextTemplateKind | string) {
+  reviewContextKind.value = normalizeContextTemplateKind(kind, 'review')
+}
+
+function handleActiveContextTemplateKindChange(kind: ContextTemplateKind | string) {
+  activeContextTemplateKind.value = normalizeContextTemplateKind(kind, 'generation')
+}
+
+function openAssistant() {
+  assistantResolvedContext.value = getResolvedContextByKind(generationContextKind.value)
   // 读取有效 Schema 作为对话指导
   import('@renderer/api/setting').then(async ({ getCardSchema }) => {
     try {
@@ -219,9 +306,12 @@ function openAssistant() {
 
 const isSaving = ref(false)
 const localData = ref<any>({})
-const localAiContextTemplate = ref<string>('')
+const localAiContextTemplates = ref<ContextTemplates>(cloneContextTemplates())
 const originalData = ref<any>({})
-const originalAiContextTemplate = ref<string>('')
+const originalAiContextTemplates = ref<ContextTemplates>(cloneContextTemplates())
+const activeContextTemplateKind = ref<ContextTemplateKind>('generation')
+const generationContextKind = ref<ContextTemplateKind>('generation')
+const reviewContextKind = ref<ContextTemplateKind>('review')
 const schema = ref<JSONSchema | undefined>(undefined)
 const schemaIsLoading = ref(false)
 let atIndexForInsertion = -1
@@ -280,7 +370,7 @@ watch(
 )
 
 const isDirty = computed(() => {
-  const ctxDirty = localAiContextTemplate.value !== originalAiContextTemplate.value
+  const ctxDirty = !isEqual(localAiContextTemplates.value, originalAiContextTemplates.value)
   const titleDirty = titleProxy.value !== props.card.title
 
   // 使用自定义内容编辑器（如章节正文）：
@@ -298,9 +388,12 @@ watch(
   async (newCard) => {
     if (newCard) {
       localData.value = cloneDeep(newCard.content) || {}
-      localAiContextTemplate.value = newCard.ai_context_template || ''
+      localAiContextTemplates.value = getCardContextTemplates(newCard)
       originalData.value = cloneDeep(newCard.content) || {}
-      originalAiContextTemplate.value = newCard.ai_context_template || ''
+      originalAiContextTemplates.value = getCardContextTemplates(newCard)
+      activeContextTemplateKind.value = 'generation'
+      generationContextKind.value = 'generation'
+      reviewContextKind.value = 'review'
       titleProxy.value = newCard.title
       await loadSchemaForCard(newCard)
       // 载入每卡片参数
@@ -346,6 +439,257 @@ const paramSummary = computed(() => {
   const m = p?.max_tokens != null ? `max_tokens:${p.max_tokens}` : ''
   return [model, prompt, t, m].filter(Boolean).join(' · ')
 })
+
+function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): string {
+  switch (verdict) {
+    case 'pass':
+      return '基本通过'
+    case 'block':
+      return '高风险拦截'
+    default:
+      return '建议修改'
+  }
+}
+
+function getReviewVerdictTagType(verdict?: ReviewRecord['quality_gate'] | null): 'success' | 'warning' | 'danger' {
+  switch (verdict) {
+    case 'pass':
+      return 'success'
+    case 'block':
+      return 'danger'
+    default:
+      return 'warning'
+  }
+}
+
+function formatReviewCreatedAt(value?: string | null): string {
+  if (!value) return ''
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value))
+  } catch {
+    return value
+  }
+}
+
+function isCanceledRequest(error: unknown): boolean {
+  const candidate = error as { code?: string; name?: string; message?: string }
+  return candidate?.code === 'ERR_CANCELED'
+    || candidate?.name === 'CanceledError'
+    || candidate?.message === 'canceled'
+    || candidate?.message === 'CanceledError'
+}
+
+function getCurrentEditingContent() {
+  return cloneDeep(wrapperName.value ? innerData.value : localData.value) || {}
+}
+
+function getStageVolumeNumber(content: any): number | null {
+  const value = Number(content?.volume_number)
+  return Number.isFinite(value) ? value : null
+}
+
+function getStageNumber(content: any): number | null {
+  const value = Number(content?.stage_number)
+  return Number.isFinite(value) ? value : null
+}
+
+function getStageReferenceChapter(content: any): number[] {
+  if (!Array.isArray(content?.reference_chapter)) return []
+  return content.reference_chapter
+    .map((item: any) => Number(item))
+    .filter((item: number) => Number.isFinite(item))
+    .slice(0, 2)
+}
+
+function getOrderedStageCards(currentContent?: any): CardRead[] {
+  return [...(cards.value || [])]
+    .filter((item: any) => item?.card_type?.name === '阶段大纲')
+    .map((item: any) => {
+      const content = item.id === props.card.id && currentContent ? currentContent : (item?.content || {})
+      return {
+        card: item,
+        volumeNumber: getStageVolumeNumber(content) ?? 0,
+        stageNumber: getStageNumber(content) ?? 0,
+      }
+    })
+    .filter(item => item.volumeNumber > 0 && item.stageNumber > 0)
+    .sort((a, b) => {
+      if (a.volumeNumber !== b.volumeNumber) return a.volumeNumber - b.volumeNumber
+      return a.stageNumber - b.stageNumber
+    })
+    .map(item => item.card)
+}
+
+function getPreviousStagesForReview(currentContent: any): PreviousStageInput[] {
+  const currentVolumeNumber = getStageVolumeNumber(currentContent)
+  const currentStageNumber = getStageNumber(currentContent)
+  if (currentVolumeNumber == null || currentStageNumber == null) return []
+
+  const ordered = getOrderedStageCards(currentContent)
+  const currentIndex = ordered.findIndex(item => item.id === props.card.id)
+  if (currentIndex <= 0) return []
+
+  return ordered
+    .slice(Math.max(0, currentIndex - 1), currentIndex)
+    .map((item: any) => {
+      const content = item?.content || {}
+      return {
+        title: item?.title || content?.stage_name || '未命名阶段',
+        stage_name: content?.stage_name || null,
+        volume_number: getStageVolumeNumber(content),
+        stage_number: getStageNumber(content),
+        reference_chapter: getStageReferenceChapter(content),
+        overview: String(content?.overview || ''),
+        analysis: content?.analysis || '',
+        entity_snapshot: Array.isArray(content?.entity_snapshot) ? content.entity_snapshot.map((entry: any) => String(entry)) : [],
+      }
+    })
+}
+
+function getStageChapterOutlinesForReview(currentContent: any): StageChapterOutlineInput[] {
+  const stageVolumeNumber = getStageVolumeNumber(currentContent)
+  const stageNumber = getStageNumber(currentContent)
+  const chapterContentMap = new Map<number, { hasContent: boolean; wordCount: number | null }>()
+
+  for (const item of cards.value || []) {
+    if ((item as any)?.card_type?.name !== '章节正文') continue
+    const content = (item as any)?.content || {}
+    const volumeNumber = Number(content?.volume_number)
+    const chapterStageNumber = Number(content?.stage_number)
+    const chapterNumber = Number(content?.chapter_number)
+    if (!Number.isFinite(volumeNumber) || !Number.isFinite(chapterStageNumber) || !Number.isFinite(chapterNumber)) continue
+    if (stageVolumeNumber != null && volumeNumber !== stageVolumeNumber) continue
+    if (stageNumber != null && chapterStageNumber !== stageNumber) continue
+    const text = String(content?.content || '')
+    chapterContentMap.set(chapterNumber, {
+      hasContent: text.trim().length > 0,
+      wordCount: text.trim().length > 0 ? text.replace(/\s+/g, '').length : 0,
+    })
+  }
+
+  const childOutlineCards = (cards.value || [])
+    .filter((item: any) => item?.parent_id === props.card.id && item?.card_type?.name === '章节大纲')
+    .map((item: any) => {
+      const content = item?.content || {}
+      const chapterNumber = Number(content?.chapter_number)
+      return {
+        title: String(content?.title || item?.title || '未命名章节'),
+        chapter_number: Number.isFinite(chapterNumber) ? chapterNumber : null,
+        overview: String(content?.overview || ''),
+        entity_list: Array.isArray(content?.entity_list) ? content.entity_list.map((entry: any) => String(entry)) : [],
+      }
+    })
+    .sort((a, b) => {
+      const aNum = a.chapter_number ?? Number.MAX_SAFE_INTEGER
+      const bNum = b.chapter_number ?? Number.MAX_SAFE_INTEGER
+      return aNum - bNum
+    })
+
+  const fallbackOutlineList = Array.isArray(currentContent?.chapter_outline_list) ? currentContent.chapter_outline_list : []
+  const sourceList = childOutlineCards.length ? childOutlineCards : fallbackOutlineList
+
+  return sourceList.map((item: any) => {
+    const chapterNumber = Number(item?.chapter_number)
+    const chapterMeta = Number.isFinite(chapterNumber) ? chapterContentMap.get(chapterNumber) : undefined
+    return {
+      title: String(item?.title || '未命名章节'),
+      chapter_number: Number.isFinite(chapterNumber) ? chapterNumber : null,
+      overview: String(item?.overview || ''),
+      entity_list: Array.isArray(item?.entity_list) ? item.entity_list.map((entry: any) => String(entry)) : [],
+      has_content: chapterMeta?.hasContent ?? false,
+      word_count: chapterMeta?.wordCount ?? null,
+    }
+  })
+}
+
+function formatStageSnapshot(currentContent: any, chapterOutlines: StageChapterOutlineInput[]): string {
+  const lines: string[] = [
+    '[阶段信息]',
+    `- 标题：${titleProxy.value || props.card.title || '未命名阶段'}`,
+  ]
+
+  if (currentContent?.stage_name) lines.push(`- 阶段名：${String(currentContent.stage_name)}`)
+  if (getStageVolumeNumber(currentContent) != null) lines.push(`- 卷号：${getStageVolumeNumber(currentContent)}`)
+  if (getStageNumber(currentContent) != null) lines.push(`- 阶段号：${getStageNumber(currentContent)}`)
+
+  const referenceChapter = getStageReferenceChapter(currentContent)
+  if (referenceChapter.length >= 2) {
+    lines.push(`- 参考章节范围：${referenceChapter[0]} - ${referenceChapter[1]}`)
+  }
+
+  if (currentContent?.analysis) {
+    lines.push('', '[阶段分析]', String(currentContent.analysis))
+  }
+  if (currentContent?.overview) {
+    lines.push('', '[阶段概述]', String(currentContent.overview))
+  }
+  if (Array.isArray(currentContent?.entity_snapshot) && currentContent.entity_snapshot.length) {
+    lines.push('', '[阶段末实体快照]')
+    for (const item of currentContent.entity_snapshot) {
+      lines.push(`- ${String(item)}`)
+    }
+  }
+  if (chapterOutlines.length) {
+    lines.push('', '[章节列表]')
+    chapterOutlines.forEach((item, index) => {
+      const chapterLabel = item.chapter_number != null ? `第${item.chapter_number}章` : `章节${index + 1}`
+      lines.push(`${index + 1}. ${chapterLabel} ${item.title}`.trim())
+      if (item.overview) lines.push(`概述：${item.overview}`)
+      if (item.entity_list?.length) lines.push(`出场实体：${item.entity_list.join('、')}`)
+      lines.push(`是否已有正文：${item.has_content ? '是' : '否'}`)
+      if (item.word_count != null) lines.push(`正文字数：${item.word_count}`)
+    })
+  }
+
+  return lines.join('\n').trim()
+}
+
+function formatFactsFromContext(ctx: any | null | undefined): string {
+  try {
+    if (!ctx) return ''
+    const factsStruct: any = (ctx as any)?.facts_structured || {}
+    const lines: string[] = []
+    if (Array.isArray(factsStruct.fact_summaries) && factsStruct.fact_summaries.length) {
+      lines.push('关键事实:')
+      for (const s of factsStruct.fact_summaries) lines.push(`- ${s}`)
+    }
+    if (Array.isArray(factsStruct.relation_summaries) && factsStruct.relation_summaries.length) {
+      lines.push('关系摘要:')
+      for (const r of factsStruct.relation_summaries) {
+        lines.push(`- ${r.a} ↔ ${r.b}（${r.kind}）`)
+        if (r.description) lines.push(`  · ${r.description}`)
+        if (r.a_to_b_addressing || r.b_to_a_addressing) {
+          const addressingParts: string[] = []
+          if (r.a_to_b_addressing) addressingParts.push(`A称B：${r.a_to_b_addressing}`)
+          if (r.b_to_a_addressing) addressingParts.push(`B称A：${r.b_to_a_addressing}`)
+          lines.push(`  · ${addressingParts.join(' / ')}`)
+        }
+        if (Array.isArray(r.recent_dialogues) && r.recent_dialogues.length) {
+          lines.push('  · 对话样例：')
+          for (const d of r.recent_dialogues) lines.push(`    - ${d}`)
+        }
+        if (Array.isArray(r.recent_event_summaries) && r.recent_event_summaries.length) {
+          lines.push('  · 近期事件：')
+          for (const ev of r.recent_event_summaries) {
+            const tags: string[] = []
+            if (ev.volume_number != null) tags.push(`卷${ev.volume_number}`)
+            if (ev.chapter_number != null) tags.push(`章${ev.chapter_number}`)
+            lines.push(`    - ${ev.summary}${tags.length ? `（${tags.join(' ')}）` : ''}`)
+          }
+        }
+      }
+    }
+    return lines.join('\n').trim()
+  } catch {
+    return ''
+  }
+}
 
 async function applyAndSavePerCardParams() {
   try {
@@ -467,27 +811,38 @@ async function loadSchemaForCard(card: CardRead) {
 }
 
 function handleReferenceConfirm(reference: string) {
+  const kind = activeContextTemplateKind.value
+  const currentText = localAiContextTemplates.value[kind]
   if (atIndexForInsertion < 0) {
     // 若未通过 @ 触发，则直接在末尾追加
-    localAiContextTemplate.value = `${localAiContextTemplate.value}${reference}`
+    localAiContextTemplates.value = {
+      ...localAiContextTemplates.value,
+      [kind]: `${currentText}${reference}`,
+    }
     ElMessage.success('已插入引用')
     return
   }
-  const text = localAiContextTemplate.value
-  const isAt = text.charAt(atIndexForInsertion) === '@'
-  const before = text.substring(0, atIndexForInsertion)
-  const after = text.substring(atIndexForInsertion + (isAt ? 1 : 0))
-  localAiContextTemplate.value = before + reference + after
+  const isAt = currentText.charAt(atIndexForInsertion) === '@'
+  const before = currentText.substring(0, atIndexForInsertion)
+  const after = currentText.substring(atIndexForInsertion + (isAt ? 1 : 0))
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [kind]: before + reference + after,
+  }
   atIndexForInsertion = -1
   ElMessage.success('已插入引用')
 }
 
-function applyContextTemplate(text: string) {
-  localAiContextTemplate.value = text
+function applyContextTemplate(payload: { kind: ContextTemplateKind; text: string }) {
+  const kind = normalizeContextTemplateKind(payload?.kind, activeContextTemplateKind.value)
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [kind]: typeof payload?.text === 'string' ? payload.text : String(payload?.text || ''),
+  }
 }
 
-async function applyContextTemplateAndSave(text: string) {
-  localAiContextTemplate.value = typeof text === 'string' ? text : String(text)
+async function applyContextTemplateAndSave(payload: { kind: ContextTemplateKind; text: string }) {
+  applyContextTemplate(payload)
   ElMessage.success('上下文模板已应用')
   openDrawer.value = false
   await handleSave()
@@ -506,7 +861,10 @@ function keyHandler(e: KeyboardEvent) {
 }
 
 onMounted(() => { window.addEventListener('keydown', keyHandler) })
-onBeforeUnmount(() => { window.removeEventListener('keydown', keyHandler) })
+onBeforeUnmount(() => {
+  try { stageReviewAbortController.value?.abort() } catch {}
+  window.removeEventListener('keydown', keyHandler)
+})
 
 // 在抽屉中输入 @ 时弹出选择器
 let drawerTextarea: HTMLTextAreaElement | null = null
@@ -526,7 +884,10 @@ watch(() => openDrawer.value, (v) => {
 function handleDrawerInput(ev: Event) {
   const textarea = ev.target as HTMLTextAreaElement
   // 同步抽屉内文本到本地模板，避免选择器插入时丢失前缀
-  localAiContextTemplate.value = textarea.value
+  localAiContextTemplates.value = {
+    ...localAiContextTemplates.value,
+    [activeContextTemplateKind.value]: textarea.value,
+  }
   const cursorPos = textarea.selectionStart
   const lastChar = textarea.value.substring(cursorPos - 1, cursorPos)
   if (lastChar === '@') {
@@ -535,35 +896,36 @@ function handleDrawerInput(ev: Event) {
   }
 }
 
-function openSelectorFromDrawer() {
+function openSelectorFromDrawer(payload?: { kind?: ContextTemplateKind; text?: string }) {
+  if (payload?.kind) activeContextTemplateKind.value = normalizeContextTemplateKind(payload.kind, activeContextTemplateKind.value)
   const textarea = document.querySelector('.context-area textarea') as HTMLTextAreaElement | null
   if (textarea) {
-    localAiContextTemplate.value = textarea.value
+    localAiContextTemplates.value = {
+      ...localAiContextTemplates.value,
+      [activeContextTemplateKind.value]: textarea.value,
+    }
     // 在光标当前位置插入，不回退一位
     atIndexForInsertion = textarea.selectionStart
   }
   isSelectorVisible.value = true
 }
 
-const previewText = computed(() => localAiContextTemplate.value)
+const previewText = computed(() => localAiContextTemplates.value[activeContextTemplateKind.value] || '')
 
 async function handleSave() {
+  const templatesBeforeSave = cloneContextTemplates(localAiContextTemplates.value)
+  const previousTemplatesOnCard = getCardContextTemplates(props.card)
   // 自定义内容编辑器的保存逻辑（如 CodeMirrorEditor）
   if (activeContentEditor.value && contentEditorRef.value) {
     try {
       isSaving.value = true
-      // 在保存正文前先截取当前模板与旧值，避免保存正文时触发的 card 更新把本地模板重置为旧值
-      const templateBeforeSave = localAiContextTemplate.value
-      const prevTemplateOnCard = props.card.ai_context_template || ''
-
       // 将当前标题传递给内容编辑器，由内容编辑器统一负责保存 title 与正文内容
       const savedContent = await contentEditorRef.value.handleSave(titleProxy.value)
 
-      // 如有上下文模板变更，单独保存 ai_context_template（不覆盖正文内容）
-      if (templateBeforeSave !== prevTemplateOnCard) {
+      if (!isEqual(templatesBeforeSave, previousTemplatesOnCard)) {
         try {
           await cardStore.modifyCard(props.card.id, {
-            ai_context_template: templateBeforeSave,
+            ...buildContextTemplateUpdatePayload(templatesBeforeSave),
           } as any)
         } catch {}
       }
@@ -576,15 +938,15 @@ async function handleSave() {
             projectId: projectStore.currentProject.id,
             title: titleProxy.value,
             content: savedContent,
-            ai_context_template: templateBeforeSave,
+            ...buildContextTemplateUpdatePayload(templatesBeforeSave),
           })
         }
       } catch (e) {
         console.error('Failed to add version:', e)
       }
-      
+
       contentEditorDirty.value = false
-      originalAiContextTemplate.value = templateBeforeSave
+      originalAiContextTemplates.value = cloneContextTemplates(templatesBeforeSave)
       lastSavedAt.value = new Date().toLocaleTimeString()
       ElMessage.success('保存成功')
     } catch (e) {
@@ -594,14 +956,14 @@ async function handleSave() {
     }
     return
   }
-  
+
   // 默认表单编辑器的保存逻辑
   try {
     isSaving.value = true
     const updatePayload: CardUpdate = {
       title: titleProxy.value,
       content: cloneDeep(localData.value),
-      ai_context_template: localAiContextTemplate.value,
+      ...buildContextTemplateUpdatePayload(templatesBeforeSave),
       needs_confirmation: false,  // 清除 AI 修改标记，触发工作流
     }
     await cardStore.modifyCard(props.card.id, updatePayload)
@@ -611,14 +973,89 @@ async function handleSave() {
         projectId: projectStore.currentProject!.id!,
         title: titleProxy.value,
         content: updatePayload.content as any,
-        ai_context_template: localAiContextTemplate.value,
+        ...buildContextTemplateUpdatePayload(templatesBeforeSave),
       })
     } catch {}
     originalData.value = cloneDeep(localData.value)
-    originalAiContextTemplate.value = localAiContextTemplate.value
+    originalAiContextTemplates.value = cloneContextTemplates(templatesBeforeSave)
     lastSavedAt.value = new Date().toLocaleTimeString()
     ElMessage.success('保存成功！')
   } finally { isSaving.value = false }
+}
+
+async function executeStageReview() {
+  if (!isStageOutlineCard.value) return
+
+  const currentContent = getCurrentEditingContent()
+  const chapterOutlines = getStageChapterOutlinesForReview(currentContent)
+  const hasStageCoreContent = Boolean(
+    String(currentContent?.overview || '').trim() ||
+    String(currentContent?.analysis || '').trim() ||
+    chapterOutlines.length
+  )
+  if (!hasStageCoreContent) {
+    ElMessage.warning('请先完善当前阶段内容后再审核')
+    return
+  }
+
+  const p = perCardStore.getByCardId(props.card.id) || editingParams.value
+  if (!p?.llm_config_id) {
+    ElMessage.error('请先设置有效的模型ID')
+    return
+  }
+
+  stageReviewLoading.value = true
+  stageReviewText.value = ''
+  stageReviewRecord.value = null
+  const abortController = new AbortController()
+  stageReviewAbortController.value = abortController
+
+  try {
+    const resolvedContext = getResolvedContextByKind(reviewContextKind.value, currentContent)
+
+    const payload: StageReviewRunRequest = {
+      card_id: props.card.id,
+      project_id: projectStore.currentProject?.id || props.card.project_id,
+      title: titleProxy.value || props.card.title || '未命名阶段',
+      stage_name: currentContent?.stage_name || titleProxy.value || props.card.title || null,
+      volume_number: getStageVolumeNumber(currentContent),
+      stage_number: getStageNumber(currentContent),
+      reference_chapter: getStageReferenceChapter(currentContent),
+      analysis: String(currentContent?.analysis || ''),
+      overview: String(currentContent?.overview || ''),
+      entity_snapshot: Array.isArray(currentContent?.entity_snapshot) ? currentContent.entity_snapshot.map((item: any) => String(item)) : [],
+      chapter_outlines: chapterOutlines,
+      previous_stages: getPreviousStagesForReview(currentContent),
+      context_info: resolvedContext.trim() || undefined,
+      facts_info: formatFactsFromContext(props.prefetched).trim() || undefined,
+      content_snapshot: formatStageSnapshot(currentContent, chapterOutlines),
+      llm_config_id: p.llm_config_id,
+      prompt_name: '阶段审核',
+    }
+
+    if (typeof p.temperature === 'number') payload.temperature = p.temperature
+    if (typeof p.max_tokens === 'number') payload.max_tokens = Math.min(p.max_tokens, 6144)
+    if (typeof p.timeout === 'number') payload.timeout = p.timeout
+
+    const result = await runStageReview(payload, { signal: abortController.signal }).catch((e) => {
+      if (isCanceledRequest(e)) return null
+      throw e
+    })
+    if (!result) return
+    stageReviewText.value = result.review_text
+    stageReviewRecord.value = result.record
+    stageReviewDialogVisible.value = true
+    window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
+    ElMessage.success('阶段审核完成')
+  } catch (e) {
+    console.error('阶段审核失败:', e)
+    ElMessage.error('阶段审核失败')
+  } finally {
+    if (stageReviewAbortController.value === abortController) {
+      stageReviewAbortController.value = null
+    }
+    stageReviewLoading.value = false
+  }
 }
 
 async function handleDelete() {
@@ -664,12 +1101,7 @@ async function handleStartGeneration(userPrompt: string, useExistingContent: boo
 
     // 2. 解析上下文
     const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContext = resolveTemplate({
-      template: localAiContextTemplate.value,
-      cards: cards.value,
-      currentCard: currentCardForResolve as any
-    })
+    const resolvedContext = getResolvedContextByKind(generationContextKind.value)
 
     // 3. 初始化指令执行器（根据选项决定是否使用现有内容）
     const initialData = useExistingContent ? (editingContent || {}) : {}
@@ -681,7 +1113,7 @@ async function handleStartGeneration(userPrompt: string, useExistingContent: boo
     // 5. 显示生成面板并重置状态
     showGenerationPanel.value = true
     await nextTick()
-    
+
     // 重置面板状态（清空消息）
     if (generationPanelRef.value) {
       generationPanelRef.value.reset()
@@ -877,13 +1309,7 @@ async function handleContinueGeneration(userMessage: string) {
       return
     }
 
-    const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContext = resolveTemplate({
-      template: localAiContextTemplate.value,
-      cards: cards.value,
-      currentCard: currentCardForResolve as any
-    })
+    const resolvedContext = getResolvedContextByKind(generationContextKind.value)
 
     // 继续生成（总是基于现有内容）
     await performGeneration(userMessage, effective, resolvedContext, p, true)
@@ -921,9 +1347,7 @@ function handleRestartGeneration() {
 async function handleGenerate() {
   const p = perCardStore.getByCardId(props.card.id) || editingParams.value
   if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
-  const editingContent = wrapperName.value ? innerData.value : localData.value
-  const currentCardForResolve = { ...props.card, content: editingContent }
-  const resolvedContext = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+  const resolvedContext = getResolvedContextByKind(generationContextKind.value)
   try {
     // 直接读取有效 Schema 并作为 response_model_schema 发送
     const { getCardSchema } = await import('@renderer/api/setting')
@@ -954,26 +1378,29 @@ async function handleGenerate() {
 
 async function handleRestoreVersion(v: any) {
   showVersions.value = false
-  
+
   // 自定义内容编辑器的恢复逻辑（如 CodeMirrorEditor）
   if (activeContentEditor.value && contentEditorRef.value) {
     try {
       ElMessage.success('已恢复版本，自动保存中...')
-      
+
       // 通知内容编辑器恢复内容（需要编辑器实现 restoreContent 方法）
       if (typeof contentEditorRef.value.restoreContent === 'function') {
         await contentEditorRef.value.restoreContent(v.content)
       }
-      
+
       // 恢复上下文模板
-      localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
-      
+      localAiContextTemplates.value = cloneContextTemplates({
+        generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
+        review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
+      })
+
       // 保存恢复的内容
       await handleSave()
-      
+
       // 刷新卡片数据
       await cardStore.fetchCards(projectStore.currentProject!.id!)
-      
+
       ElMessage.success('版本已恢复并保存')
     } catch (e) {
       console.error('Failed to restore content editor version:', e)
@@ -981,11 +1408,14 @@ async function handleRestoreVersion(v: any) {
     }
     return
   }
-  
+
   // 默认表单编辑器的恢复逻辑
   if (wrapperName.value) innerData.value = v.content
   else localData.value = v.content
-  localAiContextTemplate.value = v.ai_context_template || localAiContextTemplate.value
+  localAiContextTemplates.value = cloneContextTemplates({
+    generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
+    review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
+  })
   ElMessage.success('已恢复版本，自动保存中...')
   await handleSave()
 }
@@ -1000,9 +1430,7 @@ async function handleAssistantFinalize(summary: string) {
     const p = perCardStore.getByCardId(props.card.id) || editingParams.value
     if (!p?.llm_config_id) { ElMessage.error('请先设置有效的模型ID'); return }
     // 将对话要点与上下文合并，作为输入文本（不再附加卡片提示词模板）
-    const editingContent = wrapperName.value ? innerData.value : localData.value
-    const currentCardForResolve = { ...props.card, content: editingContent }
-    const resolvedContextText = resolveTemplate({ template: localAiContextTemplate.value, cards: cards.value, currentCard: currentCardForResolve as any })
+    const resolvedContextText = getResolvedContextByKind(generationContextKind.value)
     const inputText = `${resolvedContextText}\n\n[对话要点]\n${summary}`
     // 读取有效 Schema
     const { getCardSchema } = await import('@renderer/api/setting')
@@ -1034,10 +1462,10 @@ async function handleAssistantFinalize(summary: string) {
 </script>
 
 <style scoped>
-.generic-card-editor { 
-  display: flex; 
-  flex-direction: column; 
-  height: 100%; 
+.generic-card-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   overflow: hidden; /* 防止整体滚动 */
 }
 
@@ -1063,4 +1491,78 @@ async function handleAssistantFinalize(summary: string) {
 .model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; flex-wrap: wrap; }
 .ai-actions .left, .ai-actions .right { display: flex; gap: 6px; align-items: center; }
-</style> 
+
+.stage-review-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.stage-review-overview {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.stage-review-overview-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.stage-review-score {
+  font-size: 14px;
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+}
+
+.stage-review-summary {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--el-text-color-primary);
+}
+
+.stage-review-text-block {
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+}
+
+:deep(.review-markdown) {
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+
+:deep(.review-markdown h1),
+:deep(.review-markdown h2),
+:deep(.review-markdown h3),
+:deep(.review-markdown h4),
+:deep(.review-markdown h5),
+:deep(.review-markdown h6) {
+  margin-top: 0;
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown p),
+:deep(.review-markdown li),
+:deep(.review-markdown blockquote) {
+  color: var(--el-text-color-primary);
+}
+
+:deep(.review-markdown pre) {
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.review-markdown code) {
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
+}
+</style>
