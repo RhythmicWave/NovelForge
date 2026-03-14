@@ -137,11 +137,22 @@
 					</div>
 					<div class="ai-action-spacer" aria-hidden="true"></div>
 				</div>
-				<el-button type="danger" plain size="small" :disabled="!canInterruptAiTask" @click="interruptStream">
-					<el-icon><CircleClose /></el-icon> 中断
-				</el-button>
-
-				<AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
+				<div class="ai-side-controls">
+					<el-button
+						type="danger"
+						plain
+						size="small"
+						:disabled="!canInterruptAiTask"
+						@click="interruptStream"
+					>
+						<el-icon><CircleClose /></el-icon> 中断
+					</el-button>
+					<AIPerCardParams
+						:card-id="props.card.id"
+						:card-type-name="props.card.card_type?.name"
+						class="ai-config-entry"
+					/>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -2122,7 +2133,7 @@ defineExpose({
 }
 
 .toolbar {
-	padding: 8px 20px;
+	padding: 8px 8px; /* 灰色区域与内部白框上下左右间距保持一致 */
 	border-bottom: 1px solid var(--el-border-color-light);
 	background: var(--el-fill-color-lighter);
 	display: flex;
@@ -2157,6 +2168,12 @@ defineExpose({
 
 .toolbar-group-ai {
 	gap: 10px;
+	flex: 1;
+	min-width: 0;
+	flex-wrap: nowrap;
+	max-width: 100%;
+	box-sizing: border-box;
+	overflow: hidden;
 }
 
 .group-label {
@@ -2172,12 +2189,34 @@ defineExpose({
 
 .ai-toolbar-grid {
 	display: grid;
-	grid-template-columns: repeat(2, max-content);
+	grid-template-columns: repeat(2, 1fr);
 	grid-template-areas:
 		'polish expand'
 		'review spacer';
 	gap: 6px 8px;
 	align-items: center;
+	flex: 0 0 auto;
+	width: max-content;
+}
+
+.ai-side-controls {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	flex-shrink: 1;
+	margin-left: auto;
+}
+
+.ai-side-controls .el-button {
+	min-width: 84px;
+}
+
+.ai-config-entry {
+	max-width: none;
+	width: auto;
+	margin-right: 8px;
 }
 
 .ai-action-combo {
