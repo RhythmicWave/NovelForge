@@ -82,7 +82,6 @@ class CardType(SQLModel, table=True):
     # 卡片类型级别的默认上下文注入模板
     default_ai_context_template: Optional[str] = Field(default=None)
     default_ai_context_template_review: Optional[str] = Field(default=None)
-    default_ai_context_template_custom: Optional[str] = Field(default=None)
     # UI 布局（可选），供前端 SectionedForm 使用
     ui_layout: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     cards: List["Card"] = Relationship(back_populates="card_type")
@@ -127,7 +126,6 @@ class Card(SQLModel, table=True):
     display_order: int = Field(default=0)
     ai_context_template: Optional[str] = Field(default=None)
     ai_context_template_review: Optional[str] = Field(default=None)
-    ai_context_template_custom: Optional[str] = Field(default=None)
     
     # AI 修改状态标记
     ai_modified: bool = Field(default=False)  # 是否由AI修改过

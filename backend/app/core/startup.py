@@ -35,11 +35,9 @@ def _ensure_context_template_columns():
     additions = {
         "card": {
             "ai_context_template_review": "TEXT",
-            "ai_context_template_custom": "TEXT",
         },
         "cardtype": {
             "default_ai_context_template_review": "TEXT",
-            "default_ai_context_template_custom": "TEXT",
         },
     }
     with engine.begin() as conn:

@@ -316,7 +316,6 @@ def create_default_card_types(session: Session) -> None:
                 is_singleton=details.get("is_singleton", False),
                 default_ai_context_template=details.get("default_ai_context_template"),
                 default_ai_context_template_review=details.get("default_ai_context_template_review"),
-                default_ai_context_template_custom=details.get("default_ai_context_template_custom"),
                 built_in=True,
             )
             session.add(card_type)
@@ -346,7 +345,6 @@ def create_default_card_types(session: Session) -> None:
             ct.description = details.get("description", f"{name}的默认卡片类型")
             ct.default_ai_context_template = details.get("default_ai_context_template")
             ct.default_ai_context_template_review = details.get("default_ai_context_template_review")
-            ct.default_ai_context_template_custom = details.get("default_ai_context_template_custom")
             ct.built_in = True
 
     session.flush()
@@ -362,8 +360,6 @@ def create_default_card_types(session: Session) -> None:
             card.ai_context_template = getattr(card_type, "default_ai_context_template", None)
         if getattr(card, "ai_context_template_review", None) is None:
             card.ai_context_template_review = getattr(card_type, "default_ai_context_template_review", None)
-        if getattr(card, "ai_context_template_custom", None) is None:
-            card.ai_context_template_custom = getattr(card_type, "default_ai_context_template_custom", None)
 
     # 自动同步：将未映射到默认卡片类型的内置响应模型写入 CardType
     # 目的：避免新增响应模型后，前端“设置-卡片类型”看不到对应模型定义。

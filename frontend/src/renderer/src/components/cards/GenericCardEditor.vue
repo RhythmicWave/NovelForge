@@ -1393,7 +1393,6 @@ async function handleRestoreVersion(v: any) {
       localAiContextTemplates.value = cloneContextTemplates({
         generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
         review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
-        custom: v.ai_context_template_custom ?? localAiContextTemplates.value.custom,
       })
 
       // 保存恢复的内容
@@ -1416,7 +1415,6 @@ async function handleRestoreVersion(v: any) {
   localAiContextTemplates.value = cloneContextTemplates({
     generation: v.ai_context_template ?? localAiContextTemplates.value.generation,
     review: v.ai_context_template_review ?? localAiContextTemplates.value.review,
-    custom: v.ai_context_template_custom ?? localAiContextTemplates.value.custom,
   })
   ElMessage.success('已恢复版本，自动保存中...')
   await handleSave()

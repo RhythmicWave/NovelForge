@@ -19,25 +19,20 @@ def _resolve_context_template_slots(source: object, fallback: object | None = No
         return {
             "ai_context_template": None,
             "ai_context_template_review": None,
-            "ai_context_template_custom": None,
         }
 
     generation_template = getattr(source, "ai_context_template", None)
     review_template = getattr(source, "ai_context_template_review", None)
-    custom_template = getattr(source, "ai_context_template_custom", None)
 
     if fallback is not None:
         if not generation_template:
             generation_template = getattr(fallback, "default_ai_context_template", None)
         if not review_template:
             review_template = getattr(fallback, "default_ai_context_template_review", None)
-        if not custom_template:
-            custom_template = getattr(fallback, "default_ai_context_template_custom", None)
 
     return {
         "ai_context_template": generation_template,
         "ai_context_template_review": review_template,
-        "ai_context_template_custom": custom_template,
     }
 
 # 每类动态信息的建议上限（超过则保留更重要/较新者）。可按需调整。
@@ -95,7 +90,6 @@ def _shallow_clone(src: Card, project_id: int, parent_id: Optional[int], display
         display_order=display_order,
         ai_context_template=src.ai_context_template,
         ai_context_template_review=src.ai_context_template_review,
-        ai_context_template_custom=src.ai_context_template_custom,
     )
 
 # ---- 标题后缀生成 ----
@@ -248,7 +242,6 @@ class CardService:
                             display_order=setup["order"],
                             ai_context_template=card_type.default_ai_context_template,
                             ai_context_template_review=card_type.default_ai_context_template_review,
-                            ai_context_template_custom=card_type.default_ai_context_template_custom,
                         )
                     db.add(new_card)
                     db.commit()
@@ -271,7 +264,6 @@ class CardService:
                     display_order=item.get('display_order', 0),
                     ai_context_template=ct.default_ai_context_template,
                     ai_context_template_review=ct.default_ai_context_template_review,
-                    ai_context_template_custom=ct.default_ai_context_template_custom,
                 )
                 db.add(new_card)
                 db.commit()

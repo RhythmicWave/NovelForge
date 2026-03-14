@@ -109,7 +109,6 @@ function summarizeCtx(snapshot: CardVersionSnapshot) {
   const s = [
     `${CONTEXT_TEMPLATE_LABELS.generation}: ${String(snapshot.ai_context_template ?? '')}`,
     `${CONTEXT_TEMPLATE_LABELS.review}: ${String(snapshot.ai_context_template_review ?? '')}`,
-    `${CONTEXT_TEMPLATE_LABELS.custom}: ${String(snapshot.ai_context_template_custom ?? '')}`,
   ].join('\n')
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
@@ -134,7 +133,6 @@ const currentCtx = computed(() =>
   [
     `${CONTEXT_TEMPLATE_LABELS.generation}\n${props.currentContextTemplates?.generation ?? ''}`,
     `${CONTEXT_TEMPLATE_LABELS.review}\n${props.currentContextTemplates?.review ?? ''}`,
-    `${CONTEXT_TEMPLATE_LABELS.custom}\n${props.currentContextTemplates?.custom ?? ''}`,
   ].join('\n\n')
 )
 
@@ -143,7 +141,6 @@ function preview(v: CardVersionSnapshot) {
   selectedCtx.value = cloneContextTemplates({
     generation: v.ai_context_template,
     review: v.ai_context_template_review,
-    custom: v.ai_context_template_custom,
   })
   drawerVisible.value = true
 }
@@ -195,7 +192,6 @@ const contextDiffRows = computed<DiffRow[]>(() => computeDiffRows(
   [
     `${CONTEXT_TEMPLATE_LABELS.generation}\n${selectedCtx.value.generation}`,
     `${CONTEXT_TEMPLATE_LABELS.review}\n${selectedCtx.value.review}`,
-    `${CONTEXT_TEMPLATE_LABELS.custom}\n${selectedCtx.value.custom}`,
   ].join('\n\n'),
   currentCtx.value
 ))

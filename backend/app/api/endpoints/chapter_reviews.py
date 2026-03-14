@@ -42,21 +42,6 @@ def _build_review_user_prompt(request: ChapterReviewRunRequest) -> str:
     ]
     parts.append("【章节信息】\n" + "\n".join(line for line in chapter_meta if line))
 
-    if request.previous_chapters:
-        previous_blocks = []
-        for item in request.previous_chapters:
-            label = " / ".join(
-                str(x)
-                for x in [
-                    f"卷{item.volume_number}" if item.volume_number is not None else None,
-                    f"章{item.chapter_number}" if item.chapter_number is not None else None,
-                    item.title or None,
-                ]
-                if x
-            )
-            previous_blocks.append(f"### {label or '前文章节'}\n{item.content}")
-        parts.append("【前文参考】\n" + "\n\n".join(previous_blocks))
-
     if request.context_info:
         parts.append(f"【引用上下文】\n{request.context_info.strip()}")
 

@@ -51,7 +51,7 @@ const visible = ref(props.modelValue)
 watch(() => props.modelValue, v => visible.value = v)
 watch(visible, v => emit('update:modelValue', v))
 
-const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review', 'custom']
+const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review']
 const contextTemplateLabels = CONTEXT_TEMPLATE_LABELS
 const activeContextTemplateKind = ref<ContextTemplateKind>(props.activeContextTemplateKind)
 watch(() => props.activeContextTemplateKind, v => activeContextTemplateKind.value = v)

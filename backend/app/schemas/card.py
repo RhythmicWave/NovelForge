@@ -19,7 +19,6 @@ class CardTypeBase(BaseModel):
     # 默认AI上下文注入模板（类型级别）
     default_ai_context_template: Optional[str] = None
     default_ai_context_template_review: Optional[str] = None
-    default_ai_context_template_custom: Optional[str] = None
     # UI 布局（可选）
     ui_layout: Optional[Dict[str, Any]] = None
 
@@ -39,7 +38,6 @@ class CardTypeUpdate(BaseModel):
     is_singleton: Optional[bool] = None
     default_ai_context_template: Optional[str] = None
     default_ai_context_template_review: Optional[str] = None
-    default_ai_context_template_custom: Optional[str] = None
     ui_layout: Optional[Dict[str, Any]] = None
 
 
@@ -62,7 +60,6 @@ class CardBase(BaseModel):
     ai_params: Optional[Dict[str, Any]] = None
     ai_context_template: Optional[str] = None
     ai_context_template_review: Optional[str] = None
-    ai_context_template_custom: Optional[str] = None
 
 
 class CardCreate(CardBase):
@@ -77,7 +74,6 @@ class CardUpdate(BaseModel):
     display_order: Optional[int] = None
     ai_context_template: Optional[str] = None
     ai_context_template_review: Optional[str] = None
-    ai_context_template_custom: Optional[str] = None
     json_schema: Optional[Dict[str, Any]] = None
     ai_params: Optional[Dict[str, Any]] = None
     # AI 修改追踪字段（前端需要清除 needs_confirmation）
@@ -93,7 +89,6 @@ class CardRead(CardBase):
     # 具体卡片可覆盖类型默认模板
     ai_context_template: Optional[str] = None
     ai_context_template_review: Optional[str] = None
-    ai_context_template_custom: Optional[str] = None
     # AI 修改追踪字段
     ai_modified: bool = False
     needs_confirmation: bool = False

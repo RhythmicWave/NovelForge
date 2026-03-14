@@ -93,7 +93,7 @@ const canSaveComputed = computed(() => {
 
 const emit = defineEmits(['update:title','save','generate','open-versions','delete','open-context','update:active-context-template-kind'])
 const slotPickerVisible = ref(false)
-const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review', 'custom']
+const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review']
 const contextTemplateLabels = CONTEXT_TEMPLATE_LABELS
 const activeContextTemplateKind = computed<ContextTemplateKind>(() => props.activeContextTemplateKind || 'generation')
 
@@ -119,8 +119,6 @@ function getSlotTagType(kind: ContextTemplateKind): 'success' | 'warning' | 'inf
       return 'success'
     case 'review':
       return 'warning'
-    case 'custom':
-      return 'info'
     default:
       return 'info'
   }
