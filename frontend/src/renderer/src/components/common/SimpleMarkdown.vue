@@ -1,46 +1,56 @@
 <template>
-  <div class="markdown-renderer" v-html="renderedHtml"></div>
+  <XMarkdown
+    :markdown="renderedMarkdown"
+    :default-theme-mode="isDarkMode ? 'dark' : 'light'"
+    :allow-html="false"
+    :enable-breaks="false"
+    class="markdown-renderer"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import MarkdownIt from 'markdown-it'
+import { XMarkdown } from 'vue-element-plus-x'
+import { useAppStore } from '@renderer/stores/useAppStore'
 
 const props = defineProps<{
   markdown: string
 }>()
 
-// 初始化 markdown-it 实例
-const md = new MarkdownIt({
-  html: false, // 禁用 HTML 标签（安全）
-  linkify: true, // 自动转换 URL 为链接
-  typographer: true, // 启用智能引号和其他排版优化
-  breaks: false, // 不将换行符转换为 <br>
-})
+const appStore = useAppStore()
+const isDarkMode = computed(() => appStore.isDarkMode)
 
-// 质量门禁结论的映射
 const verdictMap: Record<string, string> = {
-  'pass': '基本通过',
-  'revise': '建议修改',
-  'block': '高风险拦截'
+  pass: '基本通过',
+  revise: '建议修改',
+  block: '高风险拦截'
 }
 
-const renderedHtml = computed(() => {
-  if (!props.markdown) return ''
-  let html = md.render(props.markdown)
-  
-  // 处理质量门禁的结论行，将英文值替换为中文并加粗
-  // 匹配模式：- 结论：pass / revise / block
-  html = html.replace(
-    /(<li>结论[：:]\s*)(pass|revise|block)(\s*<\/li>)/gi,
-    (match, prefix, verdict, suffix) => {
-      const chineseVerdict = verdictMap[verdict.toLowerCase()] || verdict
-      return `${prefix}<strong>${chineseVerdict}</strong>${suffix}`
+function normalizeReviewMarkdown(markdown: string): string {
+  if (!markdown) return ''
+
+  const normalizedLines = markdown
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => {
+      if (/^\s+(##\s+|-\s+|\d+\.\s+)/.test(line)) {
+        return line.replace(/^\s+/, '')
+      }
+      return line
+    })
+
+  const normalizedMarkdown = normalizedLines.join('\n').trim()
+
+  return normalizedMarkdown.replace(
+    /^(-\s*结论[：:]\s*)(pass|revise|block)(\s*)$/gim,
+    (_, prefix: string, verdict: string, suffix: string) => {
+      const localizedVerdict = verdictMap[verdict.toLowerCase()] || verdict
+      return `${prefix}**${localizedVerdict}**${suffix}`
     }
   )
-  
-  return html
-})
+}
+
+const renderedMarkdown = computed(() => normalizeReviewMarkdown(props.markdown))
 </script>
 
 <style scoped>
@@ -51,7 +61,14 @@ const renderedHtml = computed(() => {
   word-break: break-word;
 }
 
-/* 标题 */
+.markdown-renderer :deep(.markdown-body) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .markdown-renderer :deep(h1),
 .markdown-renderer :deep(h2),
 .markdown-renderer :deep(h3),
@@ -64,22 +81,29 @@ const renderedHtml = computed(() => {
   line-height: 1.4;
 }
 
-.markdown-renderer :deep(h1) { font-size: 1.8em; }
-.markdown-renderer :deep(h2) { font-size: 1.5em; }
-.markdown-renderer :deep(h3) { font-size: 1.3em; }
-.markdown-renderer :deep(h4) { font-size: 1.1em; }
+.markdown-renderer :deep(h1) {
+  font-size: 1.8em;
+}
+.markdown-renderer :deep(h2) {
+  font-size: 1.5em;
+}
+.markdown-renderer :deep(h3) {
+  font-size: 1.3em;
+}
+.markdown-renderer :deep(h4) {
+  font-size: 1.1em;
+}
 
-/* 段落 */
 .markdown-renderer :deep(p) {
   margin: 0.5em 0;
   color: var(--el-text-color-primary);
 }
 
-/* 列表 - 完全靠左，无缩进 */
 .markdown-renderer :deep(ul),
 .markdown-renderer :deep(ol) {
   margin: 0.5em 0;
   padding: 0;
+  padding-inline-start: 0;
   list-style-position: inside;
 }
 
@@ -89,15 +113,14 @@ const renderedHtml = computed(() => {
   color: var(--el-text-color-primary);
 }
 
-/* 嵌套列表 */
 .markdown-renderer :deep(ul ul),
 .markdown-renderer :deep(ol ol),
 .markdown-renderer :deep(ul ol),
 .markdown-renderer :deep(ol ul) {
   margin-left: 1.5em;
+  padding-inline-start: 0;
 }
 
-/* 引用块 */
 .markdown-renderer :deep(blockquote) {
   margin: 0.8em 0;
   padding: 0.5em 1em;
@@ -106,7 +129,6 @@ const renderedHtml = computed(() => {
   color: var(--el-text-color-secondary);
 }
 
-/* 代码 */
 .markdown-renderer :deep(code) {
   background: var(--el-fill-color-light);
   color: var(--el-color-danger);
@@ -133,7 +155,6 @@ const renderedHtml = computed(() => {
   line-height: 1.5;
 }
 
-/* 粗体和斜体 */
 .markdown-renderer :deep(strong) {
   font-weight: 600;
   color: var(--el-text-color-primary);
@@ -143,7 +164,6 @@ const renderedHtml = computed(() => {
   font-style: italic;
 }
 
-/* 链接 */
 .markdown-renderer :deep(a) {
   color: var(--el-color-primary);
   text-decoration: none;
@@ -153,14 +173,12 @@ const renderedHtml = computed(() => {
   text-decoration: underline;
 }
 
-/* 分隔线 */
 .markdown-renderer :deep(hr) {
   margin: 1.5em 0;
   border: none;
   border-top: 1px solid var(--el-border-color-light);
 }
 
-/* 表格 */
 .markdown-renderer :deep(table) {
   border-collapse: collapse;
   width: 100%;
