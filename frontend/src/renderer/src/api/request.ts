@@ -110,6 +110,10 @@ class HttpClient {
             if (this.loadingCount === 0) this.loadingInstance?.close()
           } catch { }
         }
+        if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
+          console.info('Request canceled:', error.config?.url || '')
+          return Promise.reject(error)
+        }
         if (error.response && error.response.status === 422) {
           const validationErrors = error.response.data.detail
           if (Array.isArray(validationErrors)) {

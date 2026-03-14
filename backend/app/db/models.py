@@ -131,6 +131,21 @@ class Card(SQLModel, table=True):
     last_modified_by: Optional[str] = Field(default=None)  # 最后修改者：'user' | 'ai' | None
 
 
+class ReviewRecord(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    review_type: str = Field(default="chapter", index=True)
+    target_type: str = Field(default="card", index=True)
+    target_id: int = Field(index=True)
+    target_title: Optional[str] = None
+    prompt_name: str = Field(default="章节审核", index=True)
+    llm_config_id: Optional[int] = Field(default=None, index=True)
+    quality_gate: str = Field(default="revise", index=True)
+    result_text: str = Field(default="")
+    content_snapshot: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False, index=True)
+
+
 # 伏笔登记表
 class ForeshadowItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

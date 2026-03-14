@@ -39,69 +39,108 @@
 			<div class="toolbar-divider"></div>
 			
 			<!-- AI功能组 -->
-			<div class="toolbar-group">
+			<div class="toolbar-group toolbar-group-ai">
 				<span class="group-label">AI</span>
 				<el-button type="primary" size="small" :loading="aiLoading" @click="executeAIContinuation">
 					<el-icon><MagicStick /></el-icon> 续写
 				</el-button>
-				
-				<el-button-group size="small">
-					<el-button plain :loading="aiLoading" @click="executePolish">
-						<el-icon><Document /></el-icon> 润色
-					</el-button>
-					<el-dropdown @command="handlePolishPromptChange" trigger="click">
-						<el-button plain :loading="aiLoading">
-							<el-icon><ArrowDown /></el-icon>
+				<div class="ai-toolbar-grid">
+					<div class="ai-action-combo">
+						<el-button plain size="small" class="ai-action-main" :loading="aiLoading" :disabled="reviewLoading" @click="executePolish">
+							<el-icon><Document /></el-icon> &#28070;&#33394;
 						</el-button>
-						<template #dropdown>
-							<el-dropdown-menu>
-								<el-dropdown-item 
-									v-for="p in polishPrompts" 
-									:key="p" 
-									:command="p"
-									:class="{ 'is-selected': p === currentPolishPrompt }"
-								>
-									<div class="prompt-item">
+						<el-popover
+							v-model:visible="promptPicker.polish.visible"
+							trigger="click"
+							width="280"
+							popper-class="chapter-ai-prompt-popper"
+							@show="handlePromptPickerShow('polish')"
+							@hide="handlePromptPickerHide('polish')"
+						>
+							<template #reference>
+								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentPolishPrompt}`" :disabled="aiLoading || reviewLoading">
+									<el-icon><ArrowDown /></el-icon>
+								</el-button>
+							</template>
+							<div class="prompt-picker-panel">
+								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentPolishPrompt }}</div>
+								<el-input v-model="promptPicker.polish.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
+								<el-scrollbar max-height="220px" class="prompt-picker-list">
+									<button v-for="p in filteredPolishPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentPolishPrompt }" @click="handlePolishPromptChange(p)">
 										<span>{{ p }}</span>
 										<el-icon v-if="p === currentPolishPrompt" class="check-icon"><Select /></el-icon>
-									</div>
-								</el-dropdown-item>
-							</el-dropdown-menu>
-						</template>
-					</el-dropdown>
-				</el-button-group>
-				
-				<el-button-group size="small">
-					<el-button plain :loading="aiLoading" @click="executeExpand">
-						<el-icon><MagicStick /></el-icon> 扩写
-					</el-button>
-					<el-dropdown @command="handleExpandPromptChange" trigger="click">
-						<el-button plain :loading="aiLoading">
-							<el-icon><ArrowDown /></el-icon>
+									</button>
+									<div v-if="filteredPolishPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
+								</el-scrollbar>
+							</div>
+						</el-popover>
+					</div>
+					<div class="ai-action-combo">
+						<el-button plain size="small" class="ai-action-main" :loading="aiLoading" :disabled="reviewLoading" @click="executeExpand">
+							<el-icon><MagicStick /></el-icon> &#25193;&#20889;
 						</el-button>
-						<template #dropdown>
-							<el-dropdown-menu>
-								<el-dropdown-item 
-									v-for="p in expandPrompts" 
-									:key="p" 
-									:command="p"
-									:class="{ 'is-selected': p === currentExpandPrompt }"
-								>
-									<div class="prompt-item">
+						<el-popover
+							v-model:visible="promptPicker.expand.visible"
+							trigger="click"
+							width="280"
+							popper-class="chapter-ai-prompt-popper"
+							@show="handlePromptPickerShow('expand')"
+							@hide="handlePromptPickerHide('expand')"
+						>
+							<template #reference>
+								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentExpandPrompt}`" :disabled="aiLoading || reviewLoading">
+									<el-icon><ArrowDown /></el-icon>
+								</el-button>
+							</template>
+							<div class="prompt-picker-panel">
+								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentExpandPrompt }}</div>
+								<el-input v-model="promptPicker.expand.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
+								<el-scrollbar max-height="220px" class="prompt-picker-list">
+									<button v-for="p in filteredExpandPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentExpandPrompt }" @click="handleExpandPromptChange(p)">
 										<span>{{ p }}</span>
 										<el-icon v-if="p === currentExpandPrompt" class="check-icon"><Select /></el-icon>
-									</div>
-								</el-dropdown-item>
-							</el-dropdown-menu>
-						</template>
-					</el-dropdown>
-				</el-button-group>
-				
-				<el-button type="danger" plain size="small" :disabled="!streamHandle" @click="interruptStream">
+									</button>
+									<div v-if="filteredExpandPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
+								</el-scrollbar>
+							</div>
+						</el-popover>
+					</div>
+					<div class="ai-action-combo ai-action-combo-review">
+						<el-button plain size="small" class="ai-action-main ai-action-main-review" :loading="reviewLoading" :disabled="aiLoading" @click="executeReview">
+							<el-icon><List /></el-icon> &#23457;&#26680;
+						</el-button>
+						<el-popover
+							v-model:visible="promptPicker.review.visible"
+							trigger="click"
+							width="280"
+							popper-class="chapter-ai-prompt-popper"
+							@show="handlePromptPickerShow('review')"
+							@hide="handlePromptPickerHide('review')"
+						>
+							<template #reference>
+								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentReviewPrompt}`" :disabled="aiLoading || reviewLoading">
+									<el-icon><ArrowDown /></el-icon>
+								</el-button>
+							</template>
+							<div class="prompt-picker-panel">
+								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentReviewPrompt }}</div>
+								<el-input v-model="promptPicker.review.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
+								<el-scrollbar max-height="220px" class="prompt-picker-list">
+									<button v-for="p in filteredReviewPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentReviewPrompt }" @click="handleReviewPromptChange(p)">
+										<span>{{ p }}</span>
+										<el-icon v-if="p === currentReviewPrompt" class="check-icon"><Select /></el-icon>
+									</button>
+									<div v-if="filteredReviewPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
+								</el-scrollbar>
+							</div>
+						</el-popover>
+					</div>
+					<div class="ai-action-spacer" aria-hidden="true"></div>
+				</div>
+				<el-button type="danger" plain size="small" :disabled="!canInterruptAiTask" @click="interruptStream">
 					<el-icon><CircleClose /></el-icon> 中断
 				</el-button>
-				
-				<!-- AI模型配置 -->
+
 				<AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
 			</div>
 		</div>
@@ -189,6 +228,28 @@
 			</div>
 		</Teleport>
 
+		<el-dialog v-model="reviewDialogVisible" title="章节审核结果" width="72%">
+			<div v-if="reviewText" class="review-dialog-body">
+				<div class="review-overview">
+					<div class="review-overview-main">
+						<el-tag
+							v-if="reviewRecord"
+							:type="getReviewVerdictTagType(reviewRecord.quality_gate)"
+							effect="dark"
+						>
+							{{ formatReviewVerdict(reviewRecord.quality_gate) }}
+						</el-tag>
+						<span v-if="reviewRecord" class="review-score">
+							已记录于 {{ formatReviewCreatedAt(reviewRecord.created_at) }}
+						</span>
+					</div>
+					<p class="review-summary">本次审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
+				</div>
+
+				<pre class="review-text-block">{{ reviewText }}</pre>
+			</div>
+		</el-dialog>
+
 		<el-dialog v-model="previewDialogVisible" title="动态信息预览" width="70%">
 			<div v-if="previewData">
 				<div v-for="role in previewData.info_list" :key="role.name" class="role-block">
@@ -266,6 +327,7 @@ import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/store
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
+import { runChapterReview, type ChapterReviewRunRequest, type PreviousChapterInput, type ReviewRecord } from '@renderer/api/chapterReviews'
 import { getCardAIParams, updateCardAIParams, applyCardAIParamsToType } from '@renderer/api/setting'
 import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOutput, extractRelationsOnly, ingestRelationsFromPreview, type RelationExtractionOutput } from '@renderer/api/memory'
 import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select } from '@element-plus/icons-vue'
@@ -475,6 +537,8 @@ function computeWordCount(text: string): number {
 const wordCount = ref(0)
 const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
+const reviewAbortController = ref<AbortController | null>(null)
+const canInterruptAiTask = computed(() => aiLoading.value || reviewLoading.value || Boolean(reviewAbortController.value))
 const previewBeforeUpdate = ref(true)
 
 // 章节正文：保存时是否自动触发提取（角色动态信息 / 关系入图）
@@ -595,10 +659,22 @@ function setCompareHighlight(originalFrom: number, originalTo: number, previewFr
 // 跟踪原始内容以检测dirty状态
 const originalContent = ref<string>('')
 const isDirty = ref(false)
+const reviewLoading = ref(false)
+const reviewDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
 const previewData = ref<UpdateDynamicInfoOutput | null>(null)
 const relationsPreviewVisible = ref(false)
 const relationsPreview = ref<RelationExtractionOutput | null>(null)
+const reviewText = ref('')
+const reviewRecord = ref<ReviewRecord | null>(null)
+
+function isCanceledRequest(error: unknown): boolean {
+	const candidate = error as { code?: string; name?: string; message?: string }
+	return candidate?.code === 'ERR_CANCELED'
+		|| candidate?.name === 'CanceledError'
+		|| candidate?.message === 'canceled'
+		|| candidate?.message === 'CanceledError'
+}
 
 // 字号/行距（默认 16px / 1.8）
 const fontSize = ref<number>(16)
@@ -612,7 +688,49 @@ const currentExpandPrompt = ref('扩写')
 const fontSizePx = computed(() => `${fontSize.value}px`)
 const lineHeightStr = computed(() => String(lineHeight.value))
 
+const reviewPrompts = ref<string[]>([])
+const currentReviewPrompt = ref('章节审核')
+type PromptPickerKey = 'polish' | 'expand' | 'review'
+
+const promptPicker = reactive<Record<PromptPickerKey, { visible: boolean; keyword: string }>>({
+	polish: { visible: false, keyword: '' },
+	expand: { visible: false, keyword: '' },
+	review: { visible: false, keyword: '' }
+})
+
+function filterPromptsByKeyword(prompts: string[], keyword: string): string[] {
+	const normalizedKeyword = keyword.trim().toLowerCase()
+	if (!normalizedKeyword) return prompts
+	return prompts.filter(prompt => prompt.toLowerCase().includes(normalizedKeyword))
+}
+
+const filteredPolishPrompts = computed(() => filterPromptsByKeyword(polishPrompts.value, promptPicker.polish.keyword))
+const filteredExpandPrompts = computed(() => filterPromptsByKeyword(expandPrompts.value, promptPicker.expand.keyword))
+const filteredReviewPrompts = computed(() => filterPromptsByKeyword(reviewPrompts.value, promptPicker.review.keyword))
+
 function formatCategory(catKey: any) { return String(catKey) }
+
+function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): string {
+	switch (verdict) {
+		case 'pass':
+			return '基本通过'
+		case 'block':
+			return '高风险拦截'
+		default:
+			return '建议修改'
+	}
+}
+
+function getReviewVerdictTagType(verdict?: ReviewRecord['quality_gate'] | null): 'success' | 'warning' | 'danger' {
+	switch (verdict) {
+		case 'pass':
+			return 'success'
+		case 'block':
+			return 'danger'
+		default:
+			return 'warning'
+	}
+}
 
 function setText(text: string) {
 	if (!view) return
@@ -782,6 +900,7 @@ async function loadPrompts() {
 		
 		// 获取所有提示词名称
 		const allPromptNames = allPrompts.map(p => p.name)
+		reviewPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['章节审核']
 		
 		// 润色和扩写都使用所有可用提示词
 		polishPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['润色']
@@ -799,8 +918,15 @@ async function loadPrompts() {
 		} else if (allPromptNames.length > 0) {
 			currentExpandPrompt.value = allPromptNames[0]
 		}
+
+		if (allPromptNames.includes('章节审核')) {
+			currentReviewPrompt.value = '章节审核'
+		} else if (allPromptNames.length > 0) {
+			currentReviewPrompt.value = allPromptNames[0]
+		}
 	} catch (e) {
 		console.error('Failed to load prompts:', e)
+		reviewPrompts.value = ['章节审核']
 		polishPrompts.value = ['润色']
 		expandPrompts.value = ['扩写']
 	}
@@ -958,6 +1084,143 @@ function formatFactsFromContext(ctx: any | null | undefined): string {
 	} catch { return '' }
 }
 
+function getOrderedChapterCards(): CardRead[] {
+	return [...(cards.value || [])]
+		.filter((item: any) => item?.card_type?.name === '章节正文')
+		.filter((item: any) => Number.isFinite(Number(item?.content?.volume_number)) && Number.isFinite(Number(item?.content?.chapter_number)))
+		.sort((a: any, b: any) => {
+			const av = Number(a?.content?.volume_number ?? 0)
+			const bv = Number(b?.content?.volume_number ?? 0)
+			if (av !== bv) return av - bv
+			const ac = Number(a?.content?.chapter_number ?? 0)
+			const bc = Number(b?.content?.chapter_number ?? 0)
+			return ac - bc
+		})
+}
+
+function getPreviousChaptersForReview(): PreviousChapterInput[] {
+	const ordered = getOrderedChapterCards()
+	const currentId = props.card.id
+	const currentIndex = ordered.findIndex(item => item.id === currentId)
+	if (currentIndex <= 0) return []
+	return ordered
+		.slice(Math.max(0, currentIndex - 2), currentIndex)
+		.map((item: any) => ({
+			title: item?.title || item?.content?.title || '未命名章节',
+			volume_number: item?.content?.volume_number ?? null,
+			chapter_number: item?.content?.chapter_number ?? null,
+			content: String(item?.content?.content || ''),
+		}))
+}
+
+function formatReviewCreatedAt(value?: string | null): string {
+	if (!value) return ''
+	try {
+		return new Intl.DateTimeFormat('zh-CN', {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+		}).format(new Date(value))
+	} catch {
+		return value
+	}
+}
+
+async function executeReview() {
+	if (!ensureNoPendingAiEdit()) return
+
+	const chapterText = getText().trim()
+	if (!chapterText) {
+		ElMessage.warning('请先输入本章正文后再审核')
+		return
+	}
+
+	const llmConfigId = resolveLlmConfigId()
+	if (!llmConfigId) {
+		ElMessage.error('请先设置有效的模型ID')
+		return
+	}
+
+	reviewLoading.value = true
+	reviewText.value = ''
+	reviewRecord.value = null
+	const abortController = new AbortController()
+	reviewAbortController.value = abortController
+	try {
+		let resolvedContextTemplate = ''
+		try {
+			const aiContextTemplate = (props.card as any)?.ai_context_template || ''
+			if (aiContextTemplate) {
+				const currentCardWithContent = {
+					...props.card,
+					content: {
+						...localCard.content,
+						content: getText()
+					}
+				}
+				resolvedContextTemplate = resolveTemplate({
+					template: aiContextTemplate,
+					cards: cards.value,
+					currentCard: currentCardWithContent as any
+				})
+			}
+		} catch (e) {
+			console.error('Failed to resolve ai_context_template for review:', e)
+		}
+		const volumeNumber = (props.contextParams as any)?.volume_number ?? (localCard.content as any)?.volume_number
+		const chapterNumber = (props.contextParams as any)?.chapter_number ?? (localCard.content as any)?.chapter_number
+		const participants = extractParticipantsForCurrentChapter()
+		const factsText = formatFactsFromContext(props.prefetched).trim()
+		const previousChapters = getPreviousChaptersForReview()
+		const requestPayload: ChapterReviewRunRequest = {
+			card_id: props.card.id,
+			project_id: projectStore.currentProject?.id || props.card.project_id,
+			title: localCard.title || (localCard.content as any)?.title || '未命名章节',
+			chapter_content: chapterText,
+			volume_number: volumeNumber ?? null,
+			chapter_number: chapterNumber ?? null,
+			participants,
+			previous_chapters: previousChapters,
+			context_info: resolvedContextTemplate.trim() || undefined,
+			facts_info: factsText || undefined,
+			content_snapshot: chapterText,
+			llm_config_id: llmConfigId,
+			prompt_name: currentReviewPrompt.value || '章节审核',
+		}
+
+		try {
+			const { temperature, max_tokens, timeout } = resolveSampling()
+			if (typeof temperature === 'number') requestPayload.temperature = temperature
+			if (typeof max_tokens === 'number') requestPayload.max_tokens = Math.min(max_tokens, 4096)
+			if (typeof timeout === 'number') requestPayload.timeout = timeout
+		} catch {}
+
+		const result = await runChapterReview(requestPayload, { signal: abortController.signal }).catch((e) => {
+			if (isCanceledRequest(e)) {
+				ElMessage.info('审核已中断')
+				return null
+			}
+			throw e
+		})
+		if (!result) return
+		reviewText.value = result.review_text
+		reviewRecord.value = result.record
+		reviewDialogVisible.value = true
+		window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
+		ElMessage.success('章节审核完成')
+	} catch (e) {
+		console.error('章节审核失败:', e)
+		ElMessage.error('章节审核失败')
+	} finally {
+		if (reviewAbortController.value === abortController) {
+			reviewAbortController.value = null
+		}
+		reviewLoading.value = false
+	}
+}
+
 async function executeAIContinuation() {
 	if (!ensureNoPendingAiEdit()) return
 	const llmConfigId = resolveLlmConfigId()
@@ -1034,12 +1297,36 @@ async function executeAIContinuation() {
 
 function handlePolishPromptChange(promptName: string) {
 	currentPolishPrompt.value = promptName
+	promptPicker.polish.visible = false
+	promptPicker.polish.keyword = ''
 	ElMessage.success(`已切换润色提示词为: ${promptName}`)
 }
 
 function handleExpandPromptChange(promptName: string) {
 	currentExpandPrompt.value = promptName
+	promptPicker.expand.visible = false
+	promptPicker.expand.keyword = ''
 	ElMessage.success(`已切换扩写提示词为: ${promptName}`)
+}
+
+function handleReviewPromptChange(promptName: string) {
+	currentReviewPrompt.value = promptName
+	promptPicker.review.visible = false
+	promptPicker.review.keyword = ''
+	ElMessage.success(`已切换审核提示词为: ${promptName}`)
+}
+
+function handlePromptPickerShow(activeKey: PromptPickerKey) {
+	for (const key of Object.keys(promptPicker) as PromptPickerKey[]) {
+		if (key !== activeKey) {
+			promptPicker[key].visible = false
+			promptPicker[key].keyword = ''
+		}
+	}
+}
+
+function handlePromptPickerHide(key: PromptPickerKey) {
+	promptPicker[key].keyword = ''
 }
 
 async function executePolish() {
@@ -1407,6 +1694,7 @@ function executeAIGeneration(
 }
 
 function interruptStream() {
+	try { reviewAbortController.value?.abort(); } catch {}
 	try { streamHandle?.cancel(); } catch {}
 }
 
@@ -1738,6 +2026,7 @@ onUnmounted(() => {
 	editorStore.setApplyChapterReplacements(null)
 	editorStore.setTriggerExtractDynamicInfo(null)
 	editorStore.setTriggerExtractRelations(null)
+	try { reviewAbortController.value?.abort(); } catch {}
 	try { streamHandle?.cancel(); } catch {}
 	
 	// 移除事件监听
@@ -1854,6 +2143,10 @@ defineExpose({
 	border: 1px solid var(--el-border-color-lighter);
 }
 
+.toolbar-group-ai {
+	gap: 10px;
+}
+
 .group-label {
 	font-size: 12px;
 	color: var(--el-text-color-secondary);
@@ -1863,6 +2156,60 @@ defineExpose({
 
 .flex-spacer { 
 	flex-grow: 1; 
+}
+
+.ai-toolbar-grid {
+	display: grid;
+	grid-template-columns: repeat(2, max-content);
+	grid-template-areas:
+		'polish expand'
+		'review spacer';
+	gap: 6px 8px;
+	align-items: center;
+}
+
+.ai-action-combo {
+	display: flex;
+	align-items: stretch;
+	min-width: 0;
+}
+
+.ai-action-combo:first-child {
+	grid-area: polish;
+}
+
+.ai-action-combo:nth-child(2) {
+	grid-area: expand;
+}
+
+.ai-action-combo-review {
+	grid-area: review;
+}
+
+.ai-action-spacer {
+	grid-area: spacer;
+}
+
+.ai-action-main {
+	min-width: 84px;
+	padding-inline: 10px;
+	justify-content: center;
+}
+
+.ai-action-main-review {
+	min-width: 84px;
+}
+
+.ai-action-combo .ai-action-main {
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.ai-action-trigger {
+	padding-inline: 7px;
+	margin-left: -1px;
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
 }
 
 .editor-content-wrapper {
@@ -1997,6 +2344,54 @@ defineExpose({
 	margin-left: 8px;
 }
 
+.review-dialog-body {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	max-height: 72vh;
+	overflow: auto;
+}
+
+.review-overview {
+	padding: 16px;
+	border-radius: 10px;
+	background: var(--el-fill-color-light);
+	border: 1px solid var(--el-border-color-lighter);
+}
+
+.review-overview-main {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 10px;
+}
+
+.review-score {
+	font-size: 14px;
+	color: var(--el-text-color-secondary);
+	font-weight: 600;
+}
+
+.review-summary {
+	margin: 0;
+	line-height: 1.7;
+	color: var(--el-text-color-primary);
+}
+
+.review-text-block {
+	margin: 0;
+	padding: 16px;
+	border-radius: 10px;
+	border: 1px solid var(--el-border-color-lighter);
+	background: var(--el-bg-color);
+	color: var(--el-text-color-primary);
+	font-family: inherit;
+	font-size: 14px;
+	line-height: 1.8;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 /* 右键快速编辑菜单 */
 .context-menu-popup {
 	position: fixed;
@@ -2040,6 +2435,59 @@ defineExpose({
 
 .context-menu-actions .el-button {
 	flex: 1;
+}
+
+.prompt-picker-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.prompt-picker-caption {
+	font-size: 12px;
+	color: var(--el-text-color-secondary);
+}
+
+.prompt-picker-list {
+	border: 1px solid var(--el-border-color-lighter);
+	border-radius: 8px;
+	background: var(--el-bg-color);
+}
+
+.prompt-picker-item {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 8px 10px;
+	border: 0;
+	background: transparent;
+	color: var(--el-text-color-primary);
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.prompt-picker-item:hover {
+	background: var(--el-fill-color-light);
+}
+
+.prompt-picker-item.is-active {
+	background: var(--el-color-primary-light-9);
+	color: var(--el-color-primary);
+	font-weight: 600;
+}
+
+.prompt-picker-empty {
+	padding: 18px 12px;
+	font-size: 12px;
+	text-align: center;
+	color: var(--el-text-color-secondary);
+}
+
+:deep(.chapter-ai-prompt-popper) {
+	padding: 10px !important;
 }
 
 /* 自定义 AI 高亮效果 */
