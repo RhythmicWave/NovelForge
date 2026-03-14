@@ -202,12 +202,16 @@ class CardService:
             card_type_id=card_create.card_type_id  # 只检查同类型卡片
         )
 
-        card = Card(
-            **{ **card_create.model_dump(), 'title': final_title },
-            project_id=project_id,
-            display_order=display_order,
+        # 合并参数：context_template_slots 会覆盖 card_create 中的同名字段
+        card_params = {
+            **card_create.model_dump(),
+            'title': final_title,
+            'project_id': project_id,
+            'display_order': display_order,
             **context_template_slots,
-        )
+        }
+        
+        card = Card(**card_params)
         self.db.add(card)
         self.db.commit()
         self.db.refresh(card)
