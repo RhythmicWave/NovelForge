@@ -81,6 +81,7 @@ class CardType(SQLModel, table=True):
     built_in: bool = Field(default=False)
     # 卡片类型级别的默认上下文注入模板
     default_ai_context_template: Optional[str] = Field(default=None)
+    default_ai_context_template_review: Optional[str] = Field(default=None)
     # UI 布局（可选），供前端 SectionedForm 使用
     ui_layout: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     cards: List["Card"] = Relationship(back_populates="card_type")
@@ -124,11 +125,27 @@ class Card(SQLModel, table=True):
     # 用于排序卡片，用于同一父级下的排序
     display_order: int = Field(default=0)
     ai_context_template: Optional[str] = Field(default=None)
+    ai_context_template_review: Optional[str] = Field(default=None)
     
     # AI 修改状态标记
     ai_modified: bool = Field(default=False)  # 是否由AI修改过
     needs_confirmation: bool = Field(default=False)  # 是否需要用户确认（用于触发工作流）
     last_modified_by: Optional[str] = Field(default=None)  # 最后修改者：'user' | 'ai' | None
+
+
+class ReviewRecord(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    review_type: str = Field(default="chapter", index=True)
+    target_type: str = Field(default="card", index=True)
+    target_id: int = Field(index=True)
+    target_title: Optional[str] = None
+    prompt_name: str = Field(default="章节审核", index=True)
+    llm_config_id: Optional[int] = Field(default=None, index=True)
+    quality_gate: str = Field(default="revise", index=True)
+    result_text: str = Field(default="")
+    content_snapshot: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False, index=True)
 
 
 # 伏笔登记表

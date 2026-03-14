@@ -1937,6 +1937,12 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+            /** Ai Context Template */
+            ai_context_template?: string | null;
+            /** Ai Context Template Review */
+            ai_context_template_review?: string | null;
+            /** Ai Context Template Custom */
+            ai_context_template_custom?: string | null;
         };
         /**
          * CardExportRequest
@@ -2016,6 +2022,10 @@ export interface components {
             card_type: components["schemas"]["CardTypeRead"];
             /** Ai Context Template */
             ai_context_template?: string | null;
+            /** Ai Context Template Review */
+            ai_context_template_review?: string | null;
+            /** Ai Context Template Custom */
+            ai_context_template_custom?: string | null;
             /**
              * Ai Modified
              * @default false
@@ -2059,6 +2069,10 @@ export interface components {
             is_singleton: boolean;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
+            /** Default Ai Context Template Review */
+            default_ai_context_template_review?: string | null;
+            /** Default Ai Context Template Custom */
+            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2094,6 +2108,10 @@ export interface components {
             is_singleton: boolean;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
+            /** Default Ai Context Template Review */
+            default_ai_context_template_review?: string | null;
+            /** Default Ai Context Template Custom */
+            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2130,6 +2148,10 @@ export interface components {
             is_singleton?: boolean | null;
             /** Default Ai Context Template */
             default_ai_context_template?: string | null;
+            /** Default Ai Context Template Review */
+            default_ai_context_template_review?: string | null;
+            /** Default Ai Context Template Custom */
+            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2151,6 +2173,10 @@ export interface components {
             display_order?: number | null;
             /** Ai Context Template */
             ai_context_template?: string | null;
+            /** Ai Context Template Review */
+            ai_context_template_review?: string | null;
+            /** Ai Context Template Custom */
+            ai_context_template_custom?: string | null;
             /** Json Schema */
             json_schema?: {
                 [key: string]: unknown;

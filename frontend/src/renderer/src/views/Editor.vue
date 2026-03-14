@@ -154,7 +154,7 @@
     <div class="resizer right-resizer" @mousedown="startResizing('right')"></div>
     <el-aside class="sidebar assistant-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
       <!-- 章节正文卡片：显示4个Tab -->
-      <template v-if="isChapterContent">
+      <template v-if="showRightSidebarTabs">
         <el-tabs v-model="activeRightTab" type="card" class="right-tabs">
           <el-tab-pane label="助手" name="assistant">
             <AssistantPanel
@@ -175,6 +175,7 @@
             />
           </el-tab-pane>
           
+          <template v-if="isChapterContent">
           <el-tab-pane label="参与实体" name="context">
             <ContextPanel 
               :project-id="projectStore.currentProject?.id"
@@ -196,6 +197,14 @@
               :active-card="activeCard"
               :volume-number="chapterVolumeNumber"
               :chapter-number="chapterChapterNumber"
+            />
+          </el-tab-pane>
+          </template>
+          
+          <el-tab-pane label="审核历史" name="review-history">
+            <ReviewHistoryPanel
+              :project-id="projectStore.currentProject?.id"
+              :default-review-type="defaultReviewTypeForSidebar"
             />
           </el-tab-pane>
         </el-tabs>
@@ -333,6 +342,7 @@ import AssistantPanel from '@renderer/components/assistants/AssistantPanel.vue'
 import ContextPanel from '@renderer/components/panels/ContextPanel.vue'
 import ChapterToolsPanel from '@renderer/components/panels/ChapterToolsPanel.vue'
 import OutlinePanel from '@renderer/components/panels/OutlinePanel.vue'
+import ReviewHistoryPanel from '@renderer/components/panels/ReviewHistoryPanel.vue'
 import RelationGraphPanel from '@renderer/components/panels/RelationGraphPanel.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
@@ -1376,6 +1386,26 @@ const isChapterContent = computed(() => {
   return activeCard.value?.card_type?.name === '章节正文'
 })
 
+const activeCardTypeName = computed(() => activeCard.value?.card_type?.name || '')
+
+const isStageOutlineCard = computed(() => activeCardTypeName.value === '阶段大纲')
+
+const isChapterOutlineCard = computed(() => activeCardTypeName.value === '章节大纲')
+
+const showRightSidebarTabs = computed(() => {
+  return isChapterContent.value || isStageOutlineCard.value || isChapterOutlineCard.value
+})
+
+const defaultReviewTypeForSidebar = computed<'all' | 'chapter' | 'stage'>(() => {
+  return isStageOutlineCard.value ? 'stage' : 'chapter'
+})
+
+const rightSidebarTabNames = computed(() => {
+  if (!showRightSidebarTabs.value) return [] as string[]
+  if (isChapterContent.value) return ['assistant', 'context', 'extract', 'outline', 'review-history']
+  return ['assistant', 'review-history']
+})
+
 // 章节信息提取
 const chapterVolumeNumber = computed(() => {
   if (!isChapterContent.value) return null
@@ -1403,6 +1433,12 @@ const chapterParticipants = computed(() => {
 watch(isChapterContent, async (val) => {
   if (val && activeCard.value) {
     await assembleChapterContext()
+  }
+}, { immediate: true })
+
+watch(rightSidebarTabNames, (tabNames) => {
+  if (!tabNames.includes(activeRightTab.value)) {
+    activeRightTab.value = 'assistant'
   }
 }, { immediate: true })
 
@@ -1601,12 +1637,12 @@ onMounted(async () => {
    }
  }
 
- function onSwitchRightTab(e: CustomEvent) {
-   const tab = (e as any)?.detail?.tab
-   if (tab && isChapterContent.value) {
-     activeRightTab.value = tab
-   }
- }
+function onSwitchRightTab(e: CustomEvent) {
+  const tab = (e as any)?.detail?.tab
+  if (tab && rightSidebarTabNames.value.includes(tab)) {
+    activeRightTab.value = tab
+  }
+}
 
  // 点击页面任意处隐藏空白菜单
  document.addEventListener('click', () => (blankMenuVisible.value = false))

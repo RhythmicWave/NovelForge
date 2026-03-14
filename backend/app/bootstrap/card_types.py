@@ -9,7 +9,7 @@ from typing import Any, Dict
 from sqlmodel import Session, select
 from loguru import logger
 
-from app.db.models import CardType, LLMConfig
+from app.db.models import Card, CardType, LLMConfig
 from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from .registry import initializer
 
@@ -144,6 +144,31 @@ def create_default_card_types(session: Session) -> None:
     Args:
         session: 数据库会话
     """
+    stage_review_context_template = (
+        "世界观设定: @世界观设定.content.world_view\n"
+        "组织/势力设定:@type:组织卡[previous:global].{content.name,content.entity_type,content.life_span,content.description,content.influence,content.relationship}\n"
+        "分卷主线:@parent.content.main_target\n"
+        "分卷辅线:@parent.content.branch_line\n"
+        "角色卡信息:@type:角色卡[previous:global].{content.name,content.life_span,content.role_type,content.born_scene,content.description,content.personality,content.core_drive,content.character_arc}\n"
+        "地图/场景卡信息:@type:场景卡[previous].{content.name,content.description}\n"
+        "之前的阶段故事大纲:@type:阶段大纲[previous:global:1].{content.stage_name,content.reference_chapter,content.analysis,content.overview,content.entity_snapshot}\n"
+        "上一章节大纲概述:@type:章节大纲[previous:global:1].{content.title,content.overview,content.entity_list}\n"
+        "本卷的StageCount总数为：@parent.content.stage_count\n"
+        "卷末实体状态快照:@parent.content.entity_snapshot\n"
+    )
+
+    chapter_review_context_template = (
+        "世界观设定: @世界观设定.content\n"
+        "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship}\n"
+        "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description}\n"
+        "当前故事阶段大纲: @parent.content.overview\n"
+        "角色卡:@type:角色卡[index=filter:content.name in $self.content.entity_list].{content.name,content.role_type,content.born_scene,content.description,content.personality,content.core_drive,content.character_arc,content.dynamic_info}\n"
+        "最近的章节原文:@type:章节正文[previous:1].{content.title,content.chapter_number,content.content}\n"
+        "参与者实体列表:@self.content.entity_list\n"
+        "当前章节大纲:@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.title,content.overview,content.entity_list}\n"
+        "下一章节大纲:@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number = $self.content.chapter_number+1].{content.title,content.overview,content.entity_list}\n"
+    )
+
     default_types = {
         "通用文本": {"editor_component": "MarkdownTextEditor", "is_singleton": False, "is_ai_enabled": False, "default_ai_context_template": None},
         "作品标签": {"editor_component": "TagsEditor", "is_singleton": True, "is_ai_enabled": False, "default_ai_context_template": None},
@@ -190,7 +215,7 @@ def create_default_card_types(session: Session) -> None:
             "注意，请务必在@parent.content.stage_count 个阶段内将故事按分卷主线收束，并达到卷末实体快照状态:@parent.content.entity_snapshot\n"
             "该卷的写作注意事项:@type:写作指南[sibling].content.content \n"
             "接下来请你创作第 @self.content.stage_number 阶段的故事细纲。"
-        )},
+        ), "default_ai_context_template_review": stage_review_context_template},
         "章节大纲": {"default_ai_context_template": (
             "word_view: @世界观设定.content\n"
             "volume_number: @self.content.volume_number\n"
@@ -213,7 +238,7 @@ def create_default_card_types(session: Session) -> None:
             "请根据 @self.content.chapter_number： @self.content.title 的大纲@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充，使得最终生成的内容字数3000字达到左右。你无需在正文中重复标题：@self.content.title \n"
             "注意，写作时必须保证结尾剧情与下一章的剧情大纲不会冲突，且不会提前涉及下一章剧情(如果存在的话):@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number = $self.content.chapter_number+1].{content.title,content.overview}\n"
             "写作时请结合写作指南要求:@type:写作指南[index=filter:content.volume_number = $self.content.volume_number].{content.content}\n"
-            )},
+            ), "default_ai_context_template_review": chapter_review_context_template},
         "角色卡": {"default_ai_context_template": None},
         "场景卡": {"default_ai_context_template": None},
         "组织卡": {"default_ai_context_template": None},
@@ -290,6 +315,7 @@ def create_default_card_types(session: Session) -> None:
                 is_ai_enabled=details.get("is_ai_enabled", True),
                 is_singleton=details.get("is_singleton", False),
                 default_ai_context_template=details.get("default_ai_context_template"),
+                default_ai_context_template_review=details.get("default_ai_context_template_review"),
                 built_in=True,
             )
             session.add(card_type)
@@ -318,7 +344,22 @@ def create_default_card_types(session: Session) -> None:
             ct.is_singleton = details.get("is_singleton", False)
             ct.description = details.get("description", f"{name}的默认卡片类型")
             ct.default_ai_context_template = details.get("default_ai_context_template")
+            ct.default_ai_context_template_review = details.get("default_ai_context_template_review")
             ct.built_in = True
+
+    session.flush()
+
+    all_cards = session.exec(select(Card)).all()
+    for card in all_cards:
+        card_type = existing_type_by_name.get(getattr(card.card_type, "name", ""))
+        if not card_type and getattr(card, "card_type_id", None):
+            card_type = session.get(CardType, card.card_type_id)
+        if not card_type:
+            continue
+        if getattr(card, "ai_context_template", None) is None:
+            card.ai_context_template = getattr(card_type, "default_ai_context_template", None)
+        if getattr(card, "ai_context_template_review", None) is None:
+            card.ai_context_template_review = getattr(card_type, "default_ai_context_template_review", None)
 
     # 自动同步：将未映射到默认卡片类型的内置响应模型写入 CardType
     # 目的：避免新增响应模型后，前端“设置-卡片类型”看不到对应模型定义。

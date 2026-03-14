@@ -7,13 +7,27 @@
       </div>
 
       <div class="section">
-        <h4>上下文模板</h4>
+        <div class="slot-toolbar">
+          <h4>上下文模板</h4>
+          <div class="slot-buttons">
+            <el-button
+              v-for="kind in contextTemplateKinds"
+              :key="kind"
+              size="small"
+              :type="activeContextTemplateKind === kind ? 'primary' : 'default'"
+              plain
+              @click="activeContextTemplateKind = kind"
+            >
+              {{ contextTemplateLabels[kind] }}
+            </el-button>
+          </div>
+        </div>
         <el-input v-model="aiContext" type="textarea" :rows="8" placeholder="在此编辑上下文模板，支持 @ 引用" class="context-area" :spellcheck="false" />
         <div class="chips">
           <el-tag v-for="(t, i) in tokens" :key="i" closable @close="removeToken(t)">@{{ t }}</el-tag>
         </div>
         <div class="actions">
-          <el-button size="small" @click="$emit('open-selector', aiContext)">插入引用 @</el-button>
+          <el-button size="small" @click="$emit('open-selector', { kind: activeContextTemplateKind, text: aiContext })">插入引用 @</el-button>
           <el-button size="small" type="primary" @click="apply">应用到卡片</el-button>
         </div>
       </div>
@@ -23,24 +37,44 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useCardStore } from '@renderer/stores/useCardStore'
-import { storeToRefs } from 'pinia'
-import { unwrapChapterOutline, extractParticipantsFrom } from '@renderer/services/contextHelpers'
+import { CONTEXT_TEMPLATE_LABELS, type ContextTemplateKind, type ContextTemplates } from '@renderer/services/contextSlots'
 
 const props = defineProps<{
   modelValue: boolean
-  contextTemplate: string
+  contextTemplates: ContextTemplates
+  activeContextTemplateKind: ContextTemplateKind
   previewText?: string
 }>()
-const emit = defineEmits(['update:modelValue','apply-context','open-selector'])
+const emit = defineEmits(['update:modelValue','update:activeContextTemplateKind','apply-context','open-selector'])
 
 const visible = ref(props.modelValue)
 watch(() => props.modelValue, v => visible.value = v)
 watch(visible, v => emit('update:modelValue', v))
 
-const aiContext = ref(props.contextTemplate)
-watch(() => props.contextTemplate, v => aiContext.value = v)
+const contextTemplateKinds: ContextTemplateKind[] = ['generation', 'review']
+const contextTemplateLabels = CONTEXT_TEMPLATE_LABELS
+const activeContextTemplateKind = ref<ContextTemplateKind>(props.activeContextTemplateKind)
+watch(() => props.activeContextTemplateKind, v => activeContextTemplateKind.value = v)
+watch(activeContextTemplateKind, v => emit('update:activeContextTemplateKind', v))
+
+const localTemplates = ref<ContextTemplates>({ ...props.contextTemplates })
+watch(
+  () => props.contextTemplates,
+  v => {
+    localTemplates.value = { ...v }
+  },
+  { deep: true }
+)
+
+const aiContext = computed({
+  get: () => localTemplates.value[activeContextTemplateKind.value] || '',
+  set: (value: string) => {
+    localTemplates.value = {
+      ...localTemplates.value,
+      [activeContextTemplateKind.value]: value,
+    }
+  },
+})
 
 const tokenRegex = /@([^\s]+)/g
 const tokens = computed(() => {
@@ -56,11 +90,9 @@ function removeToken(token: string) {
   aiContext.value = (aiContext.value || '').split(full).join('')
 }
 
-function apply() { emit('apply-context', aiContext.value) }
+function apply() { emit('apply-context', { kind: activeContextTemplateKind.value, text: aiContext.value }) }
 
 // 在抽屉中输入 @ 时弹出选择器
-const cardStore = useCardStore()
-const { activeCard } = storeToRefs(cardStore)
 let drawerTextarea: HTMLTextAreaElement | null = null
 watch(() => visible.value, (v) => {
   if (v) {
@@ -79,7 +111,7 @@ function handleDrawerInput(ev: Event) {
   const cursorPos = textarea.selectionStart
   const lastChar = textarea.value.substring(cursorPos - 1, cursorPos)
   if (lastChar === '@') {
-    emit('open-selector', textarea.value)
+    emit('open-selector', { kind: activeContextTemplateKind.value, text: textarea.value })
   }
 }
 </script>
@@ -88,6 +120,8 @@ function handleDrawerInput(ev: Event) {
 .drawer-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; }
 .drawer-header { display: flex; justify-content: space-between; align-items: center; }
 .section { display: flex; flex-direction: column; gap: 8px; }
+.slot-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.slot-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .context-area { width: 100%; }
 .actions { display: flex; gap: 8px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }

@@ -22,7 +22,7 @@
       </el-table-column>
       <el-table-column label="摘要(上下文)" width="320">
         <template #default="{ row }">
-          <span class="summary">{{ summarizeCtx(row.ai_context_template) }}</span>
+          <span class="summary">{{ summarizeCtx(row) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="260">
@@ -80,8 +80,9 @@
 import { ref, watch, computed } from 'vue'
 import { listVersions, clearVersions, deleteVersion, type CardVersionSnapshot } from '@renderer/services/versionService'
 import { ElMessage } from 'element-plus'
+import { cloneContextTemplates, CONTEXT_TEMPLATE_LABELS, type ContextTemplates } from '@renderer/services/contextSlots'
 
-const props = defineProps<{ projectId: number; cardId: number; modelValue: boolean; currentContent: any; currentContextTemplate: string }>()
+const props = defineProps<{ projectId: number; cardId: number; modelValue: boolean; currentContent: any; currentContextTemplates: ContextTemplates }>()
 const emit = defineEmits(['update:modelValue','restore'])
 
 const visible = ref(props.modelValue)
@@ -104,8 +105,11 @@ function summarize(content: any) {
   const s = JSON.stringify(content ?? {})
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
-function summarizeCtx(ctx?: string) {
-  const s = String(ctx ?? '')
+function summarizeCtx(snapshot: CardVersionSnapshot) {
+  const s = [
+    `${CONTEXT_TEMPLATE_LABELS.generation}: ${String(snapshot.ai_context_template ?? '')}`,
+    `${CONTEXT_TEMPLATE_LABELS.review}: ${String(snapshot.ai_context_template_review ?? '')}`,
+  ].join('\n')
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
 
@@ -123,13 +127,21 @@ function remove(v: CardVersionSnapshot) {
 
 const drawerVisible = ref(false)
 const selectedText = ref('')
-const selectedCtx = ref('')
+const selectedCtx = ref<ContextTemplates>(cloneContextTemplates())
 const currentText = computed(() => JSON.stringify(props.currentContent ?? {}, null, 2))
-const currentCtx = computed(() => props.currentContextTemplate ?? '')
+const currentCtx = computed(() =>
+  [
+    `${CONTEXT_TEMPLATE_LABELS.generation}\n${props.currentContextTemplates?.generation ?? ''}`,
+    `${CONTEXT_TEMPLATE_LABELS.review}\n${props.currentContextTemplates?.review ?? ''}`,
+  ].join('\n\n')
+)
 
 function preview(v: CardVersionSnapshot) {
   selectedText.value = JSON.stringify(v.content ?? {}, null, 2)
-  selectedCtx.value = v.ai_context_template ?? ''
+  selectedCtx.value = cloneContextTemplates({
+    generation: v.ai_context_template,
+    review: v.ai_context_template_review,
+  })
   drawerVisible.value = true
 }
 
@@ -176,7 +188,13 @@ function computeDiffRows(left: string, right: string): DiffRow[] {
 
 // 内容与上下文的并排差异结果
 const contentDiffRows = computed<DiffRow[]>(() => computeDiffRows(selectedText.value, currentText.value))
-const contextDiffRows = computed<DiffRow[]>(() => computeDiffRows(selectedCtx.value, currentCtx.value))
+const contextDiffRows = computed<DiffRow[]>(() => computeDiffRows(
+  [
+    `${CONTEXT_TEMPLATE_LABELS.generation}\n${selectedCtx.value.generation}`,
+    `${CONTEXT_TEMPLATE_LABELS.review}\n${selectedCtx.value.review}`,
+  ].join('\n\n'),
+  currentCtx.value
+))
 </script>
 
 <style scoped>
