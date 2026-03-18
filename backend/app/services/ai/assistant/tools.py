@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from loguru import logger
 from langchain_core.tools import tool
 from sqlalchemy.orm.attributes import flag_modified
+from sqlmodel import select
 
 from app.services.card_service import CardService
 from app.db.models import Card, CardType
@@ -22,6 +23,8 @@ from app.schemas.tool_result import (
     to_dict
 )
 import copy
+
+REVIEW_RESULT_CARD_TYPE_NAME = "内容审核卡片"
 
 
 class AssistantDeps:
@@ -552,18 +555,20 @@ def replace_field_text(
     new_value: str,
 ) -> Dict[str, Any]:
     """
-    替换卡片字段中的指定文本片段
-    
-    使用场景：当用户对长文本字段的某部分内容不满意，希望只替换该部分时调用
-    适用于章节正文、大纲描述等长文本字段的局部修改
+    替换卡片字段中的指定文本片段（旧兼容工具，优先级低于按行替换）。
+
+    使用场景：
+    - 只有在拿不到稳定行号、没有 `chapter_excerpt` 引用、也没有 `snapshot_hash` 时，才把它当作兜底方案。
+    - 如果上下文已经明确给出“第 X-Y 行”、`chapter_excerpt` 引用或 `snapshot_hash`，不要调用本工具，应改用 `replace_card_text_by_lines`。
+    - 适用于大纲描述、短段落或非正文长文本中的模糊片段替换。
     
     Examples:
-        1. 精确匹配（短文本）：
+        1. 精确匹配（短文本，且没有可用行号）：
         replace_field_text(card_id=42, field_path="content", 
                             old_value="林风犹豫了片刻",
                             new_value="林风毫不犹豫地")
         
-        2. 模糊匹配（长文本）：
+        2. 模糊匹配（长文本兜底）：
         replace_field_text(card_id=42, field_path="content",
                             old_value="少年面色苍白，额头青筋暴起...现在却成了个废人。",
                             new_value="新的完整段落内容...")
@@ -575,9 +580,11 @@ def replace_field_text(
             1. 精确匹配：提供完整的原文（适用于短文本，50字以内）
             2. 模糊匹配：提供开头10字 + "..." + 结尾10字（适用于长文本，50字以上）
         new_value: 新的文本内容
-    
-    
-    
+
+    重要约束：
+        - 如果已知行号范围，请不要使用本工具。
+        - 如果引用来源是正文选区，请优先使用 `replace_card_text_by_lines`。
+
     Returns:
         success: True 表示成功，False 表示失败
         error: 错误信息
@@ -645,6 +652,181 @@ def replace_field_text(
     except Exception as e:
         logger.error(f"❌ [Assistant.replace_field_text] 替换失败: {e}")
         return {"success": False, "error": f"替换失败: {str(e)}"}
+
+
+@tool
+def replace_card_text_by_lines(
+    card_id: int,
+    field_path: str,
+    start_line: int,
+    end_line: int,
+    new_text: str,
+    snapshot_hash: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    按行号替换卡片文本片段（位置型替换，正文片段编辑时应优先使用本工具）。
+
+    这是“章节正文 / Markdown 长文本片段修订”的首选工具，适合以下场景：
+    - 用户明确指定“第 93-102 行”
+    - 上下文里已经有 `chapter_excerpt` 引用
+    - 已拿到 `snapshot_hash`
+    - 想避免 `replace_field_text` 的模糊匹配误伤
+
+    调用建议：
+    - `field_path` 对章节正文通常传 `content`
+    - 如果有片段引用，优先传 `snapshot_hash`；通常不需要再额外传旧片段文本
+    - 当你能定位具体行号时，不要退回 `replace_field_text`
+
+    Examples:
+        1. 根据正文片段引用直接替换：
+           replace_card_text_by_lines(
+               card_id=666,
+               field_path="content",
+               start_line=93,
+               end_line=102,
+               new_text="新的正文片段……",
+               snapshot_hash="abc123"
+           )
+
+        2. 已知要修改的行段，但没有快照时：
+           replace_card_text_by_lines(
+               card_id=666,
+               field_path="content",
+               start_line=40,
+               end_line=44,
+               new_text="修订后的内容"
+           )
+    """
+    deps = _get_deps()
+    logger.info(
+        f"🧩 [Assistant.replace_card_text_by_lines] card_id={card_id}, "
+        f"path={field_path}, lines={start_line}-{end_line}"
+    )
+
+    try:
+        service = CardService(deps.session)
+        result = service.replace_field_text_by_lines(
+            card_id=card_id,
+            field_path=field_path,
+            start_line=start_line,
+            end_line=end_line,
+            new_text=new_text,
+            snapshot_hash=snapshot_hash,
+        )
+        if not result.get("success"):
+            raw_error = str(result.get("error") or "按行替换失败")
+            if "快照校验失败" in raw_error or "原片段校验失败" in raw_error:
+                result["message"] = (
+                    f"⚠️ {raw_error}。建议先重新引用最新正文片段，再按行替换。"
+                )
+            else:
+                result["message"] = f"⚠️ 按行替换失败：{raw_error}"
+            return result
+
+        result["message"] = (
+            f"✅ 已按行替换 {start_line}-{end_line} 行，"
+            f"将 {result.get('replaced_line_count')} 行替换为 {result.get('new_line_count')} 行，"
+            f"目标字段：{field_path}"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"❌ [Assistant.replace_card_text_by_lines] 失败: {e}")
+        return {"success": False, "error": f"按行替换失败: {str(e)}"}
+
+
+@tool
+def list_reviews_for_target(
+    target_id: int,
+    review_type: Optional[str] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """
+    获取指定目标卡片绑定的审核结果卡片列表（用于注入 review_result 引用）。
+    """
+    deps = _get_deps()
+    logger.info(
+        f"📚 [Assistant.list_reviews_for_target] target_id={target_id}, review_type={review_type}, limit={limit}"
+    )
+    try:
+        review_card_type = deps.session.query(CardType).filter(CardType.name == REVIEW_RESULT_CARD_TYPE_NAME).first()
+        if not review_card_type:
+            return {"success": False, "error": f"缺少卡片类型: {REVIEW_RESULT_CARD_TYPE_NAME}"}
+
+        rows = (
+            deps.session.query(Card)
+            .filter(Card.project_id == deps.project_id, Card.card_type_id == review_card_type.id)
+            .order_by(Card.created_at.desc())
+            .all()
+        )
+        filtered = []
+        for row in rows:
+            content = dict(row.content or {})
+            if int(content.get("review_target_card_id") or -1) != target_id:
+                continue
+            if review_type and review_type != "all" and str(content.get("review_type") or "") != review_type:
+                continue
+            filtered.append(row)
+        filtered = filtered[: max(1, min(limit, 100))]
+        return {
+            "success": True,
+            "count": len(filtered),
+            "reviews": [
+                {
+                    "review_card_id": row.id,
+                    "project_id": row.project_id,
+                    "target_id": int((row.content or {}).get("review_target_card_id") or 0),
+                    "target_title": (row.content or {}).get("review_target_title"),
+                    "review_type": (row.content or {}).get("review_type"),
+                    "review_profile": (row.content or {}).get("review_profile"),
+                    "target_field": (row.content or {}).get("review_target_field"),
+                    "quality_gate": (row.content or {}).get("quality_gate"),
+                    "prompt_name": (row.content or {}).get("prompt_name"),
+                    "created_at": (row.content or {}).get("reviewed_at") or str(row.created_at),
+                    "title": row.title,
+                }
+                for row in filtered
+            ],
+        }
+    except Exception as e:
+        logger.error(f"❌ [Assistant.list_reviews_for_target] 失败: {e}")
+        return {"success": False, "error": f"获取审核记录失败: {str(e)}"}
+
+
+@tool
+def get_review_record(review_id: int) -> Dict[str, Any]:
+    """
+    获取单张审核结果卡片详情（包含完整审核 Markdown）。
+    """
+    deps = _get_deps()
+    logger.info(f"📄 [Assistant.get_review_record] review_card_id={review_id}")
+    try:
+        row = deps.session.get(Card, review_id)
+        review_card_type = deps.session.query(CardType).filter(CardType.name == REVIEW_RESULT_CARD_TYPE_NAME).first()
+        if not row or row.project_id != deps.project_id or not review_card_type or row.card_type_id != review_card_type.id:
+            return {"success": False, "error": f"审核结果卡片 #{review_id} 不存在"}
+        content = dict(row.content or {})
+        return {
+            "success": True,
+            "review": {
+                "review_card_id": row.id,
+                "project_id": row.project_id,
+                "target_id": int(content.get("review_target_card_id") or 0),
+                "target_title": content.get("review_target_title"),
+                "review_type": content.get("review_type"),
+                "review_profile": content.get("review_profile"),
+                "target_field": content.get("review_target_field"),
+                "quality_gate": content.get("quality_gate"),
+                "prompt_name": content.get("prompt_name"),
+                "result_text": content.get("review_markdown"),
+                "content_snapshot": content.get("target_snapshot"),
+                "meta": content.get("meta"),
+                "created_at": content.get("reviewed_at") or str(row.created_at),
+                "title": row.title,
+            },
+        }
+    except Exception as e:
+        logger.error(f"❌ [Assistant.get_review_record] 失败: {e}")
+        return {"success": False, "error": f"读取审核记录失败: {str(e)}"}
 
 
 @tool
@@ -925,7 +1107,10 @@ ASSISTANT_TOOLS = [
     modify_card_field,
     delete_card,
     move_card,
+    replace_card_text_by_lines,
     replace_field_text,
+    list_reviews_for_target,
+    get_review_record,
     get_card_type_schema,
     get_card_content,
 ]

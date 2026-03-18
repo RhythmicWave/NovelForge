@@ -20,6 +20,7 @@ const props = defineProps<{
 // 应该通过 GenericCardEditor 的 content_editor_component 配置
 const editorMap: Record<string, any> = {
   TagsEditor: defineAsyncComponent(() => import('../editors/TagsEditor.vue')),
+  ReviewResultCardEditor: defineAsyncComponent(() => import('./ReviewResultCardEditor.vue')),
   // Add other custom editors here in the future
 };
 

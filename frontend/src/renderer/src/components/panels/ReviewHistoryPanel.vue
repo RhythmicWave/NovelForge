@@ -1,41 +1,27 @@
 <template>
   <div class="review-history-panel">
     <template v-if="!selectedReview">
-      <div class="panel-toolbar">
-        <el-select v-model="reviewType" size="small" class="type-select">
-          <el-option label="全部" value="all" />
-          <el-option label="章节审核" value="chapter" />
-          <el-option label="阶段审核" value="stage" />
-        </el-select>
-        <el-input
-          v-model="targetTitleKeyword"
-          size="small"
-          clearable
-          class="target-title-search"
-          placeholder="搜索目标标题"
-          @keyup.enter="loadReviews"
-          @clear="loadReviews"
-        />
-        <el-button size="small" type="primary" plain @click="loadReviews">查询</el-button>
-      </div>
-
       <div v-loading="loading" class="panel-body">
-        <el-empty v-if="!loading && reviews.length === 0" description="暂无审核历史" :image-size="80" />
+        <el-empty
+          v-if="!loading && reviews.length === 0"
+          description="当前卡片暂无审核结果卡片"
+          :image-size="80"
+        />
 
         <div v-else class="review-list">
           <div
             v-for="row in reviews"
-            :key="row.id"
+            :key="row.card_id"
             class="review-list-item"
           >
             <div class="review-list-main">
               <el-tooltip
-                :content="row.target_title || '未命名目标'"
+                :content="row.title"
                 placement="top-start"
                 :show-after="200"
               >
                 <div class="review-title">
-                  {{ row.target_title || '未命名目标' }}
+                  {{ row.title }}
                 </div>
               </el-tooltip>
 
@@ -43,11 +29,20 @@
                 <el-tag size="small" effect="dark" :type="getVerdictTagType(row.quality_gate)">
                   {{ formatVerdict(row.quality_gate) }}
                 </el-tag>
-                <el-tag size="small" effect="plain" :type="row.review_type === 'stage' ? 'warning' : 'primary'">
-                  {{ row.review_type === 'stage' ? '阶段审核' : '章节审核' }}
+                <el-tag size="small" effect="plain" :type="getReviewTypeTagType(row.review_type)">
+                  {{ formatReviewType(row.review_type) }}
                 </el-tag>
-                <span class="review-time">{{ formatTime(row.created_at) }}</span>
+                <el-tag v-if="row.review_profile" size="small" effect="plain" type="info">
+                  {{ row.review_profile }}
+                </el-tag>
+                <el-tag v-if="row.review_target_field" size="small" effect="plain" type="info">
+                  {{ row.review_target_field }}
+                </el-tag>
+                <span class="review-time">{{ formatTime(row.reviewed_at) }}</span>
                 <div class="review-actions">
+                  <el-button size="small" plain type="success" class="review-action-button" @click="addToAssistant(row)">
+                    引用助手
+                  </el-button>
                   <el-button size="small" plain type="primary" class="review-action-button" @click="openDetail(row)">
                     详情
                   </el-button>
@@ -65,36 +60,47 @@
     <template v-else>
       <div class="panel-toolbar detail-toolbar">
         <el-button size="small" @click="backToList">返回</el-button>
+        <el-button
+          size="small"
+          type="success"
+          plain
+          @click="addToAssistant(selectedReview)"
+        >
+          引用到灵感助手
+        </el-button>
       </div>
 
       <div class="panel-body detail-body">
         <div class="review-detail-header">
           <h3 class="review-detail-title">
-            {{ selectedReview.target_title || '未命名目标' }}
+            {{ selectedReview.title }}
           </h3>
         </div>
 
         <div class="review-overview">
           <div class="review-overview-main">
-            <el-tag
-              :type="getVerdictTagType(selectedReview.quality_gate)"
-              effect="dark"
-            >
+            <el-tag :type="getVerdictTagType(selectedReview.quality_gate)" effect="dark">
               {{ formatVerdict(selectedReview.quality_gate) }}
             </el-tag>
-            <el-tag size="small" effect="plain" :type="selectedReview.review_type === 'stage' ? 'warning' : 'primary'">
-              {{ selectedReview.review_type === 'stage' ? '阶段审核' : '章节审核' }}
+            <el-tag size="small" effect="plain" :type="getReviewTypeTagType(selectedReview.review_type)">
+              {{ formatReviewType(selectedReview.review_type) }}
+            </el-tag>
+            <el-tag v-if="selectedReview.review_profile" size="small" effect="plain" type="info">
+              {{ selectedReview.review_profile }}
+            </el-tag>
+            <el-tag v-if="selectedReview.review_target_field" size="small" effect="plain" type="info">
+              {{ selectedReview.review_target_field }}
             </el-tag>
             <span class="review-score">
-              记录于 {{ formatTime(selectedReview.created_at) }}
+              更新于 {{ formatTime(selectedReview.reviewed_at) }}
             </span>
           </div>
-          <p class="review-summary">本次审核已按标准审校单格式存档，可直接用于回看和历史查询。</p>
+          <p class="review-summary">该卡片展示当前最新审核结果，并与被审核卡片保持绑定。</p>
         </div>
 
         <div class="review-text-block">
           <SimpleMarkdown
-            :markdown="selectedReview.result_text || '（暂无内容）'"
+            :markdown="selectedReview.review_markdown || '（暂无内容）'"
             class="review-markdown"
           />
         </div>
@@ -104,24 +110,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SimpleMarkdown from '../common/SimpleMarkdown.vue'
-import { deleteReview, listProjectReviews, type ReviewRecord } from '@renderer/api/chapterReviews'
-import { useAppStore } from '@renderer/stores/useAppStore'
+import {
+  deleteReviewCard,
+  listTargetReviewCards,
+  type ReviewResultCard,
+} from '@renderer/api/chapterReviews'
 
 const props = defineProps<{
-  projectId?: number | null
-  defaultReviewType?: 'all' | 'chapter' | 'stage'
+  targetCardId?: number | null
 }>()
 
 const loading = ref(false)
-const reviewType = ref<'all' | 'chapter' | 'stage'>(props.defaultReviewType ?? 'all')
-const targetTitleKeyword = ref('')
-const reviews = ref<ReviewRecord[]>([])
-const selectedReview = ref<ReviewRecord | null>(null)
-const appStore = useAppStore()
-const isDarkMode = computed(() => appStore.isDarkMode)
+const reviews = ref<ReviewResultCard[]>([])
+const selectedReview = ref<ReviewResultCard | null>(null)
 
 function formatVerdict(verdict?: string | null): string {
   switch (verdict) {
@@ -145,6 +149,34 @@ function getVerdictTagType(verdict?: string | null): 'success' | 'warning' | 'da
   }
 }
 
+function formatReviewType(type?: string | null): string {
+  switch (type) {
+    case 'chapter':
+      return '章节审核'
+    case 'stage':
+      return '阶段审核'
+    case 'card':
+      return '通用卡片审核'
+    case 'custom':
+      return '自定义审核'
+    default:
+      return '审核'
+  }
+}
+
+function getReviewTypeTagType(type?: string | null): 'primary' | 'warning' | 'success' | 'info' {
+  switch (type) {
+    case 'stage':
+      return 'warning'
+    case 'card':
+      return 'success'
+    case 'custom':
+      return 'info'
+    default:
+      return 'primary'
+  }
+}
+
 function formatTime(value?: string | null): string {
   if (!value) return ''
   try {
@@ -160,7 +192,7 @@ function formatTime(value?: string | null): string {
   }
 }
 
-function openDetail(item: ReviewRecord) {
+function openDetail(item: ReviewResultCard) {
   selectedReview.value = item
 }
 
@@ -168,27 +200,48 @@ function backToList() {
   selectedReview.value = null
 }
 
+function addToAssistant(item: ReviewResultCard) {
+  window.dispatchEvent(new CustomEvent('nf:assistant-add-review-ref', {
+    detail: {
+      ref: {
+        refType: 'review_result',
+        projectId: item.project_id,
+        reviewCardId: item.card_id,
+        targetId: item.review_target_card_id,
+        targetTitle: item.review_target_title || '未命名目标',
+        reviewType: item.review_type,
+        reviewProfile: item.review_profile || null,
+        qualityGate: item.quality_gate,
+        resultText: item.review_markdown,
+        contentSnapshot: item.target_snapshot || null,
+        source: 'manual',
+      },
+    },
+  }))
+  ElMessage.success('已将审核结果卡片引用到灵感助手')
+}
+
 async function loadReviews() {
-  if (!props.projectId) {
+  if (!props.targetCardId) {
     reviews.value = []
     return
   }
 
   loading.value = true
   try {
-    reviews.value = await listProjectReviews(props.projectId, reviewType.value, targetTitleKeyword.value)
+    reviews.value = await listTargetReviewCards(props.targetCardId)
   } catch (error) {
-    console.error('Failed to load review history:', error)
-    ElMessage.error('加载审核历史失败')
+    console.error('Failed to load review result cards:', error)
+    ElMessage.error('加载审核结果卡片失败')
   } finally {
     loading.value = false
   }
 }
 
-async function handleDelete(item: ReviewRecord) {
+async function handleDelete(item: ReviewResultCard) {
   try {
     await ElMessageBox.confirm(
-      `确认删除审核记录「${item.target_title || '未命名目标'}」吗？此操作不可恢复。`,
+      `确认删除审核结果卡片「${item.title}」吗？此操作不可恢复。`,
       '删除确认',
       { type: 'warning' }
     )
@@ -197,14 +250,14 @@ async function handleDelete(item: ReviewRecord) {
   }
 
   try {
-    await deleteReview(item.id)
-    if (selectedReview.value?.id === item.id) {
+    await deleteReviewCard(item.card_id)
+    if (selectedReview.value?.card_id === item.card_id) {
       selectedReview.value = null
     }
-    reviews.value = reviews.value.filter(review => review.id !== item.id)
-    ElMessage.success('审核记录已删除')
+    reviews.value = reviews.value.filter(review => review.card_id !== item.card_id)
+    ElMessage.success('审核结果卡片已删除')
   } catch (error) {
-    console.error('Failed to delete review record:', error)
+    console.error('Failed to delete review result card:', error)
   }
 }
 
@@ -213,16 +266,7 @@ function handleReviewHistoryRefresh() {
 }
 
 watch(
-  () => props.defaultReviewType,
-  (value) => {
-    reviewType.value = value ?? 'all'
-    selectedReview.value = null
-    loadReviews()
-  }
-)
-
-watch(
-  () => props.projectId,
+  () => props.targetCardId,
   () => {
     selectedReview.value = null
     loadReviews()
@@ -247,23 +291,6 @@ onBeforeUnmount(() => {
   background: var(--el-bg-color);
 }
 
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  border-bottom: 1px solid var(--el-border-color-light);
-}
-
-.type-select {
-  width: 140px;
-}
-
-.target-title-search {
-  flex: 1;
-  min-width: 0;
-}
-
 .panel-body {
   flex: 1;
   min-height: 0;
@@ -272,6 +299,11 @@ onBeforeUnmount(() => {
 }
 
 .detail-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--el-border-color-light);
   justify-content: flex-start;
 }
 
@@ -376,44 +408,17 @@ onBeforeUnmount(() => {
 }
 
 .review-text-block {
-  max-height: 60vh;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);
 }
 
 :deep(.review-markdown) {
-  font-size: 13px;
-  line-height: 1.7;
   color: var(--el-text-color-primary);
+  font-size: 14px;
+  line-height: 1.8;
   word-break: break-word;
-}
-
-:deep(.review-markdown h1),
-:deep(.review-markdown h2),
-:deep(.review-markdown h3),
-:deep(.review-markdown h4),
-:deep(.review-markdown h5),
-:deep(.review-markdown h6) {
-  margin-top: 0;
-  color: var(--el-text-color-primary);
-}
-
-:deep(.review-markdown p),
-:deep(.review-markdown li),
-:deep(.review-markdown blockquote) {
-  color: var(--el-text-color-primary);
-}
-
-:deep(.review-markdown pre) {
-  background: var(--el-fill-color-extra-light);
-  border: 1px solid var(--el-border-color-lighter);
-}
-
-:deep(.review-markdown code) {
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
 }
 </style>

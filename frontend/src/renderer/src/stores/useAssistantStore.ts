@@ -2,9 +2,75 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
 import { getProjects, type ProjectRead } from '@renderer/api/projects'
 import { getCardsForProject, type CardRead } from '@renderer/api/cards'
+import type {
+  AssistantRef,
+  AssistantCardRef,
+  AssistantRefSource,
+  ChapterExcerptRef,
+  ReviewResultRef,
+} from '@renderer/api/ai'
 
-export type InjectRef = { projectId: number; projectName: string; cardId: number; cardTitle: string; content: any; source?: 'auto' | 'manual' }
+export type InjectRef = AssistantRef
 export type AssistantMessage = { role: 'user' | 'assistant'; content: string; ts?: number }
+
+function getInjectedRefKey(ref: InjectRef): string {
+  if (ref.refType === 'card') return `card:${ref.projectId}:${ref.cardId}`
+  if (ref.refType === 'chapter_excerpt') {
+    return `chapter_excerpt:${ref.projectId}:${ref.cardId}:${ref.fieldPath}:${ref.startLine}:${ref.endLine}:${ref.snapshotHash}`
+  }
+  return `review_result:${ref.projectId}:${ref.reviewCardId}`
+}
+
+function normalizeInjectedRef(ref: Partial<InjectRef> & Record<string, any>, source: AssistantRefSource): InjectRef | null {
+  if (!ref) return null
+  const refType = (ref.refType || 'card') as InjectRef['refType']
+
+  if (refType === 'card') {
+    if (!ref.projectId || !ref.cardId) return null
+    return {
+      refType: 'card',
+      projectId: Number(ref.projectId),
+      projectName: String(ref.projectName || ''),
+      cardId: Number(ref.cardId),
+      cardTitle: String(ref.cardTitle || ''),
+      content: ref.content ?? {},
+      source,
+    }
+  }
+
+  if (refType === 'chapter_excerpt') {
+    if (!ref.projectId || !ref.cardId || !ref.startLine || !ref.endLine || !ref.snapshotHash) return null
+    return {
+      refType: 'chapter_excerpt',
+      projectId: Number(ref.projectId),
+      projectName: String(ref.projectName || ''),
+      cardId: Number(ref.cardId),
+      cardTitle: String(ref.cardTitle || ''),
+      fieldPath: String(ref.fieldPath || 'content'),
+      startLine: Number(ref.startLine),
+      endLine: Number(ref.endLine),
+      text: String(ref.text || ''),
+      numberedText: String(ref.numberedText || ''),
+      snapshotHash: String(ref.snapshotHash),
+      source,
+    }
+  }
+
+  if (!ref.projectId || !ref.reviewCardId || !ref.targetId) return null
+  return {
+    refType: 'review_result',
+    projectId: Number(ref.projectId),
+    reviewCardId: Number(ref.reviewCardId),
+    targetId: Number(ref.targetId),
+    targetTitle: String(ref.targetTitle || ''),
+    reviewType: String(ref.reviewType || 'card'),
+    reviewProfile: ref.reviewProfile ?? null,
+    qualityGate: String(ref.qualityGate || 'revise'),
+    resultText: String(ref.resultText || ''),
+    contentSnapshot: ref.contentSnapshot ?? null,
+    source,
+  }
+}
 
 // 卡片上下文信息接口
 export interface CardContextInfo {
@@ -89,37 +155,49 @@ export const useAssistantStore = defineStore('assistant', () => {
     for (const id of ids) {
       const c = map.get(id)
       if (!c) continue
-      const existingIdx = newRefs.findIndex(r => r.projectId === pid && r.cardId === id)
+      const nextRef: AssistantCardRef = {
+        refType: 'card',
+        projectId: pid,
+        projectName: pname,
+        cardId: id,
+        cardTitle: c.title,
+        content: (c as any).content,
+        source: 'manual',
+      }
+      const key = getInjectedRefKey(nextRef)
+      const existingIdx = newRefs.findIndex(r => getInjectedRefKey(r) === key)
       if (existingIdx >= 0) {
         // 升级为 manual（若原为 auto）并刷新标题/内容
         const prev = newRefs[existingIdx]
-        newRefs[existingIdx] = { ...prev, projectName: pname, cardTitle: c.title, content: (c as any).content, source: 'manual' }
+        newRefs[existingIdx] = { ...prev, ...nextRef, source: 'manual' } as InjectRef
         continue
       }
-      newRefs.push({ projectId: pid, projectName: pname, cardId: id, cardTitle: c.title, content: (c as any).content, source: 'manual' })
+      newRefs.push(nextRef)
     }
     
     injectedRefs.value = newRefs
   }
 
-  function addInjectedRefDirect(ref: InjectRef, source: 'auto' | 'manual' = 'manual') {
-    if (!ref) return
+  function addInjectedRefDirect(ref: InjectRef | (Partial<InjectRef> & Record<string, any>), source: AssistantRefSource = 'manual') {
+    const normalizedRef = normalizeInjectedRef(ref as any, source)
+    if (!normalizedRef) return
     
     // 创建新数组以触发 shallowRef 更新
     const newRefs = [...injectedRefs.value]
-    const idx = newRefs.findIndex(r => r.projectId === ref.projectId && r.cardId === ref.cardId)
+    const key = getInjectedRefKey(normalizedRef)
+    const idx = newRefs.findIndex(r => getInjectedRefKey(r) === key)
     const prev = idx >= 0 ? newRefs[idx] : null
     
     // 规则：manual 永远不被 auto 覆盖；manual 会覆盖 auto；同源则更新内容
     if (idx >= 0) {
       if (prev?.source === 'manual' && source === 'auto') {
         // 保留 manual，不做降级，仅更新显示信息/内容
-        newRefs[idx] = { ...prev, projectName: ref.projectName, cardTitle: ref.cardTitle, content: ref.content, source: 'manual' }
+        newRefs[idx] = { ...prev, ...normalizedRef, source: 'manual' } as InjectRef
       } else {
-        newRefs[idx] = { ...prev, ...ref, source }
+        newRefs[idx] = { ...prev, ...normalizedRef, source } as InjectRef
       }
     } else {
-      newRefs.push({ ...ref, source })
+      newRefs.push(normalizedRef)
     }
     
     injectedRefs.value = newRefs
@@ -133,6 +211,14 @@ export const useAssistantStore = defineStore('assistant', () => {
     // 仅清除其他 auto；若相同卡片已被标记为 manual，则不会被覆盖
     clearAutoRefs()
     addInjectedRefDirect(ref, 'auto')
+  }
+
+  function addChapterExcerptRef(ref: ChapterExcerptRef, source: AssistantRefSource = 'manual') {
+    addInjectedRefDirect(ref, source)
+  }
+
+  function addReviewResultRef(ref: ReviewResultRef, source: AssistantRefSource = 'manual') {
+    addInjectedRefDirect(ref, source)
   }
 
   function removeInjectedRefAt(index: number) { 
@@ -488,7 +574,7 @@ export const useAssistantStore = defineStore('assistant', () => {
   return { 
     projects, cardsByProject, injectedRefs, 
     loadProjects, loadCardsForProject, 
-    addInjectedRefs, addInjectedRefDirect, addAutoRef, clearAutoRefs, removeInjectedRefAt, clearInjectedRefs, 
+    addInjectedRefs, addInjectedRefDirect, addAutoRef, addChapterExcerptRef, addReviewResultRef, clearAutoRefs, removeInjectedRefAt, clearInjectedRefs, 
     getHistory, setHistory, appendHistory, clearHistory,
     // 卡片上下文方法
     updateActiveCard, registerCard, updateProjectCardTypes, getContextForAssistant, clearCardContext,

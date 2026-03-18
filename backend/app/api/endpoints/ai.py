@@ -23,6 +23,7 @@ from app.core import emit_event
 from app.services.ai.core import llm_service
 from app.services.ai.core.model_builder import build_model_from_json_schema
 from app.services.ai.generation.continuation_context_service import enrich_continuation_context_info
+from app.services.ai.generation.continuation_budget_runtime import estimate_required_call_count
 from app.services.ai.generation.instruction_validator import validate_instruction, apply_instruction
 from app.services.ai.generation.instruction_generator import generate_instruction_stream
 from app.services.ai.generation.prompt_builder import build_instruction_system_prompt
@@ -241,7 +242,8 @@ async def generate_continuation(
 
         if request.stream:
             # 先做一次配额预检，避免流式过程中才抛错
-            ok, reason = llm_config_service.can_consume(session, request.llm_config_id, 0, 0, 1)
+            expected_calls = estimate_required_call_count(request)
+            ok, reason = llm_config_service.can_consume(session, request.llm_config_id, 0, 0, expected_calls)
             if not ok:
                 raise HTTPException(status_code=400, detail=f"LLM 配额不足：{reason}")
             async def _stream_and_trigger():

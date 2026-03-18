@@ -54,4 +54,4 @@ def calc_input_tokens(system_prompt: Optional[str], user_prompt: Optional[str]) 
     """
     sys_part = system_prompt or ""
     usr_part = user_prompt or ""
-    return estimate_tokens(sys_part + usr_part)
+    return int(round(0.6 * estimate_tokens(sys_part + usr_part)))

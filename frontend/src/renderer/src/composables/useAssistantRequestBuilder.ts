@@ -1,12 +1,7 @@
 import type { Ref } from 'vue'
 
 import type { AssistantPanelMessage } from '@renderer/types/assistantPanel'
-
-interface AssistantInjectedRefLite {
-  projectName: string
-  cardTitle: string
-  content: any
-}
+import type { AssistantRef } from '@renderer/api/ai'
 
 interface AssistantContextLite {
   active_card: {
@@ -20,7 +15,7 @@ interface AssistantStoreLite {
   projectStructure: any
   formatRecentOperations: () => string
   getContextForAssistant: () => AssistantContextLite
-  injectedRefs: AssistantInjectedRefLite[]
+  injectedRefs: AssistantRef[]
 }
 
 interface AssistantPreferenceRefs {
@@ -56,6 +51,40 @@ function pruneEmpty(val: any): any {
     out[key] = pruned
   }
   return out
+}
+
+function clipText(text: string, maxLen = 4000): string {
+  if (!text) return ''
+  return text.length > maxLen ? `${text.slice(0, maxLen)}\n/* ... */` : text
+}
+
+function serializeInjectedRef(ref: AssistantRef): string | null {
+  if (ref.refType === 'card') {
+    try {
+      const cleaned = pruneEmpty(ref.content)
+      const text = JSON.stringify(cleaned ?? {}, null, 2)
+      return `### 【整卡引用】${ref.projectName} / ${ref.cardTitle}\n\`\`\`json\n${clipText(text)}\n\`\`\``
+    } catch {
+      return null
+    }
+  }
+
+  if (ref.refType === 'chapter_excerpt') {
+    const header = `${ref.projectName} / ${ref.cardTitle} (${ref.fieldPath} 第${ref.startLine}-${ref.endLine}行)`
+    const body = ref.numberedText?.trim() || ref.text?.trim() || '(空片段)'
+    return `### 【正文片段】${header}\n\`\`\`text\n${clipText(body)}\n\`\`\`\n- snapshot_hash: ${ref.snapshotHash}\n- 若需修改这段正文，请优先调用 replace_card_text_by_lines，不要优先用 replace_field_text`
+  }
+
+  const lines: string[] = []
+  lines.push(`### 【审核结果卡片】目标: ${ref.targetTitle} (review_card_id=${ref.reviewCardId})`)
+  lines.push(`- 审核类型: ${ref.reviewType}`)
+  if (ref.reviewProfile) lines.push(`- 审核档案: ${ref.reviewProfile}`)
+  lines.push(`- 质量门结论: ${ref.qualityGate}`)
+  if (ref.contentSnapshot) lines.push(`- content_snapshot: ${clipText(ref.contentSnapshot, 800)}`)
+  lines.push('```text')
+  lines.push(clipText(ref.resultText || '(空审核结果)'))
+  lines.push('```')
+  return lines.join('\n')
 }
 
 export function useAssistantRequestBuilder(options: UseAssistantRequestBuilderOptions) {
@@ -130,16 +159,10 @@ export function useAssistantRequestBuilder(options: UseAssistantRequestBuilderOp
     if (options.assistantStore.injectedRefs.length) {
       const blocks: string[] = []
       for (const ref of options.assistantStore.injectedRefs) {
-        try {
-          const cleaned = pruneEmpty(ref.content)
-          const text = JSON.stringify(cleaned ?? {}, null, 2)
-          const clipped = text.length > 4000 ? `${text.slice(0, 4000)}\n/* ... */` : text
-          blocks.push(`### 【引用】${ref.projectName} / ${ref.cardTitle}\n\`\`\`json\n${clipped}\n\`\`\``)
-        } catch {
-          // ignore serialization error for single ref
-        }
+        const block = serializeInjectedRef(ref)
+        if (block) blocks.push(block)
       }
-      parts.push(`## 📎 引用卡片\n${blocks.join('\n\n')}`)
+      parts.push(`## 📎 引用内容\n${blocks.join('\n\n')}`)
       parts.push('')
     }
 

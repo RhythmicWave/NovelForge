@@ -41,15 +41,35 @@
       <!-- 参数配置：显示当前模型ID，点击弹出就地配置面板 -->
       <div class="toolbar-row param-toolbar">
         <div class="param-inline">
-          <el-button
-            v-if="isStageOutlineCard"
+          <el-dropdown
+            split-button
             size="small"
-            plain
-            :loading="stageReviewLoading"
-            @click="executeStageReview"
+            popper-class="review-prompt-dropdown"
+            :disabled="reviewLoading"
+            :loading="reviewLoading"
+            @click="executeReview"
+            @command="handleReviewPromptChange"
           >
-            <el-icon><List /></el-icon> 阶段审核
-          </el-button>
+            <span class="review-button-label">
+              <el-icon v-if="reviewLoading" class="review-loading-icon"><Loading /></el-icon>
+              <el-icon v-else><List /></el-icon>
+              {{ reviewLoading ? '审核中...' : '审核' }}
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="prompt in reviewPrompts"
+                  :key="prompt"
+                  :command="prompt"
+                >
+                  <div class="prompt-item">
+                    <span>{{ prompt }}</span>
+                    <el-icon v-if="prompt === currentReviewPrompt" class="check-icon"><Select /></el-icon>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <AIPerCardParams :card-id="props.card.id" :card-type-name="props.card.card_type?.name" />
           <el-button size="small" type="primary" plain @click="schemaStudioVisible = true">结构</el-button>
         </div>
@@ -120,22 +140,22 @@
       @restart="handleRestartGeneration"
     />
 
-    <el-dialog v-model="stageReviewDialogVisible" title="阶段审核结果" width="72%">
+    <el-dialog v-model="stageReviewDialogVisible" title="审核结果" width="72%">
       <div v-if="stageReviewText" class="stage-review-dialog-body">
         <div class="stage-review-overview">
           <div class="stage-review-overview-main">
             <el-tag
-              v-if="stageReviewRecord"
-              :type="getReviewVerdictTagType(stageReviewRecord.quality_gate)"
+              v-if="stageReviewDraft"
+              :type="getReviewVerdictTagType(stageReviewDraft.quality_gate)"
               effect="dark"
             >
-              {{ formatReviewVerdict(stageReviewRecord.quality_gate) }}
+              {{ formatReviewVerdict(stageReviewDraft.quality_gate) }}
             </el-tag>
-            <span v-if="stageReviewRecord" class="stage-review-score">
-              记录于 {{ formatReviewCreatedAt(stageReviewRecord.created_at) }}
+            <span v-if="stageReviewDraft" class="stage-review-score">
+              {{ stageReviewDraft.review_profile }}
             </span>
           </div>
-          <p class="stage-review-summary">本次阶段审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
+          <p class="stage-review-summary">这是本次审核草稿。确认后可创建或更新审核结果卡片。</p>
         </div>
 
         <div class="stage-review-text-block">
@@ -145,6 +165,19 @@
           />
         </div>
       </div>
+      <template #footer>
+        <div class="stage-review-footer">
+          <el-button @click="stageReviewDialogVisible = false">关闭</el-button>
+          <el-button
+            type="primary"
+            :loading="reviewCardSaving"
+            :disabled="!stageReviewDraft"
+            @click="handleCreateOrUpdateReviewCard"
+          >
+            {{ stageReviewDraft?.existing_review_card_id ? '更新审核结果卡片' : '创建审核结果卡片' }}
+          </el-button>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -172,7 +205,7 @@ import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { addVersion } from '@renderer/services/versionService'
-import { List } from '@element-plus/icons-vue'
+import { List, Select, Loading } from '@element-plus/icons-vue'
 import { useAppStore } from '@renderer/stores/useAppStore'
 import { useAIStore as useAIStoreForOptions } from '@renderer/stores/useAIStore'
 import SchemaStudio from '../shared/SchemaStudio.vue'
@@ -189,11 +222,11 @@ import {
   type ContextTemplates,
 } from '@renderer/services/contextSlots'
 import {
-  runStageReview,
-  type PreviousStageInput,
-  type ReviewRecord,
-  type StageChapterOutlineInput,
-  type StageReviewRunRequest,
+  runReview,
+  type ReviewDraftResult,
+  type QualityGate,
+  type ReviewRunRequest,
+  upsertReviewCard,
 } from '@renderer/api/chapterReviews'
 // 指令流生成相关导入
 import GenerationPanel from '../generation/GenerationPanel.vue'
@@ -222,10 +255,11 @@ const isSelectorVisible = ref(false)
 const showVersions = ref(false)
 const schemaStudioVisible = ref(false)
 const assistantVisible = ref(false)
-const stageReviewLoading = ref(false)
+const reviewLoading = ref(false)
 const stageReviewDialogVisible = ref(false)
 const stageReviewText = ref('')
-const stageReviewRecord = ref<ReviewRecord | null>(null)
+const stageReviewDraft = ref<ReviewDraftResult | null>(null)
+const reviewCardSaving = ref(false)
 const stageReviewAbortController = ref<AbortController | null>(null)
 const assistantResolvedContext = ref<string>('')
 const assistantEffectiveSchema = ref<any>(null)
@@ -412,6 +446,7 @@ watch(
         const first = aiOptions.value?.llm_configs?.[0]
         if (first) editingParams.value.llm_config_id = first.id
       }
+      syncReviewPrompt(true)
       // 本地兼容保存
       perCardStore.setForCard(newCard.id, editingParams.value)
     }
@@ -440,7 +475,33 @@ const paramSummary = computed(() => {
   return [model, prompt, t, m].filter(Boolean).join(' · ')
 })
 
-function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): string {
+const reviewPrompts = computed(() => {
+  const names = (aiOptions.value?.prompts || []).map(item => item.name).filter(Boolean)
+  return names.length > 0 ? names : ['通用审核']
+})
+
+const currentReviewPrompt = ref('')
+
+function getDefaultReviewPromptForCardType(cardTypeName?: string | null): string {
+  if (cardTypeName === '阶段大纲') return '阶段审核'
+  return '通用审核'
+}
+
+function syncReviewPrompt(force = false) {
+  const prompts = reviewPrompts.value
+  if (!prompts.length) return
+  const defaultPrompt = getDefaultReviewPromptForCardType(props.card.card_type?.name)
+  if (force || !prompts.includes(currentReviewPrompt.value)) {
+    currentReviewPrompt.value = prompts.includes(defaultPrompt) ? defaultPrompt : prompts[0]
+  }
+}
+
+function handleReviewPromptChange(promptName: string) {
+  currentReviewPrompt.value = promptName
+  ElMessage.success(`已切换审核提示词为: ${promptName}`)
+}
+
+function formatReviewVerdict(verdict?: QualityGate | null | string): string {
   switch (verdict) {
     case 'pass':
       return '基本通过'
@@ -451,7 +512,7 @@ function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): str
   }
 }
 
-function getReviewVerdictTagType(verdict?: ReviewRecord['quality_gate'] | null): 'success' | 'warning' | 'danger' {
+function getReviewVerdictTagType(verdict?: QualityGate | null | string): 'success' | 'warning' | 'danger' {
   switch (verdict) {
     case 'pass':
       return 'success'
@@ -485,169 +546,44 @@ function isCanceledRequest(error: unknown): boolean {
     || candidate?.message === 'CanceledError'
 }
 
+function stringifyReviewTarget(value: any): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    return value.map(item => stringifyReviewTarget(item)).filter(Boolean).join('\n')
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function hasMeaningfulReviewContent(value: any): boolean {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (typeof value === 'number' || typeof value === 'boolean') return true
+  if (Array.isArray(value)) return value.some(item => hasMeaningfulReviewContent(item))
+  if (typeof value === 'object') return Object.values(value).some(item => hasMeaningfulReviewContent(item))
+  return false
+}
+
+function resolveReviewTarget(content: any): { targetField: string; targetText: string } {
+  if (isStageOutlineCard.value) {
+    return { targetField: 'content', targetText: stringifyReviewTarget(content || {}) }
+  }
+  if (String(content?.content || '').trim()) {
+    return { targetField: 'content.content', targetText: String(content.content).trim() }
+  }
+  if (String(content?.overview || '').trim()) {
+    return { targetField: 'content.overview', targetText: String(content.overview).trim() }
+  }
+  return { targetField: 'content', targetText: stringifyReviewTarget(content || {}) }
+}
+
 function getCurrentEditingContent() {
   return cloneDeep(wrapperName.value ? innerData.value : localData.value) || {}
-}
-
-function getStageVolumeNumber(content: any): number | null {
-  const value = Number(content?.volume_number)
-  return Number.isFinite(value) ? value : null
-}
-
-function getStageNumber(content: any): number | null {
-  const value = Number(content?.stage_number)
-  return Number.isFinite(value) ? value : null
-}
-
-function getStageReferenceChapter(content: any): number[] {
-  if (!Array.isArray(content?.reference_chapter)) return []
-  return content.reference_chapter
-    .map((item: any) => Number(item))
-    .filter((item: number) => Number.isFinite(item))
-    .slice(0, 2)
-}
-
-function getOrderedStageCards(currentContent?: any): CardRead[] {
-  return [...(cards.value || [])]
-    .filter((item: any) => item?.card_type?.name === '阶段大纲')
-    .map((item: any) => {
-      const content = item.id === props.card.id && currentContent ? currentContent : (item?.content || {})
-      return {
-        card: item,
-        volumeNumber: getStageVolumeNumber(content) ?? 0,
-        stageNumber: getStageNumber(content) ?? 0,
-      }
-    })
-    .filter(item => item.volumeNumber > 0 && item.stageNumber > 0)
-    .sort((a, b) => {
-      if (a.volumeNumber !== b.volumeNumber) return a.volumeNumber - b.volumeNumber
-      return a.stageNumber - b.stageNumber
-    })
-    .map(item => item.card)
-}
-
-function getPreviousStagesForReview(currentContent: any): PreviousStageInput[] {
-  const currentVolumeNumber = getStageVolumeNumber(currentContent)
-  const currentStageNumber = getStageNumber(currentContent)
-  if (currentVolumeNumber == null || currentStageNumber == null) return []
-
-  const ordered = getOrderedStageCards(currentContent)
-  const currentIndex = ordered.findIndex(item => item.id === props.card.id)
-  if (currentIndex <= 0) return []
-
-  return ordered
-    .slice(Math.max(0, currentIndex - 1), currentIndex)
-    .map((item: any) => {
-      const content = item?.content || {}
-      return {
-        title: item?.title || content?.stage_name || '未命名阶段',
-        stage_name: content?.stage_name || null,
-        volume_number: getStageVolumeNumber(content),
-        stage_number: getStageNumber(content),
-        reference_chapter: getStageReferenceChapter(content),
-        overview: String(content?.overview || ''),
-        analysis: content?.analysis || '',
-        entity_snapshot: Array.isArray(content?.entity_snapshot) ? content.entity_snapshot.map((entry: any) => String(entry)) : [],
-      }
-    })
-}
-
-function getStageChapterOutlinesForReview(currentContent: any): StageChapterOutlineInput[] {
-  const stageVolumeNumber = getStageVolumeNumber(currentContent)
-  const stageNumber = getStageNumber(currentContent)
-  const chapterContentMap = new Map<number, { hasContent: boolean; wordCount: number | null }>()
-
-  for (const item of cards.value || []) {
-    if ((item as any)?.card_type?.name !== '章节正文') continue
-    const content = (item as any)?.content || {}
-    const volumeNumber = Number(content?.volume_number)
-    const chapterStageNumber = Number(content?.stage_number)
-    const chapterNumber = Number(content?.chapter_number)
-    if (!Number.isFinite(volumeNumber) || !Number.isFinite(chapterStageNumber) || !Number.isFinite(chapterNumber)) continue
-    if (stageVolumeNumber != null && volumeNumber !== stageVolumeNumber) continue
-    if (stageNumber != null && chapterStageNumber !== stageNumber) continue
-    const text = String(content?.content || '')
-    chapterContentMap.set(chapterNumber, {
-      hasContent: text.trim().length > 0,
-      wordCount: text.trim().length > 0 ? text.replace(/\s+/g, '').length : 0,
-    })
-  }
-
-  const childOutlineCards = (cards.value || [])
-    .filter((item: any) => item?.parent_id === props.card.id && item?.card_type?.name === '章节大纲')
-    .map((item: any) => {
-      const content = item?.content || {}
-      const chapterNumber = Number(content?.chapter_number)
-      return {
-        title: String(content?.title || item?.title || '未命名章节'),
-        chapter_number: Number.isFinite(chapterNumber) ? chapterNumber : null,
-        overview: String(content?.overview || ''),
-        entity_list: Array.isArray(content?.entity_list) ? content.entity_list.map((entry: any) => String(entry)) : [],
-      }
-    })
-    .sort((a, b) => {
-      const aNum = a.chapter_number ?? Number.MAX_SAFE_INTEGER
-      const bNum = b.chapter_number ?? Number.MAX_SAFE_INTEGER
-      return aNum - bNum
-    })
-
-  const fallbackOutlineList = Array.isArray(currentContent?.chapter_outline_list) ? currentContent.chapter_outline_list : []
-  const sourceList = childOutlineCards.length ? childOutlineCards : fallbackOutlineList
-
-  return sourceList.map((item: any) => {
-    const chapterNumber = Number(item?.chapter_number)
-    const chapterMeta = Number.isFinite(chapterNumber) ? chapterContentMap.get(chapterNumber) : undefined
-    return {
-      title: String(item?.title || '未命名章节'),
-      chapter_number: Number.isFinite(chapterNumber) ? chapterNumber : null,
-      overview: String(item?.overview || ''),
-      entity_list: Array.isArray(item?.entity_list) ? item.entity_list.map((entry: any) => String(entry)) : [],
-      has_content: chapterMeta?.hasContent ?? false,
-      word_count: chapterMeta?.wordCount ?? null,
-    }
-  })
-}
-
-function formatStageSnapshot(currentContent: any, chapterOutlines: StageChapterOutlineInput[]): string {
-  const lines: string[] = [
-    '[阶段信息]',
-    `- 标题：${titleProxy.value || props.card.title || '未命名阶段'}`,
-  ]
-
-  if (currentContent?.stage_name) lines.push(`- 阶段名：${String(currentContent.stage_name)}`)
-  if (getStageVolumeNumber(currentContent) != null) lines.push(`- 卷号：${getStageVolumeNumber(currentContent)}`)
-  if (getStageNumber(currentContent) != null) lines.push(`- 阶段号：${getStageNumber(currentContent)}`)
-
-  const referenceChapter = getStageReferenceChapter(currentContent)
-  if (referenceChapter.length >= 2) {
-    lines.push(`- 参考章节范围：${referenceChapter[0]} - ${referenceChapter[1]}`)
-  }
-
-  if (currentContent?.analysis) {
-    lines.push('', '[阶段分析]', String(currentContent.analysis))
-  }
-  if (currentContent?.overview) {
-    lines.push('', '[阶段概述]', String(currentContent.overview))
-  }
-  if (Array.isArray(currentContent?.entity_snapshot) && currentContent.entity_snapshot.length) {
-    lines.push('', '[阶段末实体快照]')
-    for (const item of currentContent.entity_snapshot) {
-      lines.push(`- ${String(item)}`)
-    }
-  }
-  if (chapterOutlines.length) {
-    lines.push('', '[章节列表]')
-    chapterOutlines.forEach((item, index) => {
-      const chapterLabel = item.chapter_number != null ? `第${item.chapter_number}章` : `章节${index + 1}`
-      lines.push(`${index + 1}. ${chapterLabel} ${item.title}`.trim())
-      if (item.overview) lines.push(`概述：${item.overview}`)
-      if (item.entity_list?.length) lines.push(`出场实体：${item.entity_list.join('、')}`)
-      lines.push(`是否已有正文：${item.has_content ? '是' : '否'}`)
-      if (item.word_count != null) lines.push(`正文字数：${item.word_count}`)
-    })
-  }
-
-  return lines.join('\n').trim()
 }
 
 function formatFactsFromContext(ctx: any | null | undefined): string {
@@ -983,18 +919,10 @@ async function handleSave() {
   } finally { isSaving.value = false }
 }
 
-async function executeStageReview() {
-  if (!isStageOutlineCard.value) return
-
+async function executeReview() {
   const currentContent = getCurrentEditingContent()
-  const chapterOutlines = getStageChapterOutlinesForReview(currentContent)
-  const hasStageCoreContent = Boolean(
-    String(currentContent?.overview || '').trim() ||
-    String(currentContent?.analysis || '').trim() ||
-    chapterOutlines.length
-  )
-  if (!hasStageCoreContent) {
-    ElMessage.warning('请先完善当前阶段内容后再审核')
+  if (!hasMeaningfulReviewContent(currentContent)) {
+    ElMessage.warning('请先补充可审核内容后再执行审核')
     return
   }
 
@@ -1004,57 +932,88 @@ async function executeStageReview() {
     return
   }
 
-  stageReviewLoading.value = true
+  reviewLoading.value = true
   stageReviewText.value = ''
-  stageReviewRecord.value = null
+  stageReviewDraft.value = null
   const abortController = new AbortController()
   stageReviewAbortController.value = abortController
 
   try {
     const resolvedContext = getResolvedContextByKind(reviewContextKind.value, currentContent)
-
-    const payload: StageReviewRunRequest = {
+    const target = resolveReviewTarget(currentContent)
+    const payload: ReviewRunRequest = {
       card_id: props.card.id,
       project_id: projectStore.currentProject?.id || props.card.project_id,
-      title: titleProxy.value || props.card.title || '未命名阶段',
-      stage_name: currentContent?.stage_name || titleProxy.value || props.card.title || null,
-      volume_number: getStageVolumeNumber(currentContent),
-      stage_number: getStageNumber(currentContent),
-      reference_chapter: getStageReferenceChapter(currentContent),
-      analysis: String(currentContent?.analysis || ''),
-      overview: String(currentContent?.overview || ''),
-      entity_snapshot: Array.isArray(currentContent?.entity_snapshot) ? currentContent.entity_snapshot.map((item: any) => String(item)) : [],
-      chapter_outlines: chapterOutlines,
-      previous_stages: getPreviousStagesForReview(currentContent),
+      title: titleProxy.value || props.card.title || '未命名卡片',
+      review_type: isStageOutlineCard.value ? 'stage' : 'card',
+      review_profile: 'generic_card_review',
+      target_type: 'card',
+      target_field: target.targetField,
+      target_text: target.targetText,
       context_info: resolvedContext.trim() || undefined,
       facts_info: formatFactsFromContext(props.prefetched).trim() || undefined,
-      content_snapshot: formatStageSnapshot(currentContent, chapterOutlines),
+      content_snapshot: stringifyReviewTarget(currentContent),
       llm_config_id: p.llm_config_id,
-      prompt_name: '阶段审核',
+      prompt_name: currentReviewPrompt.value || getDefaultReviewPromptForCardType(props.card.card_type?.name),
+      meta: {
+        source: 'generic_card_editor',
+        card_type_name: props.card.card_type?.name || '',
+      },
     }
 
     if (typeof p.temperature === 'number') payload.temperature = p.temperature
     if (typeof p.max_tokens === 'number') payload.max_tokens = Math.min(p.max_tokens, 6144)
     if (typeof p.timeout === 'number') payload.timeout = p.timeout
 
-    const result = await runStageReview(payload, { signal: abortController.signal }).catch((e) => {
+    const result = await runReview(payload, { signal: abortController.signal }).catch((e) => {
       if (isCanceledRequest(e)) return null
       throw e
     })
     if (!result) return
+
     stageReviewText.value = result.review_text
-    stageReviewRecord.value = result.record
+    stageReviewDraft.value = result.draft
     stageReviewDialogVisible.value = true
-    window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
-    ElMessage.success('阶段审核完成')
+    ElMessage.success('审核完成')
   } catch (e) {
-    console.error('阶段审核失败:', e)
-    ElMessage.error('阶段审核失败')
+    console.error('审核失败:', e)
+    ElMessage.error('审核失败')
   } finally {
     if (stageReviewAbortController.value === abortController) {
       stageReviewAbortController.value = null
     }
-    stageReviewLoading.value = false
+    reviewLoading.value = false
+  }
+}
+
+async function handleCreateOrUpdateReviewCard() {
+  if (!stageReviewDraft.value) return
+  reviewCardSaving.value = true
+  try {
+    const currentContent = getCurrentEditingContent()
+    const saved = await upsertReviewCard({
+      project_id: projectStore.currentProject?.id || props.card.project_id,
+      target_card_id: props.card.id,
+      target_title: titleProxy.value || props.card.title || '未命名卡片',
+      review_type: stageReviewDraft.value.review_type,
+      review_profile: stageReviewDraft.value.review_profile,
+      target_field: stageReviewDraft.value.review_target_field || null,
+      review_text: stageReviewText.value,
+      quality_gate: stageReviewDraft.value.quality_gate,
+      prompt_name: stageReviewDraft.value.prompt_name,
+      llm_config_id: stageReviewDraft.value.llm_config_id || undefined,
+      content_snapshot: stageReviewDraft.value.target_snapshot || stringifyReviewTarget(currentContent),
+      meta: stageReviewDraft.value.meta || {},
+    })
+    stageReviewDraft.value.existing_review_card_id = saved.card_id
+    await cardStore.fetchCards(projectStore.currentProject?.id || props.card.project_id)
+    window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
+    ElMessage.success('审核结果卡片已更新')
+  } catch (error) {
+    console.error('Failed to upsert review result card:', error)
+    ElMessage.error('创建审核结果卡片失败')
+  } finally {
+    reviewCardSaving.value = false
   }
 }
 
@@ -1491,6 +1450,11 @@ async function handleAssistantFinalize(summary: string) {
 .model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; flex-wrap: wrap; }
 .ai-actions .left, .ai-actions .right { display: flex; gap: 6px; align-items: center; }
+.review-button-label { display: inline-flex; align-items: center; gap: 6px; }
+.prompt-item { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
+.check-icon { color: var(--el-color-primary); }
+.review-loading-icon { animation: review-spin 1s linear infinite; }
+:deep(.review-prompt-dropdown .el-scrollbar__wrap) { max-height: 320px; overflow-y: auto; }
 
 .stage-review-dialog-body {
   display: flex;
@@ -1533,6 +1497,12 @@ async function handleAssistantFinalize(summary: string) {
   background: var(--el-bg-color);
 }
 
+.stage-review-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 :deep(.review-markdown) {
   color: var(--el-text-color-primary);
   font-size: 14px;
@@ -1564,5 +1534,10 @@ async function handleAssistantFinalize(summary: string) {
 :deep(.review-markdown code) {
   background: var(--el-fill-color-light);
   color: var(--el-text-color-primary);
+}
+
+@keyframes review-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

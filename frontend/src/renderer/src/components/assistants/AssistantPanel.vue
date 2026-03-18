@@ -55,7 +55,7 @@
           <div class="chips-tags">
             <el-tag 
               v-for="(r, idx) in visibleRefs" 
-              :key="r.projectId + '-' + r.cardId" 
+              :key="getRefKey(r)" 
               closable 
               @close="removeInjectedRef(idx)" 
               size="small" 
@@ -63,7 +63,7 @@
               class="chip-tag" 
               @click="onChipClick(r)"
             >
-              {{ r.projectName }} / {{ r.cardTitle }}
+              {{ getRefLabel(r) }}
             </el-tag>
           </div>
           
@@ -95,12 +95,12 @@
                 <div class="more-refs-list">
                   <div 
                     v-for="(r, idx) in assistantStore.injectedRefs" 
-                    :key="r.projectId + '-' + r.cardId"
+                    :key="getRefKey(r)"
                     class="more-ref-item"
                   >
                     <span class="ref-info" @click="onChipClick(r)">
                       <el-icon><Document /></el-icon>
-                      {{ r.projectName }} / {{ r.cardTitle }}
+                      {{ getRefLabel(r) }}
                     </span>
                     <el-button 
                       :icon="Close" 
@@ -230,6 +230,7 @@ import AgentComposer from '@/components/shared/AgentComposer.vue'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { useCardStore } from '@renderer/stores/useCardStore'
+import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useAssistantPreferences } from '@renderer/composables/useAssistantPreferences'
 import { useAssistantSessionHistory } from '@renderer/composables/useAssistantSessionHistory'
 import { useAssistantInjectionSelector } from '@renderer/composables/useAssistantInjectionSelector'
@@ -238,6 +239,7 @@ import { applyAssistantStreamChunk, resetAssistantMessageForRegenerate } from '@
 import { useEnterToSend } from '@renderer/composables/useEnterToSend'
 import { useMessageListScroll } from '@renderer/composables/useMessageListScroll'
 import type { AssistantChatSession, AssistantPanelMessage } from '@renderer/types/assistantPanel'
+import type { AssistantRef } from '@renderer/api/ai'
 
 const props = defineProps<{ resolvedContext: string; llmConfigId?: number | null; promptName?: string | null; temperature?: number | null; max_tokens?: number | null; timeout?: number | null; effectiveSchema?: any; generationPromptName?: string | null; currentCardTitle?: string | null; currentCardContent?: any }>()
 const emit = defineEmits<{ 'finalize': [string]; 'refresh-context': []; 'reset-selection': []; 'jump-to-card': [{ projectId: number; cardId: number }] }>()
@@ -250,6 +252,7 @@ const { messageListRef, scrollToBottom } = useMessageListScroll()
 // ---- 多卡片数据引用（跨项目，使用 Pinia） ----
 const assistantStore = useAssistantStore()
 const projectStore = useProjectStore()
+const editorStore = useEditorStore()
 
 // 思考过程折叠状态：key 为 bucket 标识（例如 plain-0-0 / pre-0-0 / g-0-1-0），值为是否展开
 // 默认收起（false），用户点击后再展开
@@ -361,6 +364,22 @@ const {
 
 function removeInjectedRef(idx: number) { assistantStore.removeInjectedRefAt(idx) }
 
+function getRefKey(ref: AssistantRef): string {
+  if (ref.refType === 'card') return `card:${ref.projectId}:${ref.cardId}`
+  if (ref.refType === 'chapter_excerpt') {
+    return `chapter_excerpt:${ref.projectId}:${ref.cardId}:${ref.startLine}:${ref.endLine}:${ref.snapshotHash}`
+  }
+  return `review_result:${ref.projectId}:${ref.reviewCardId}`
+}
+
+function getRefLabel(ref: AssistantRef): string {
+  if (ref.refType === 'card') return `${ref.projectName} / ${ref.cardTitle}`
+  if (ref.refType === 'chapter_excerpt') {
+    return `${ref.projectName} / ${ref.cardTitle} [${ref.startLine}-${ref.endLine}行]`
+  }
+  return `审核结果 / ${ref.targetTitle}`
+}
+
 const { buildConversationText, buildAssistantChatRequest } = useAssistantRequestBuilder({
   messages,
   assistantStore,
@@ -376,8 +395,24 @@ const { buildConversationText, buildAssistantChatRequest } = useAssistantRequest
   },
 })
 
-function startStreaming(targetIdx: number) {
+async function startStreaming(targetIdx: number) {
   isStreaming.value = true
+
+  const hasChapterExcerptRefs = assistantStore.injectedRefs.some(ref => ref.refType === 'chapter_excerpt')
+  if (hasChapterExcerptRefs) {
+    try {
+      const persisted = await editorStore.persistActiveChapterDraft()
+      if (!persisted) {
+        isStreaming.value = false
+        return
+      }
+    } catch (error) {
+      console.error('Failed to persist active chapter draft before assistant run:', error)
+      ElMessage.error('正文保存失败，请先保存章节后重试')
+      isStreaming.value = false
+      return
+    }
+  }
 
   const chatRequest = buildAssistantChatRequest()
   const promptName = (props.promptName && props.promptName.trim()) ? props.promptName : '灵感对话'
@@ -571,7 +606,11 @@ function handleRegenerateWithHistory() {
   }
 }
 function handleFinalize() { const summary = (() => { const last = [...messages.value].reverse().find(m => m.role === 'assistant'); return (last?.content || '').trim() || buildConversationText() })(); emit('finalize', summary) }
-function onChipClick(refItem: { projectId: number; cardId: number }) {
+function onChipClick(refItem: AssistantRef) {
+  if (refItem.refType === 'review_result') {
+    emit('jump-to-card', { projectId: refItem.projectId, cardId: refItem.targetId })
+    return
+  }
   emit('jump-to-card', { projectId: refItem.projectId, cardId: refItem.cardId })
 }
 
@@ -617,7 +656,7 @@ function handleToolsExecuted(targetIdx: number, tools: Array<{tool_name: string,
     const result = t.result
     
     // 这些工具调用后需要刷新卡片列表
-    const refreshTools = ['create_card', 'modify_card_field', 'batch_create_cards', 'replace_field_text']
+    const refreshTools = ['create_card', 'modify_card_field', 'batch_create_cards', 'replace_field_text', 'replace_card_text_by_lines']
     
     if (refreshTools.includes(toolName)) {
       console.log(`🔄 检测到 ${toolName} 调用，准备刷新卡片列表`)

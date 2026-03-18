@@ -1,5 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
+
+
+ContinuationWordControlMode = Literal["prompt_only", "balanced"]
 
 class ContinuationRequest(BaseModel):
     previous_content: str = Field(default="", description="已写的章节内容")
@@ -18,6 +21,15 @@ class ContinuationRequest(BaseModel):
     context_info: Optional[str] = Field(default=None, description="上下文信息，包括引用内容和事实子图")
     # 已有内容字数统计（用于指导续写长度）
     existing_word_count: Optional[int] = Field(default=None, description="已有章节正文的字数统计")
+    target_word_count: Optional[int] = Field(default=None, description="目标总字数")
+    word_control_mode: Optional[ContinuationWordControlMode] = Field(
+        default=None,
+        description="字数控制模式：prompt_only / balanced",
+    )
+    continuation_guidance: Optional[str] = Field(default=None, description="续写指导要求")
+    budget_round_hint: Optional[int] = Field(default=None, description="预算运行时回灌的当前轮次提示")
+    remaining_word_count_hint: Optional[int] = Field(default=None, description="预算运行时回灌的剩余字数提示")
+    is_final_round_hint: Optional[bool] = Field(default=None, description="预算运行时回灌的最后一轮标记")
     # 参数卡选择的提示词名称（优先使用该提示词作为系统提示词）
     prompt_name: Optional[str] = Field(default=None, description="参数卡选择的提示词名称")
     # 是否追加"直接输出连续的小说正文"尾缀（默认 True 兼容原有续写）

@@ -1,104 +1,99 @@
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
-from sqlmodel import SQLModel
 
 
 QualityGate = Literal["pass", "revise", "block"]
-ReviewType = Literal["chapter", "stage"]
+ReviewType = Literal["chapter", "stage", "card", "custom"]
 TargetType = Literal["card"]
 
 
-class PreviousChapterInput(BaseModel):
-    title: str
-    volume_number: Optional[int] = None
-    chapter_number: Optional[int] = None
-    content: str = ""
+class ReviewResultCardContent(BaseModel):
+    review_target_card_id: int = Field(description="被审核卡片 ID")
+    review_target_title: str = Field(description="被审核卡片标题")
+    review_target_type: TargetType = Field(default="card", description="被审核目标类型")
+    review_type: ReviewType = Field(default="card", description="审核类型")
+    review_profile: str = Field(description="审核 profile code")
+    review_target_field: Optional[str] = Field(default=None, description="被审核字段路径")
+    quality_gate: QualityGate = Field(description="审核结论")
+    review_markdown: str = Field(description="审核结果正文（Markdown）")
+    prompt_name: str = Field(description="使用的提示词名称")
+    llm_config_id: Optional[int] = Field(default=None, description="审核所用模型配置")
+    reviewed_at: str = Field(description="审核时间（ISO 格式字符串）")
+    target_snapshot: Optional[str] = Field(default=None, description="被审核内容快照")
+    meta: Dict[str, Any] = Field(default_factory=dict, description="扩展元数据")
 
 
-class PreviousStageInput(BaseModel):
-    title: str
-    stage_name: Optional[str] = None
-    volume_number: Optional[int] = None
-    stage_number: Optional[int] = None
-    reference_chapter: List[int] = Field(default_factory=list)
-    overview: str = ""
-    analysis: Optional[str] = None
-    entity_snapshot: List[str] = Field(default_factory=list)
-
-
-class StageChapterOutlineInput(BaseModel):
-    title: str
-    chapter_number: Optional[int] = None
-    overview: str = ""
-    entity_list: List[str] = Field(default_factory=list)
-    has_content: bool = False
-    word_count: Optional[int] = None
-
-
-class ChapterReviewRunRequest(BaseModel):
+class ReviewResultCardRead(BaseModel):
     card_id: int
-    project_id: Optional[int] = None
-    title: str
-    chapter_content: str
-    volume_number: Optional[int] = None
-    chapter_number: Optional[int] = None
-    participants: List[str] = Field(default_factory=list)
-    previous_chapters: List[PreviousChapterInput] = Field(default_factory=list)
-    context_info: Optional[str] = None
-    facts_info: Optional[str] = None
-    content_snapshot: Optional[str] = Field(default=None, description="可选存储的正文快照")
-    llm_config_id: int
-    prompt_name: str = Field(default="章节审核")
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    timeout: Optional[float] = None
-
-
-class StageReviewRunRequest(BaseModel):
-    card_id: int
-    project_id: Optional[int] = None
-    title: str
-    stage_name: Optional[str] = None
-    volume_number: Optional[int] = None
-    stage_number: Optional[int] = None
-    reference_chapter: List[int] = Field(default_factory=list)
-    analysis: Optional[str] = None
-    overview: Optional[str] = None
-    entity_snapshot: List[str] = Field(default_factory=list)
-    chapter_outlines: List[StageChapterOutlineInput] = Field(default_factory=list)
-    previous_stages: List[PreviousStageInput] = Field(default_factory=list)
-    context_info: Optional[str] = None
-    facts_info: Optional[str] = None
-    content_snapshot: Optional[str] = Field(default=None, description="可选存储的阶段快照")
-    llm_config_id: int
-    prompt_name: str = Field(default="阶段审核")
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    timeout: Optional[float] = None
-
-
-class ReviewRecordRead(SQLModel):
-    id: int
     project_id: int
+    title: str
+    review_target_card_id: int
+    review_target_title: str
+    review_target_type: TargetType = "card"
     review_type: ReviewType
-    target_type: TargetType
-    target_id: int
-    target_title: Optional[str] = None
+    review_profile: str
+    review_target_field: Optional[str] = None
+    quality_gate: QualityGate
+    review_markdown: str
     prompt_name: str
     llm_config_id: Optional[int] = None
-    quality_gate: str
-    result_text: str
-    content_snapshot: Optional[str] = None
+    reviewed_at: str
+    target_snapshot: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 
-class ChapterReviewRunResponse(BaseModel):
+class ReviewDraftResult(BaseModel):
     review_text: str
-    record: ReviewRecordRead
+    quality_gate: QualityGate
+    review_type: ReviewType
+    review_profile: str
+    review_target_field: Optional[str] = None
+    prompt_name: str
+    llm_config_id: Optional[int] = None
+    target_snapshot: Optional[str] = None
+    existing_review_card_id: Optional[int] = None
+    review_card_title: str
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
-class StageReviewRunResponse(BaseModel):
+class ReviewRunRequest(BaseModel):
+    card_id: int
+    project_id: Optional[int] = None
+    title: str
+    target_type: TargetType = Field(default="card")
+    review_type: ReviewType = Field(default="card")
+    review_profile: str = Field(default="generic_card_review")
+    target_field: str = Field(default="content")
+    target_text: Optional[str] = None
+    context_info: Optional[str] = None
+    facts_info: Optional[str] = None
+    content_snapshot: Optional[str] = Field(default=None, description="可选存储的审核目标快照")
+    llm_config_id: int
+    prompt_name: str = Field(default="通用审核")
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    timeout: Optional[float] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewCardUpsertRequest(BaseModel):
+    project_id: int
+    target_card_id: int
+    target_title: str
+    review_type: ReviewType
+    review_profile: str
+    target_field: Optional[str] = None
     review_text: str
-    record: ReviewRecordRead
+    quality_gate: QualityGate
+    prompt_name: str
+    llm_config_id: Optional[int] = None
+    content_snapshot: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewRunResponse(BaseModel):
+    review_text: str
+    draft: ReviewDraftResult

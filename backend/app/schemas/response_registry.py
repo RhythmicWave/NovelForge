@@ -10,7 +10,7 @@ from app.schemas.wizard import (
 	SpecialAbilityResponse, OneSentence, ParagraphOverview,
 	CharacterCard, SceneCard, StoryLine, StageLine, 
 	Tags, WorldviewTemplate, Chapter,
- WritingGuide
+ WritingGuide, ReviewResultCardContent
 )
 from app.schemas.entity import OrganizationCard
 from app.schemas.workflow_models import BookStageChunkPlan, BookStageFinalPlan
@@ -28,6 +28,7 @@ RESPONSE_MODEL_MAP: Dict[str, Any] = {
 	# 使用未包装模型
 	'VolumeOutline': VolumeOutline,
  	'WritingGuide': WritingGuide,
+    'ReviewResultCardContent': ReviewResultCardContent,
 	'ChapterOutline': ChapterOutline,
 	'Chapter': Chapter,
 	# 基础schema，自动包含在OpenAPI中
