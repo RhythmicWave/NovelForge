@@ -133,6 +133,22 @@ class WritingGuide(BaseModel):
     volume_number: int = Field(description="该写作指南对应的卷号")
     content: str = Field(description="AI根据方法论生成的、用于指导本卷写作的具体内容。字数控制在1000字以内。",min_length=100)
 
+
+class ReviewResultCardContent(BaseModel):
+    review_target_card_id: int = Field(description="被审核卡片 ID")
+    review_target_title: str = Field(description="被审核卡片标题")
+    review_target_type: Literal['card'] = Field(default='card', description="被审核目标类型")
+    review_type: Literal['chapter', 'stage', 'card', 'custom'] = Field(description="审核类型")
+    review_profile: str = Field(description="审核 profile code")
+    review_target_field: Optional[str] = Field(default=None, description="被审核字段路径")
+    quality_gate: Literal['pass', 'revise', 'block'] = Field(description="审核结论")
+    review_markdown: str = Field(description="审核结果正文，使用 markdown 格式")
+    prompt_name: str = Field(description="审核所使用的提示词名称")
+    llm_config_id: Optional[int] = Field(default=None, description="审核使用的模型配置")
+    reviewed_at: str = Field(description="审核时间（ISO 字符串）")
+    target_snapshot: Optional[str] = Field(default=None, description="被审核内容快照")
+    meta: Optional[dict[str, Any]] = Field(default_factory=dict, description="扩展元数据")
+
 class ChapterOutline(BaseModel):
     """章节大纲"""
     volume_number: int = Field(description="卷号，如果没有找到，则设置为0")
@@ -140,7 +156,7 @@ class ChapterOutline(BaseModel):
     title: str= Field(description="章节标题")
     chapter_number: int = Field(description="章节序号")
     
-    overview: str = Field(description="章节主要内容概述,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。",min_length=100)
+    overview: str = Field(description="章节细纲,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。为了帮助写作时把握节奏，请分几个小节或节拍来组织内容，而不是简单地罗列事件或者一段话简单概括。",min_length=100)
     entity_list: List[str] = Field(
         description="章节中出场的重要实体列表，只能从上下文提供的组织/角色/场景卡实体中选择，不得新增、自创；实体名称必须是纯名称（不得包含括号/备注）。注意,为了精简上下文，避免实体列表中出现该章节未出场的冗余实体",
     )

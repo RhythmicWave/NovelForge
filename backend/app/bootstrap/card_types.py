@@ -235,10 +235,16 @@ def create_default_card_types(session: Session) -> None:
             "角色卡:@type:角色卡[index=filter:content.name in $self.content.entity_list].{content.name,content.role_type,content.born_scene,content.description,content.personality,content.core_drive,content.character_arc,content.dynamic_info}\n"
             "最近的章节原文，确保能够衔接剧情:@type:章节正文[previous:1].{content.title,content.chapter_number,content.content}\n"
             "参与者实体列表，确保生成内容只会出场这些实体:@self.content.entity_list\n"
-            "请根据 @self.content.chapter_number： @self.content.title 的大纲@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充，使得最终生成的内容字数3000字达到左右。你无需在正文中重复标题：@self.content.title \n"
+            "请根据 @self.content.chapter_number： @self.content.title 的大纲@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充。你无需在正文中重复标题：@self.content.title \n"
             "注意，写作时必须保证结尾剧情与下一章的剧情大纲不会冲突，且不会提前涉及下一章剧情(如果存在的话):@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number && content.chapter_number = $self.content.chapter_number+1].{content.title,content.overview}\n"
             "写作时请结合写作指南要求:@type:写作指南[index=filter:content.volume_number = $self.content.volume_number].{content.content}\n"
             ), "default_ai_context_template_review": chapter_review_context_template},
+        "内容审核卡片": {
+            "editor_component": "ReviewResultCardEditor",
+            "is_ai_enabled": False,
+            "default_ai_context_template": None,
+            "default_ai_context_template_review": None,
+        },
         "角色卡": {"default_ai_context_template": None},
         "场景卡": {"default_ai_context_template": None},
         "组织卡": {"default_ai_context_template": None},
@@ -257,6 +263,7 @@ def create_default_card_types(session: Session) -> None:
         "阶段大纲": {"prompt_name": "阶段大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
         "章节大纲": {"prompt_name": "章节大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
         "章节正文": {"prompt_name": "内容生成", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
+        "内容审核卡片": None,
         "角色卡": {"prompt_name": "角色动态信息提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
         "场景卡": {"prompt_name": "内容生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
         "组织卡": {"prompt_name": "关系提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
@@ -276,6 +283,7 @@ def create_default_card_types(session: Session) -> None:
         "阶段大纲": "StageLine",
         "章节大纲": "ChapterOutline",
         "章节正文": "Chapter",
+        "内容审核卡片": "ReviewResultCardContent",
         "角色卡": "CharacterCard",
         "场景卡": "SceneCard",
         "组织卡": "OrganizationCard",

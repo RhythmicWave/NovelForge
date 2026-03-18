@@ -8,7 +8,59 @@ export type ContinuationResponse = components['schemas']['ContinuationResponse']
 export type AssistantChatRequest = components['schemas']['AssistantChatRequest']
 
 // append_continuous_novel_directive（用于控制是否追加"连续小说正文"指令）
-export type ContinuationRequestExtended = ContinuationRequest & { append_continuous_novel_directive?: boolean }
+export type ContinuationWordControlMode = 'prompt_only' | 'balanced'
+export type ContinuationRequestExtended = ContinuationRequest & {
+  append_continuous_novel_directive?: boolean
+  target_word_count?: number | null
+  word_control_mode?: ContinuationWordControlMode | null
+  continuation_guidance?: string | null
+  budget_round_hint?: number | null
+  remaining_word_count_hint?: number | null
+  is_final_round_hint?: boolean | null
+}
+
+export type AssistantRefSource = 'auto' | 'manual'
+
+export interface AssistantCardRef {
+  refType: 'card'
+  projectId: number
+  projectName: string
+  cardId: number
+  cardTitle: string
+  content: unknown
+  source?: AssistantRefSource
+}
+
+export interface ChapterExcerptRef {
+  refType: 'chapter_excerpt'
+  projectId: number
+  projectName: string
+  cardId: number
+  cardTitle: string
+  fieldPath: 'content' | string
+  startLine: number
+  endLine: number
+  text: string
+  numberedText: string
+  snapshotHash: string
+  source?: AssistantRefSource
+}
+
+export interface ReviewResultRef {
+  refType: 'review_result'
+  projectId: number
+  reviewCardId: number
+  targetId: number
+  targetTitle: string
+  reviewType: string
+  reviewProfile?: string | null
+  qualityGate: 'pass' | 'revise' | 'block' | string
+  resultText: string
+  contentSnapshot?: string | null
+  source?: AssistantRefSource
+}
+
+export type AssistantRef = AssistantCardRef | ChapterExcerptRef | ReviewResultRef
 
 // Manually define AIConfigOptions if it's not in generated types
 export interface AIConfigOptions {

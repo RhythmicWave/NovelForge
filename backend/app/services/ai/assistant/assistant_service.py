@@ -10,12 +10,17 @@ import asyncio
 import json
 from typing import Any, AsyncGenerator
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 from sqlmodel import Session
 
 from app.schemas.ai import AssistantChatRequest
+from app.services import llm_config_service
+from app.services.ai.core.chat_model_factory import build_chat_model
+from app.services.ai.core.quota_manager import precheck_quota, record_usage
 from app.services.ai.core.react_text_agent import stream_chat_with_react_protocol
 from app.services.ai.core.tool_agent_stream import stream_agent_with_tools
+from app.services.ai.core.token_utils import calc_input_tokens, estimate_tokens
 from .tools import (
     ASSISTANT_TOOL_DESCRIPTIONS,
     ASSISTANT_TOOL_REGISTRY,
@@ -41,6 +46,107 @@ ASSISTANT_REACT_PROTOCOL_INSTRUCTIONS = """
 4) 若参数中包含长文本，必须输出合法 JSON（换行与引号要正确转义）。
 5) 不要输出伪调用文本（例如 tool(...)）。
 """.strip()
+
+
+def _should_fallback_to_plain_chat(session: Session, llm_config_id: int) -> bool:
+    cfg = llm_config_service.get_llm_config(session, llm_config_id)
+    if not cfg:
+        return False
+    transport = llm_config_service.resolve_transport_settings(
+        provider=cfg.provider,
+        api_base=cfg.api_base,
+        base_url=cfg.base_url,
+        api_protocol=getattr(cfg, "api_protocol", None),
+        custom_request_path=getattr(cfg, "custom_request_path", None),
+        models_path=getattr(cfg, "models_path", None),
+        user_agent=getattr(cfg, "user_agent", None),
+    )
+    return bool(transport["use_responses_api"] and transport["provider"] == "openai_compatible")
+
+
+async def stream_chat_plain(
+    session: Session,
+    request: AssistantChatRequest,
+    system_prompt: str,
+) -> AsyncGenerator[dict, None]:
+    final_user_prompt = "\n\n".join(
+        part for part in [request.context_info or "", request.user_prompt or ""] if part
+    ) or "(User input is empty; assistant should clarify intent first.)"
+
+    ok, reason = precheck_quota(
+        session,
+        request.llm_config_id,
+        calc_input_tokens(system_prompt, final_user_prompt),
+        need_calls=1,
+    )
+    if not ok:
+        raise ValueError(f"LLM配额不足: {reason}")
+
+    model = build_chat_model(
+        session=session,
+        llm_config_id=request.llm_config_id,
+        temperature=request.temperature or 0.6,
+        max_tokens=16384 if request.max_tokens is None else request.max_tokens,
+        timeout=request.timeout or 90,
+        thinking_enabled=getattr(request, "thinking_enabled", None),
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=final_user_prompt),
+    ]
+
+    accumulated_text = ""
+    reasoning_accumulated = ""
+    try:
+        async for chunk in model.astream(messages):
+            content_blocks = getattr(chunk, "content_blocks", None)
+            delta_text = ""
+            if isinstance(content_blocks, list):
+                reasoning_parts: list[str] = []
+                text_parts: list[str] = []
+                for block in content_blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    block_type = block.get("type")
+                    if block_type == "text":
+                        text_parts.append(str(block.get("text") or ""))
+                    elif block_type == "reasoning":
+                        text = str(block.get("reasoning") or block.get("text") or "")
+                        if text:
+                            reasoning_parts.append(text)
+                delta_text = "".join(text_parts)
+                reasoning_delta = "".join(reasoning_parts)
+                if reasoning_delta:
+                    reasoning_accumulated += reasoning_delta
+                    yield {"type": "reasoning", "data": {"text": reasoning_delta, "delta": True}}
+            else:
+                content = getattr(chunk, "content", None)
+                if isinstance(content, str):
+                    delta_text = content
+
+            if delta_text:
+                accumulated_text += delta_text
+                yield {"type": "token", "data": {"text": delta_text, "delta": True}}
+    except asyncio.CancelledError:
+        record_usage(
+            session,
+            request.llm_config_id,
+            calc_input_tokens(system_prompt, final_user_prompt),
+            estimate_tokens(accumulated_text + reasoning_accumulated),
+            calls=1,
+            aborted=True,
+        )
+        raise
+
+    record_usage(
+        session,
+        request.llm_config_id,
+        calc_input_tokens(system_prompt, final_user_prompt),
+        estimate_tokens(accumulated_text + reasoning_accumulated),
+        calls=1,
+        aborted=False,
+    )
 
 
 async def stream_chat_with_react(
@@ -120,13 +226,17 @@ async def generate_assistant_chat_streaming(
     """灵感助手专用流式对话生成（结构化事件流协议）。"""
     _ = track_stats
     react_enabled = bool(getattr(request, "react_mode_enabled", False))
+    fallback_plain_chat = _should_fallback_to_plain_chat(session, request.llm_config_id)
     logger.info(
         "[LangChain] generate_assistant_chat_streaming: 使用{}模式，模型id:{}",
-        "React" if react_enabled else "标准",
+        "Responses降级纯对话" if fallback_plain_chat else ("React" if react_enabled else "标准"),
         request.llm_config_id
     )
 
-    engine = stream_chat_with_react if react_enabled else stream_chat_with_tools
+    if fallback_plain_chat:
+        engine = stream_chat_plain
+    else:
+        engine = stream_chat_with_react if react_enabled else stream_chat_with_tools
     has_visible_output = False
     has_tool_events = False
 

@@ -11,6 +11,14 @@ import asyncio
 import json
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from app.services.ai.generation.continuation_budget_runtime import (
+    build_budget_hint_text,
+    build_round_plan,
+    count_text_units,
+    estimate_required_call_count,
+    normalize_word_control_mode,
+    trim_generated_text,
+)
 from app.services.ai.generation.structured_runtime import (
     generate_structured_via_instruction_flow_model,
 )
@@ -278,6 +286,81 @@ async def generate_continuation_streaming(
     Yields:
         生成的文本片段
     """
+    current_word_count = getattr(request, "existing_word_count", None)
+    if current_word_count is None:
+        current_word_count = count_text_units(getattr(request, "previous_content", ""))
+
+    control_mode = normalize_word_control_mode(request)
+    expected_rounds = estimate_required_call_count(request)
+    if control_mode == "prompt_only" or expected_rounds <= 1:
+        round_plan = build_round_plan(request, current_word_count, 1)
+        async for chunk in _stream_continuation_single_round(
+            session=session,
+            request=request,
+            system_prompt=system_prompt,
+            round_plan=round_plan,
+            track_stats=track_stats,
+        ):
+            yield chunk
+        return
+
+    current_content = request.previous_content or ""
+
+    for round_index in range(1, expected_rounds + 1):
+        round_plan = build_round_plan(request, current_word_count, round_index)
+        round_request = request.model_copy(update={
+            "previous_content": current_content,
+            "existing_word_count": current_word_count,
+            "word_control_mode": control_mode,
+            "budget_round_hint": round_plan.round_index,
+            "remaining_word_count_hint": round_plan.remaining_word_count,
+            "is_final_round_hint": round_plan.is_final_round,
+        })
+
+        round_chunks: list[str] = []
+        async for chunk in _stream_continuation_single_round(
+            session=session,
+            request=round_request,
+            system_prompt=system_prompt,
+            round_plan=round_plan,
+            track_stats=track_stats,
+        ):
+            round_chunks.append(chunk)
+            if getattr(request, "stream", False):
+                yield chunk
+
+        round_text = "".join(round_chunks)
+        if not round_text.strip():
+            logger.warning("续写预算运行时在第 {} 轮拿到空输出，提前结束。", round_index)
+            break
+
+        trim_result = trim_generated_text(round_text, round_plan)
+        final_text = round_text if getattr(request, "stream", False) else trim_result.text
+        if not final_text.strip():
+            logger.warning("续写预算运行时在第 {} 轮裁剪后为空，提前结束。", round_index)
+            break
+
+        current_content = f"{current_content}{final_text}"
+        current_word_count = count_text_units(current_content)
+
+        if not getattr(request, "stream", False):
+            for chunk in _chunk_text(final_text):
+                yield chunk
+
+        target_word_count = getattr(request, "target_word_count", None)
+        if trim_result.trimmed and not getattr(request, "stream", False):
+            logger.info("续写预算运行时在第 {} 轮触发句边界收束。", round_index)
+            break
+        if target_word_count is not None and current_word_count >= target_word_count:
+            break
+        if round_plan.is_final_round:
+            break
+
+
+def _build_continuation_user_prompt(
+    request: ContinuationRequest,
+    round_plan,
+) -> str:
     # 组装用户消息
     user_prompt_parts = []
     
@@ -302,11 +385,6 @@ async def generate_continuation_streaming(
     if previous_content:
         user_prompt_parts.append(f"【已有章节内容】\n{previous_content}")
         
-        # 添加字数统计信息
-        existing_word_count = getattr(request, 'existing_word_count', None)
-        if existing_word_count is not None:
-            user_prompt_parts.append(f"（已有内容字数：{existing_word_count} 字）")
-        
         # 续写指令
         if getattr(request, 'append_continuous_novel_directive', True):
             user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
@@ -317,9 +395,23 @@ async def generate_continuation_streaming(
                 user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
             else:
                 user_prompt_parts.append("【指令】请开始创作新章节。直接输出小说正文。")
-    
-    user_prompt = "\n\n".join(user_prompt_parts)
-    
+
+    budget_hint = build_budget_hint_text(round_plan, getattr(request, "continuation_guidance", None))
+    if budget_hint:
+        user_prompt_parts.append(budget_hint)
+
+    return "\n\n".join(user_prompt_parts)
+
+
+async def _stream_continuation_single_round(
+    session: Session,
+    request: ContinuationRequest,
+    system_prompt: str,
+    round_plan,
+    track_stats: bool = True,
+) -> AsyncGenerator[str, None]:
+    user_prompt = _build_continuation_user_prompt(request, round_plan)
+
     # 限额预检
     if track_stats:
         ok, reason = precheck_quota(
@@ -335,7 +427,7 @@ async def generate_continuation_streaming(
         session=session,
         llm_config_id=request.llm_config_id,
         temperature=request.temperature or 0.7,
-        max_tokens=request.max_tokens,
+        max_tokens=round_plan.max_tokens,
         timeout=request.timeout or 64,
     )
 
@@ -347,6 +439,14 @@ async def generate_continuation_streaming(
     logger.info(f"开始续写，提示词: {system_prompt} \n\n {user_prompt}")
 
     accumulated: str = ""
+    pending_buffer: str = ""
+    stream_with_hard_limit = bool(
+        getattr(request, "stream", False)
+        and round_plan.mode != "prompt_only"
+        and not round_plan.is_final_round
+        and round_plan.hard_word_limit
+    )
+    should_stop_current_round = False
 
     try:
         logger.debug("正在以LangChain ChatModel流式生成续写内容")
@@ -369,8 +469,34 @@ async def generate_continuation_streaming(
             if not delta:
                 continue
 
+            if stream_with_hard_limit:
+                pending_buffer += delta
+                emitted_text, pending_buffer, reached_limit = _flush_streaming_buffer_with_limit(
+                    already_emitted=accumulated,
+                    pending_text=pending_buffer,
+                    hard_limit=round_plan.hard_word_limit or 0,
+                )
+                if emitted_text:
+                    accumulated += emitted_text
+                    yield emitted_text
+                if reached_limit:
+                    should_stop_current_round = True
+                    break
+                continue
+
             accumulated += delta
             yield delta
+
+        if stream_with_hard_limit and not should_stop_current_round and pending_buffer:
+            emitted_tail, pending_buffer, reached_limit = _flush_streaming_buffer_with_limit(
+                already_emitted=accumulated,
+                pending_text=pending_buffer,
+                hard_limit=round_plan.hard_word_limit or 0,
+                force_flush_tail=True,
+            )
+            if emitted_tail:
+                accumulated += emitted_tail
+                yield emitted_tail
 
     except asyncio.CancelledError:
         logger.info("流式LLM调用被取消（CancelledError），停止推送。")
@@ -399,3 +525,87 @@ async def generate_continuation_streaming(
             )
     except Exception as stat_e:
         logger.warning(f"记录LLM流式统计失败: {stat_e}")
+
+
+async def _collect_continuation_single_round(
+    session: Session,
+    request: ContinuationRequest,
+    system_prompt: str,
+    round_plan,
+    track_stats: bool = True,
+) -> str:
+    chunks: list[str] = []
+    async for chunk in _stream_continuation_single_round(
+        session=session,
+        request=request,
+        system_prompt=system_prompt,
+        round_plan=round_plan,
+        track_stats=track_stats,
+    ):
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+def _chunk_text(text: str, chunk_size: int = 240) -> list[str]:
+    if not text:
+        return []
+    return [text[index:index + chunk_size] for index in range(0, len(text), chunk_size)]
+
+
+def _flush_streaming_buffer_with_limit(
+    *,
+    already_emitted: str,
+    pending_text: str,
+    hard_limit: int,
+    force_flush_tail: bool = False,
+) -> tuple[str, str, bool]:
+    if not pending_text:
+        return "", "", False
+
+    emitted_parts: list[str] = []
+    rest = pending_text
+
+    while True:
+        sentence_end = _find_first_sentence_boundary(rest)
+        if sentence_end is None:
+            break
+        sentence = rest[:sentence_end]
+        next_text = already_emitted + "".join(emitted_parts) + sentence
+        if count_text_units(next_text) > hard_limit:
+            return "".join(emitted_parts), rest, True
+        emitted_parts.append(sentence)
+        rest = rest[sentence_end:]
+
+    if force_flush_tail and rest:
+        next_text = already_emitted + "".join(emitted_parts) + rest
+        if count_text_units(next_text) <= hard_limit:
+            emitted_parts.append(rest)
+            rest = ""
+        elif not emitted_parts:
+            truncated = _take_text_by_units(rest, hard_limit - count_text_units(already_emitted))
+            return truncated, "", True
+        else:
+            return "".join(emitted_parts), rest, True
+
+    return "".join(emitted_parts), rest, False
+
+
+def _find_first_sentence_boundary(text: str) -> int | None:
+    for idx, char in enumerate(text):
+        if char in "。！？!?…\n":
+            return idx + 1
+    return None
+
+
+def _take_text_by_units(text: str, limit_units: int) -> str:
+    if limit_units <= 0:
+        return ""
+    units = 0
+    out_chars: list[str] = []
+    for char in text:
+        if not char.isspace():
+            units += 1
+        if units > limit_units:
+            break
+        out_chars.append(char)
+    return "".join(out_chars).rstrip()

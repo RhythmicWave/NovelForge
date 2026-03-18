@@ -65,11 +65,13 @@ class CardExportService:
             .options(joinedload(Card.card_type))
         )
 
+        all_cards = list(self.db.exec(statement).all())
+        ordered_cards = self._sort_cards(all_cards)
+
         if request.scope == "single":
             if request.card_id is None:
                 raise BusinessException("scope=single 缺少 card_id", status_code=400)
-            statement = statement.where(Card.id == request.card_id)
-            card = self.db.exec(statement).first()
+            card = next((item for item in ordered_cards if item.id == request.card_id), None)
             if not card:
                 raise BusinessException("目标卡片不存在或不属于当前项目", status_code=404)
             return [card]
@@ -80,10 +82,9 @@ class CardExportService:
             card_type = self.db.get(CardType, request.card_type_id)
             if not card_type:
                 raise BusinessException("卡片类型不存在", status_code=404)
-            statement = statement.where(Card.card_type_id == request.card_type_id)
+            return [card for card in ordered_cards if card.card_type_id == request.card_type_id]
 
-        cards = list(self.db.exec(statement).all())
-        return self._sort_cards(cards)
+        return ordered_cards
 
     def _sort_cards(self, cards: List[Card]) -> List[Card]:
         if not cards:

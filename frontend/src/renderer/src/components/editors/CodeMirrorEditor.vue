@@ -41,103 +41,86 @@
 			<!-- AI功能组 -->
 			<div class="toolbar-group toolbar-group-ai">
 				<span class="group-label">AI</span>
-				<el-button type="primary" size="small" :loading="aiLoading" :disabled="reviewLoading" @click="executeAIContinuation">
-					<el-icon><MagicStick /></el-icon> 续写
-				</el-button>
-				<div class="ai-toolbar-grid">
-					<div class="ai-action-combo">
-						<el-button plain size="small" class="ai-action-main" :loading="aiLoading" :disabled="reviewLoading" @click="executePolish">
-							<el-icon><Document /></el-icon> &#28070;&#33394;
+				<div class="ai-action-bar">
+					<el-button type="primary" size="small" :loading="aiLoading" :disabled="reviewLoading" @click="executeAIContinuation">
+						<el-icon><MagicStick /></el-icon> 续写
+					</el-button>
+
+					<el-dropdown
+						split-button
+						type="primary"
+						size="small"
+						popper-class="review-prompt-dropdown"
+						:disabled="aiLoading || reviewLoading"
+						:loading="reviewLoading"
+						@command="handleReviewPromptChange"
+						@click="executeReview"
+					>
+						<span class="review-button-label">
+							<el-icon v-if="reviewLoading" class="review-loading-icon"><Loading /></el-icon>
+							<el-icon v-else><List /></el-icon>
+							{{ reviewLoading ? '审核中...' : '审核' }}
+						</span>
+						<template #dropdown>
+							<el-dropdown-menu>
+								<el-dropdown-item
+									v-for="prompt in reviewPrompts"
+									:key="prompt"
+									:command="prompt"
+								>
+									<div class="prompt-item">
+										<span>{{ prompt }}</span>
+										<el-icon v-if="prompt === currentReviewPrompt" class="check-icon"><Select /></el-icon>
+									</div>
+								</el-dropdown-item>
+							</el-dropdown-menu>
+						</template>
+					</el-dropdown>
+
+					<el-dropdown size="small" @command="handleAiQuickAction">
+						<el-button plain size="small">
+							更多 AI
+							<el-icon class="el-icon--right"><ArrowDown /></el-icon>
 						</el-button>
-						<el-popover
-							v-model:visible="promptPicker.polish.visible"
-							trigger="click"
-							width="280"
-							popper-class="chapter-ai-prompt-popper"
-							@show="handlePromptPickerShow('polish')"
-							@hide="handlePromptPickerHide('polish')"
-						>
-							<template #reference>
-								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentPolishPrompt}`" :disabled="aiLoading || reviewLoading">
-									<el-icon><ArrowDown /></el-icon>
-								</el-button>
-							</template>
-							<div class="prompt-picker-panel">
-								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentPolishPrompt }}</div>
-								<el-input v-model="promptPicker.polish.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
-								<el-scrollbar max-height="220px" class="prompt-picker-list">
-									<button v-for="p in filteredPolishPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentPolishPrompt }" @click="handlePolishPromptChange(p)">
-										<span>{{ p }}</span>
-										<el-icon v-if="p === currentPolishPrompt" class="check-icon"><Select /></el-icon>
-									</button>
-									<div v-if="filteredPolishPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
-								</el-scrollbar>
+						<template #dropdown>
+							<el-dropdown-menu>
+								<el-dropdown-item command="polish" :disabled="aiLoading || reviewLoading">
+									润色（{{ currentPolishPrompt }}）
+								</el-dropdown-item>
+							<el-dropdown-item command="expand" :disabled="aiLoading || reviewLoading">
+								扩写（{{ currentExpandPrompt }}）
+							</el-dropdown-item>
+						</el-dropdown-menu>
+					</template>
+					</el-dropdown>
+
+					<el-popover trigger="click" width="320" popper-class="chapter-ai-prompt-popper">
+						<template #reference>
+							<el-button plain size="small">提示词</el-button>
+						</template>
+						<div class="prompt-settings-panel">
+							<div class="prompt-settings-title">AI 提示词</div>
+							<div class="prompt-settings-item">
+								<label>润色</label>
+								<el-select v-model="currentPolishPrompt" size="small" @change="handlePolishPromptChange">
+									<el-option v-for="p in polishPrompts" :key="p" :label="p" :value="p" />
+								</el-select>
 							</div>
-						</el-popover>
-					</div>
-					<div class="ai-action-combo">
-						<el-button plain size="small" class="ai-action-main" :loading="aiLoading" :disabled="reviewLoading" @click="executeExpand">
-							<el-icon><MagicStick /></el-icon> &#25193;&#20889;
-						</el-button>
-						<el-popover
-							v-model:visible="promptPicker.expand.visible"
-							trigger="click"
-							width="280"
-							popper-class="chapter-ai-prompt-popper"
-							@show="handlePromptPickerShow('expand')"
-							@hide="handlePromptPickerHide('expand')"
-						>
-							<template #reference>
-								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentExpandPrompt}`" :disabled="aiLoading || reviewLoading">
-									<el-icon><ArrowDown /></el-icon>
-								</el-button>
-							</template>
-							<div class="prompt-picker-panel">
-								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentExpandPrompt }}</div>
-								<el-input v-model="promptPicker.expand.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
-								<el-scrollbar max-height="220px" class="prompt-picker-list">
-									<button v-for="p in filteredExpandPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentExpandPrompt }" @click="handleExpandPromptChange(p)">
-										<span>{{ p }}</span>
-										<el-icon v-if="p === currentExpandPrompt" class="check-icon"><Select /></el-icon>
-									</button>
-									<div v-if="filteredExpandPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
-								</el-scrollbar>
+							<div class="prompt-settings-item">
+								<label>扩写</label>
+								<el-select v-model="currentExpandPrompt" size="small" @change="handleExpandPromptChange">
+									<el-option v-for="p in expandPrompts" :key="p" :label="p" :value="p" />
+								</el-select>
 							</div>
-						</el-popover>
-					</div>
-					<div class="ai-action-combo ai-action-combo-review">
-						<el-button plain size="small" class="ai-action-main ai-action-main-review" :loading="reviewLoading" :disabled="aiLoading" @click="executeReview">
-							<el-icon><List /></el-icon> &#23457;&#26680;
-						</el-button>
-						<el-popover
-							v-model:visible="promptPicker.review.visible"
-							trigger="click"
-							width="280"
-							popper-class="chapter-ai-prompt-popper"
-							@show="handlePromptPickerShow('review')"
-							@hide="handlePromptPickerHide('review')"
-						>
-							<template #reference>
-								<el-button plain size="small" class="ai-action-trigger" :title="`\u5f53\u524d\u63d0\u793a\u8bcd: ${currentReviewPrompt}`" :disabled="aiLoading || reviewLoading">
-									<el-icon><ArrowDown /></el-icon>
-								</el-button>
-							</template>
-							<div class="prompt-picker-panel">
-								<div class="prompt-picker-caption">&#24403;&#21069;&#25552;&#31034;&#35789;: {{ currentReviewPrompt }}</div>
-								<el-input v-model="promptPicker.review.keyword" size="small" clearable placeholder="&#25628;&#32034;&#25552;&#31034;&#35789;" />
-								<el-scrollbar max-height="220px" class="prompt-picker-list">
-									<button v-for="p in filteredReviewPrompts" :key="p" type="button" class="prompt-picker-item" :class="{ 'is-active': p === currentReviewPrompt }" @click="handleReviewPromptChange(p)">
-										<span>{{ p }}</span>
-										<el-icon v-if="p === currentReviewPrompt" class="check-icon"><Select /></el-icon>
-									</button>
-									<div v-if="filteredReviewPrompts.length === 0" class="prompt-picker-empty">&#26410;&#25214;&#21040;&#21305;&#37197;&#25552;&#31034;&#35789;</div>
-								</el-scrollbar>
-							</div>
-						</el-popover>
-					</div>
-					<div class="ai-action-spacer" aria-hidden="true"></div>
-				</div>
-				<div class="ai-side-controls">
+						</div>
+					</el-popover>
+
+					<AIPerCardParams
+						:card-id="props.card.id"
+						:card-type-name="props.card.card_type?.name"
+						class="ai-config-entry"
+					/>
+
 					<el-button
 						type="danger"
 						plain
@@ -147,12 +130,15 @@
 					>
 						<el-icon><CircleClose /></el-icon> 中断
 					</el-button>
-					<AIPerCardParams
-						:card-id="props.card.id"
-						:card-type-name="props.card.card_type?.name"
-						class="ai-config-entry"
-					/>
 				</div>
+			</div>
+		</div>
+		<div class="toolbar-status-row">
+			<div class="toolbar-status-spacer"></div>
+			<div class="ai-status-strip">
+				<span class="status-pill">模型 · {{ selectedModelName || '未设置' }}</span>
+				<span class="status-pill">目标 · {{ activeContinuationConfig.targetWordCount }} 字</span>
+				<span class="status-pill">模式 · {{ formatContinuationMode(activeContinuationConfig.wordControlMode) }}</span>
 			</div>
 		</div>
 	</div>
@@ -201,6 +187,13 @@
 					>
 						快速编辑
 					</el-button>
+					<el-button
+						size="small"
+						type="success"
+						@click="handleContextMenuReference"
+					>
+						引用到灵感助手
+					</el-button>
 				</div>
 				<div v-else class="context-menu-expanded">
 					<el-input
@@ -244,17 +237,17 @@
 				<div class="review-overview">
 					<div class="review-overview-main">
 						<el-tag
-							v-if="reviewRecord"
-							:type="getReviewVerdictTagType(reviewRecord.quality_gate)"
+							v-if="reviewDraft"
+							:type="getReviewVerdictTagType(reviewDraft.quality_gate)"
 							effect="dark"
 						>
-							{{ formatReviewVerdict(reviewRecord.quality_gate) }}
+							{{ formatReviewVerdict(reviewDraft.quality_gate) }}
 						</el-tag>
-						<span v-if="reviewRecord" class="review-score">
-							记录于 {{ formatReviewCreatedAt(reviewRecord.created_at) }}
+						<span v-if="reviewDraft" class="review-score">
+							{{ reviewDraft.review_profile }}
 						</span>
 					</div>
-					<p class="review-summary">本次审核已按标准审稿单格式存档，可直接用于回看和历史查询。</p>
+					<p class="review-summary">这是本次审核草稿。确认后可创建或更新对应的审核结果卡片。</p>
 				</div>
 
 				<div class="review-text-block">
@@ -264,7 +257,28 @@
 					/>
 				</div>
 			</div>
+			<template #footer>
+				<div class="review-dialog-footer">
+					<el-button @click="reviewDialogVisible = false">关闭</el-button>
+					<el-button
+						type="primary"
+						:loading="reviewCardSaving"
+						:disabled="!reviewDraft"
+						@click="handleCreateOrUpdateReviewCard"
+					>
+						{{ reviewDraft?.existing_review_card_id ? '更新审核结果卡片' : '创建审核结果卡片' }}
+					</el-button>
+				</div>
+			</template>
 		</el-dialog>
+
+		<ContinuationBudgetDialog
+			v-model:visible="continuationDialogVisible"
+			:target-word-count="continuationDialogState.targetWordCount"
+			:word-control-mode="continuationDialogState.wordControlMode"
+			:guidance="continuationDialogState.guidance"
+			@confirm="handleContinuationDialogConfirm"
+		/>
 
 		<el-dialog v-model="previewDialogVisible" title="动态信息预览" width="70%">
 			<div v-if="previewData">
@@ -335,7 +349,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
@@ -343,18 +357,20 @@ import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/stores/usePerCardAISettingsStore'
 import { useEditorStore } from '@renderer/stores/useEditorStore'
 import { useAppStore } from '@renderer/stores/useAppStore'
+import { useAssistantStore } from '@renderer/stores/useAssistantStore'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
-import { runChapterReview, type ChapterReviewRunRequest, type PreviousChapterInput, type ReviewRecord } from '@renderer/api/chapterReviews'
+import { runReview, upsertReviewCard, type QualityGate, type ReviewDraftResult, type ReviewRunRequest } from '@renderer/api/chapterReviews'
 import { getCardAIParams, updateCardAIParams, applyCardAIParamsToType } from '@renderer/api/setting'
 import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOutput, extractRelationsOnly, ingestRelationsFromPreview, type RelationExtractionOutput } from '@renderer/api/memory'
-import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select } from '@element-plus/icons-vue'
+import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select, Loading } from '@element-plus/icons-vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
+import ContinuationBudgetDialog, { type ContinuationWordControlMode } from './dialogs/ContinuationBudgetDialog.vue'
 import { resolveTemplate } from '@renderer/services/contextResolver'
 import { getCardContextTemplates, getContextTemplateByKind, normalizeContextTemplateKind, type ContextTemplateKind, type ContextTemplates } from '@renderer/services/contextSlots'
 
 import { EditorState, StateEffect, StateField } from '@codemirror/state'
-import { EditorView, keymap, Decoration, DecorationSet } from '@codemirror/view'
+import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewline } from '@codemirror/commands'
 
 const props = defineProps<{
@@ -380,6 +396,7 @@ const projectStore = useProjectStore()
 const perCardStore = usePerCardAISettingsStore()
 const editorStore = useEditorStore()
 const appStore = useAppStore()
+const assistantStore = useAssistantStore()
 const { cards } = storeToRefs(cardStore)
 const isDarkMode = computed(() => appStore.isDarkMode)
 
@@ -633,7 +650,15 @@ const contextMenu = reactive({
 	x: 0,
 	y: 0,
 	userRequirement: '',
-	selectedText: null as { text: string; from: number; to: number } | null
+	selectedText: null as {
+		text: string
+		from: number
+		to: number
+		startLine: number
+		endLine: number
+		numberedText: string
+		snapshotHash: string
+	} | null
 })
 
 const pendingAiEdit = ref<{
@@ -731,7 +756,25 @@ const previewData = ref<UpdateDynamicInfoOutput | null>(null)
 const relationsPreviewVisible = ref(false)
 const relationsPreview = ref<RelationExtractionOutput | null>(null)
 const reviewText = ref('')
-const reviewRecord = ref<ReviewRecord | null>(null)
+const reviewDraft = ref<ReviewDraftResult | null>(null)
+const reviewCardSaving = ref(false)
+const continuationDialogVisible = ref(false)
+const continuationDialogState = reactive<{
+	targetWordCount: number
+	wordControlMode: ContinuationWordControlMode
+	guidance: string
+}>({
+	targetWordCount: 3000,
+	wordControlMode: 'balanced',
+	guidance: '',
+})
+const activeContinuationConfig = reactive<{
+	targetWordCount: number
+	wordControlMode: ContinuationWordControlMode
+}>({
+	targetWordCount: 3000,
+	wordControlMode: 'balanced',
+})
 
 function isCanceledRequest(error: unknown): boolean {
 	const candidate = error as { code?: string; name?: string; message?: string }
@@ -775,7 +818,7 @@ const filteredReviewPrompts = computed(() => filterPromptsByKeyword(reviewPrompt
 
 function formatCategory(catKey: any) { return String(catKey) }
 
-function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): string {
+function formatReviewVerdict(verdict?: QualityGate | null | string): string {
 	switch (verdict) {
 		case 'pass':
 			return '基本通过'
@@ -786,7 +829,7 @@ function formatReviewVerdict(verdict?: ReviewRecord['quality_gate'] | null): str
 	}
 }
 
-function getReviewVerdictTagType(verdict?: ReviewRecord['quality_gate'] | null): 'success' | 'warning' | 'danger' {
+function getReviewVerdictTagType(verdict?: QualityGate | null | string): 'success' | 'warning' | 'danger' {
 	switch (verdict) {
 		case 'pass':
 			return 'success'
@@ -802,6 +845,97 @@ function setText(text: string) {
 	view.dispatch({
 		changes: { from: 0, to: view.state.doc.length, insert: text || '' }
 	})
+}
+
+function formatContinuationMode(mode: ContinuationWordControlMode): string {
+	if (mode === 'prompt_only') return '提示词约束'
+	return '控制模式'
+}
+
+function buildChapterReviewTarget(
+	chapterText: string,
+	options: {
+		title: string
+		volumeNumber?: number | null
+		chapterNumber?: number | null
+		participants?: string[]
+	}
+): string {
+	const lines: string[] = ['【章节信息】']
+	lines.push(`标题：${options.title || '未命名章节'}`)
+	if (options.volumeNumber != null) lines.push(`卷号：${options.volumeNumber}`)
+	if (options.chapterNumber != null) lines.push(`章节号：${options.chapterNumber}`)
+	if (options.participants?.length) lines.push(`参与实体：${options.participants.join('、')}`)
+	lines.push(`正文字数：${computeWordCount(chapterText)}`)
+	lines.push('', '【正文】', chapterText.trim())
+	return lines.join('\n').trim()
+}
+
+async function handleAiQuickAction(command: 'polish' | 'expand') {
+	if (command === 'polish') {
+		await executePolish()
+		return
+	}
+	if (command === 'expand') {
+		await executeExpand()
+	}
+}
+
+function computeSnapshotHash(input: string): string {
+	let hash = 5381
+	for (let index = 0; index < input.length; index += 1) {
+		hash = ((hash << 5) + hash) ^ input.charCodeAt(index)
+	}
+	return `h${(hash >>> 0).toString(16)}`
+}
+
+function getSelectionWithLineInfo(): {
+	text: string
+	from: number
+	to: number
+	startLine: number
+	endLine: number
+	numberedText: string
+	snapshotHash: string
+} | null {
+	if (!view) return null
+	const { from, to } = view.state.selection.main
+	if (from === to) return null
+	const text = view.state.doc.sliceString(from, to)
+	if (!text.trim()) return null
+	const startLine = view.state.doc.lineAt(from).number
+	const endLine = view.state.doc.lineAt(Math.max(from, to - 1)).number
+	const numberedText = text
+		.split('\n')
+		.map((line, offset) => `${startLine + offset} | ${line}`)
+		.join('\n')
+	return {
+		text,
+		from,
+		to,
+		startLine,
+		endLine,
+		numberedText,
+		snapshotHash: computeSnapshotHash(view.state.doc.toString()),
+	}
+}
+
+function resolveContinuationDefaults() {
+	let targetWordCount = 3000
+	let wordControlMode: ContinuationWordControlMode = 'balanced'
+	try {
+		const storedTarget = Number(localStorage.getItem(`nf:chapter:continuation-target:${props.card.id}`) || '')
+		if (Number.isFinite(storedTarget) && storedTarget > 0) targetWordCount = Math.floor(storedTarget)
+		const storedMode = localStorage.getItem(`nf:chapter:continuation-mode:${props.card.id}`)
+		if (storedMode === 'prompt_only' || storedMode === 'balanced') {
+			wordControlMode = storedMode
+		} else if (storedMode === 'strict') {
+			wordControlMode = 'balanced'
+		}
+	} catch {
+		// ignore localStorage errors
+	}
+	return { targetWordCount, wordControlMode, guidance: '' }
 }
 
 function getText(): string {
@@ -879,6 +1013,7 @@ function initEditor() {
 			extensions: [
 				history(),
 				keymap.of([...customKeymap, ...defaultKeymap, ...historyKeymap]),
+				lineNumbers(),
 				EditorView.lineWrapping,
 				highlightField,
 				// 关键：限制编辑器高度由父容器决定，而不是根据内容自动扩展
@@ -1149,35 +1284,6 @@ function formatFactsFromContext(ctx: any | null | undefined): string {
 	} catch { return '' }
 }
 
-function getOrderedChapterCards(): CardRead[] {
-	return [...(cards.value || [])]
-		.filter((item: any) => item?.card_type?.name === '章节正文')
-		.filter((item: any) => Number.isFinite(Number(item?.content?.volume_number)) && Number.isFinite(Number(item?.content?.chapter_number)))
-		.sort((a: any, b: any) => {
-			const av = Number(a?.content?.volume_number ?? 0)
-			const bv = Number(b?.content?.volume_number ?? 0)
-			if (av !== bv) return av - bv
-			const ac = Number(a?.content?.chapter_number ?? 0)
-			const bc = Number(b?.content?.chapter_number ?? 0)
-			return ac - bc
-		})
-}
-
-function getPreviousChaptersForReview(): PreviousChapterInput[] {
-	const ordered = getOrderedChapterCards()
-	const currentId = props.card.id
-	const currentIndex = ordered.findIndex(item => item.id === currentId)
-	if (currentIndex <= 0) return []
-	return ordered
-		.slice(Math.max(0, currentIndex - 2), currentIndex)
-		.map((item: any) => ({
-			title: item?.title || item?.content?.title || '未命名章节',
-			volume_number: item?.content?.volume_number ?? null,
-			chapter_number: item?.content?.chapter_number ?? null,
-			content: String(item?.content?.content || ''),
-		}))
-}
-
 function formatReviewCreatedAt(value?: string | null): string {
 	if (!value) return ''
 	try {
@@ -1210,7 +1316,7 @@ async function executeReview() {
 
 	reviewLoading.value = true
 	reviewText.value = ''
-	reviewRecord.value = null
+	reviewDraft.value = null
 	const abortController = new AbortController()
 	reviewAbortController.value = abortController
 	try {
@@ -1224,21 +1330,29 @@ async function executeReview() {
 		const chapterNumber = (props.contextParams as any)?.chapter_number ?? (localCard.content as any)?.chapter_number
 		const participants = extractParticipantsForCurrentChapter()
 		const factsText = formatFactsFromContext(props.prefetched).trim()
-		const previousChapters = getPreviousChaptersForReview()
-		const requestPayload: ChapterReviewRunRequest = {
+		const requestPayload: ReviewRunRequest = {
 			card_id: props.card.id,
 			project_id: projectStore.currentProject?.id || props.card.project_id,
 			title: localCard.title || (localCard.content as any)?.title || '未命名章节',
-			chapter_content: chapterText,
-			volume_number: volumeNumber ?? null,
-			chapter_number: chapterNumber ?? null,
-			participants,
-			previous_chapters: previousChapters,
+			review_type: 'chapter',
+			review_profile: 'generic_card_review',
+			target_type: 'card',
+			target_field: 'content.content',
+			target_text: buildChapterReviewTarget(chapterText, {
+				title: localCard.title || (localCard.content as any)?.title || '未命名章节',
+				volumeNumber: volumeNumber ?? null,
+				chapterNumber: chapterNumber ?? null,
+				participants,
+			}),
 			context_info: resolvedContextTemplate.trim() || undefined,
 			facts_info: factsText || undefined,
 			content_snapshot: chapterText,
 			llm_config_id: llmConfigId,
 			prompt_name: currentReviewPrompt.value || '章节审核',
+			meta: {
+				source: 'chapter_editor',
+				card_type_name: props.card.card_type?.name || '',
+			},
 		}
 
 		try {
@@ -1248,7 +1362,7 @@ async function executeReview() {
 			if (typeof timeout === 'number') requestPayload.timeout = timeout
 		} catch {}
 
-		const result = await runChapterReview(requestPayload, { signal: abortController.signal }).catch((e) => {
+		const result = await runReview(requestPayload, { signal: abortController.signal }).catch((e) => {
 			if (isCanceledRequest(e)) {
 				ElMessage.info('审核已中断')
 				return null
@@ -1257,9 +1371,8 @@ async function executeReview() {
 		})
 		if (!result) return
 		reviewText.value = result.review_text
-		reviewRecord.value = result.record
+		reviewDraft.value = result.draft
 		reviewDialogVisible.value = true
-		window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
 		ElMessage.success('章节审核完成')
 	} catch (e) {
 		console.error('章节审核失败:', e)
@@ -1272,7 +1385,67 @@ async function executeReview() {
 	}
 }
 
+async function handleCreateOrUpdateReviewCard() {
+	if (!reviewDraft.value) return
+	reviewCardSaving.value = true
+	try {
+		const saved = await upsertReviewCard({
+			project_id: projectStore.currentProject?.id || props.card.project_id,
+			target_card_id: props.card.id,
+			target_title: localCard.title || (localCard.content as any)?.title || '未命名章节',
+			review_type: reviewDraft.value.review_type,
+			review_profile: reviewDraft.value.review_profile,
+			target_field: reviewDraft.value.review_target_field || null,
+			review_text: reviewText.value,
+			quality_gate: reviewDraft.value.quality_gate,
+			prompt_name: reviewDraft.value.prompt_name,
+			llm_config_id: reviewDraft.value.llm_config_id || undefined,
+			content_snapshot: reviewDraft.value.target_snapshot || undefined,
+			meta: reviewDraft.value.meta || {},
+		})
+		reviewDraft.value.existing_review_card_id = saved.card_id
+		await cardStore.fetchCards(projectStore.currentProject?.id || props.card.project_id)
+		window.dispatchEvent(new CustomEvent('nf:review-history-refresh'))
+		ElMessage.success('审核结果卡片已更新')
+	} catch (error) {
+		console.error('Failed to upsert review result card:', error)
+		ElMessage.error('创建审核结果卡片失败')
+	} finally {
+		reviewCardSaving.value = false
+	}
+}
+
 async function executeAIContinuation() {
+	if (!ensureNoPendingAiEdit()) return
+	const defaults = resolveContinuationDefaults()
+	continuationDialogState.targetWordCount = defaults.targetWordCount
+	continuationDialogState.wordControlMode = defaults.wordControlMode
+	continuationDialogState.guidance = defaults.guidance
+	continuationDialogVisible.value = true
+}
+
+function handleContinuationDialogConfirm(payload: {
+	targetWordCount: number
+	wordControlMode: ContinuationWordControlMode
+	guidance: string
+}) {
+	activeContinuationConfig.targetWordCount = payload.targetWordCount
+	activeContinuationConfig.wordControlMode = payload.wordControlMode
+	try {
+		localStorage.setItem(`nf:chapter:continuation-target:${props.card.id}`, String(payload.targetWordCount))
+		localStorage.setItem(`nf:chapter:continuation-mode:${props.card.id}`, payload.wordControlMode)
+		localStorage.removeItem(`nf:chapter:continuation-guidance:${props.card.id}`)
+	} catch {
+		// ignore localStorage errors
+	}
+	void runContinuationWithConfig(payload)
+}
+
+async function runContinuationWithConfig(payload: {
+	targetWordCount: number
+	wordControlMode: ContinuationWordControlMode
+	guidance: string
+}) {
 	if (!ensureNoPendingAiEdit()) return
 	const llmConfigId = resolveLlmConfigId()
 	if (!llmConfigId) { ElMessage.error('请先设置有效的模型ID'); return }
@@ -1310,6 +1483,9 @@ async function executeAIContinuation() {
 		prompt_name: promptName,
 		...(props.contextParams || {}) as any,
 	} as any
+	;(requestData as any).target_word_count = payload.targetWordCount
+	;(requestData as any).word_control_mode = payload.wordControlMode
+	;(requestData as any).continuation_guidance = payload.guidance || undefined
 
 	try {
 		const { temperature, max_tokens, timeout } = resolveSampling()
@@ -1326,8 +1502,6 @@ async function executeAIContinuation() {
 	applyContinuationScope(requestData)
 
 	if (view) { view.focus(); const end = view.state.doc.length; view.dispatch({ selection: { anchor: end } }) }
-
-	let accumulated = ''
 
 	executeAIGeneration(requestData, false, '续写')
 }
@@ -1379,7 +1553,7 @@ function handleEditorContextMenu(e: MouseEvent) {
 	console.log(' [ContextMenu] 右键事件触发')
 	
 	// 检查是否有选中文本
-	const selection = getSelectedText()
+	const selection = getSelectionWithLineInfo()
 	if (!selection || !selection.text.trim()) {
 		console.log('⚠️ [ContextMenu] 没有选中文本，使用默认菜单')
 		return // 没有选中文本，使用默认右键菜单
@@ -1464,6 +1638,54 @@ async function handleContextMenuExpand() {
 	const selectedText = contextMenu.selectedText
 	closeContextMenu()
 	await executeAIEdit(currentExpandPrompt.value, requirement || undefined, selectedText || undefined)
+}
+
+async function handleContextMenuReference() {
+	const selectedText = contextMenu.selectedText
+	if (!selectedText || !selectedText.text.trim()) {
+		closeContextMenu()
+		ElMessage.warning('请先选中要引用的正文片段')
+		return
+	}
+	if (isDirty.value) {
+		const persisted = await editorStore.persistActiveChapterDraft()
+		if (!persisted) {
+			closeContextMenu()
+			return
+		}
+	}
+	closeContextMenu()
+	const projectId = projectStore.currentProject?.id || props.card.project_id
+	if (!projectId) {
+		ElMessage.error('未找到当前项目，无法引用')
+		return
+	}
+	const projectName = projectStore.currentProject?.name || ''
+	const excerptRef = {
+		refType: 'chapter_excerpt',
+		projectId,
+		projectName,
+		cardId: props.card.id,
+		cardTitle: localCard.title || props.card.title || '',
+		fieldPath: 'content',
+		startLine: selectedText.startLine,
+		endLine: selectedText.endLine,
+		text: selectedText.text,
+		numberedText: selectedText.numberedText,
+		snapshotHash: selectedText.snapshotHash,
+		source: 'manual',
+		// 兼容旧协议：若助手侧尚未升级，会按整卡引用字段读取 content
+		content: {
+			text: selectedText.text,
+			startLine: selectedText.startLine,
+			endLine: selectedText.endLine,
+			numberedText: selectedText.numberedText,
+			snapshotHash: selectedText.snapshotHash,
+		},
+	}
+	assistantStore.addInjectedRefDirect(excerptRef as any, 'manual')
+	emit('switch-tab', 'assistant')
+	ElMessage.success(`已引用第 ${selectedText.startLine}-${selectedText.endLine} 行到灵感助手`)
 }
 
 async function executeAIEdit(
@@ -1837,12 +2059,53 @@ editorStore.setApplyChapterReplacements(async (pairs) => {
 	if (!view) return
 	let original = getText() || ''
 	let replaced = original
-	for (const { from, to } of (pairs || [])) {
+	for (const pair of (pairs || [])) {
+		if ((pair as any)?.mode === 'line_range') {
+			const op = pair as any
+			const startLine = Number(op.startLine)
+			const endLine = Number(op.endLine)
+			if (!Number.isFinite(startLine) || !Number.isFinite(endLine) || startLine <= 0 || endLine < startLine) {
+				ElMessage.warning('按行替换失败：无效的行号范围')
+				continue
+			}
+			const lines = replaced.split('\n')
+			if (endLine > lines.length) {
+				ElMessage.warning('按行替换失败：行号超出正文范围')
+				continue
+			}
+			const replacementLines = String(op.newText ?? '').split('\n')
+			lines.splice(startLine - 1, endLine - startLine + 1, ...replacementLines)
+			replaced = lines.join('\n')
+			continue
+		}
+		const from = (pair as any)?.from
 		if (!from) continue
 		const safeFrom = String(from).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		replaced = replaced.replace(new RegExp(safeFrom, 'g'), String(to ?? ''))
+		replaced = replaced.replace(new RegExp(safeFrom, 'g'), String((pair as any)?.to ?? ''))
 	}
 	setText(replaced)
+})
+
+// 灵感助手引用正文片段时，需要先确认保存当前正文，
+// 这样后端按行替换工具才能看到最新文本与行号。
+editorStore.setPersistActiveChapterDraft(async () => {
+	if (!view) return false
+	if (!isDirty.value) return true
+	try {
+		await ElMessageBox.confirm(
+			'你引用的正文片段包含未保存修改。为确保灵感助手按行替换时能定位到最新正文，需要先保存当前章节。是否现在保存？',
+			'请先保存章节',
+			{
+				type: 'warning',
+				confirmButtonText: '保存后继续',
+				cancelButtonText: '取消',
+			},
+		)
+		await handleSave()
+		return true
+	} catch {
+		return false
+	}
 })
 
 async function extractDynamicInfo() {
@@ -2009,6 +2272,9 @@ async function extractRelationsWithLlm(llmConfigId: number) {
 onMounted(() => {
 	initEditor()
 	loadPrompts()
+	const defaults = resolveContinuationDefaults()
+	activeContinuationConfig.targetWordCount = defaults.targetWordCount
+	activeContinuationConfig.wordControlMode = defaults.wordControlMode
 	try {
 		const title = props.card?.title || ''
 		const vol = Number((props.contextParams as any)?.volume_number ?? (props.card as any)?.content?.volume_number ?? NaN)
@@ -2047,6 +2313,7 @@ onUnmounted(() => {
 	
 	try { view?.destroy() } catch {}
 	editorStore.setApplyChapterReplacements(null)
+	editorStore.setPersistActiveChapterDraft(null)
 	editorStore.setTriggerExtractDynamicInfo(null)
 	editorStore.setTriggerExtractRelations(null)
 	try { reviewAbortController.value?.abort(); } catch {}
@@ -2138,6 +2405,7 @@ defineExpose({
 	background: var(--el-fill-color-lighter);
 	display: flex;
 	flex-direction: column;
+	gap: 8px;
 	flex-shrink: 0;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
@@ -2147,6 +2415,21 @@ defineExpose({
 	align-items: center;
 	gap: 12px;
 	flex-wrap: nowrap;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+}
+
+.toolbar-status-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+.toolbar-status-spacer {
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 .toolbar-divider {
@@ -2167,13 +2450,10 @@ defineExpose({
 }
 
 .toolbar-group-ai {
-	gap: 10px;
-	flex: 1;
+	gap: 8px;
+	flex: 0 0 auto;
 	min-width: 0;
-	flex-wrap: nowrap;
-	max-width: 100%;
-	box-sizing: border-box;
-	overflow: hidden;
+	padding: 8px 12px;
 }
 
 .group-label {
@@ -2187,80 +2467,79 @@ defineExpose({
 	flex-grow: 1; 
 }
 
-.ai-toolbar-grid {
-	display: grid;
-	grid-template-columns: repeat(2, 1fr);
-	grid-template-areas:
-		'polish expand'
-		'review spacer';
-	gap: 6px 8px;
-	align-items: center;
-	flex: 0 0 auto;
-	width: max-content;
-}
-
-.ai-side-controls {
+.ai-action-bar {
 	display: flex;
-	flex-direction: row;
 	align-items: center;
-	justify-content: flex-end;
 	gap: 8px;
-	flex-shrink: 1;
-	margin-left: auto;
-}
-
-.ai-side-controls .el-button {
-	min-width: 84px;
+	flex-wrap: nowrap;
+	flex: 0 0 auto;
 }
 
 .ai-config-entry {
 	max-width: none;
 	width: auto;
-	margin-right: 8px;
+	margin-right: 0;
 }
 
-.ai-action-combo {
+.ai-status-strip {
 	display: flex;
-	align-items: stretch;
-	min-width: 0;
+	flex-wrap: nowrap;
+	gap: 8px;
+	flex: 0 0 auto;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
 }
 
-.ai-action-combo:first-child {
-	grid-area: polish;
+.ai-status-strip::-webkit-scrollbar {
+	display: none;
 }
 
-.ai-action-combo:nth-child(2) {
-	grid-area: expand;
+.status-pill {
+	display: inline-flex;
+	align-items: center;
+	padding: 4px 10px;
+	border-radius: 999px;
+	border: 1px solid var(--el-border-color-lighter);
+	background: var(--el-fill-color-light);
+	color: var(--el-text-color-secondary);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: nowrap;
 }
 
-.ai-action-combo-review {
-	grid-area: review;
+.review-button-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 }
 
-.ai-action-spacer {
-	grid-area: spacer;
+.review-loading-icon {
+	animation: review-spin 1s linear infinite;
 }
 
-.ai-action-main {
-	min-width: 84px;
-	padding-inline: 10px;
-	justify-content: center;
+.prompt-settings-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
 }
 
-.ai-action-main-review {
-	min-width: 84px;
+.prompt-settings-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--el-text-color-primary);
 }
 
-.ai-action-combo .ai-action-main {
-	border-top-right-radius: 0;
-	border-bottom-right-radius: 0;
+.prompt-settings-item {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 }
 
-.ai-action-trigger {
-	padding-inline: 7px;
-	margin-left: -1px;
-	border-top-left-radius: 0;
-	border-bottom-left-radius: 0;
+.prompt-settings-item label {
+	font-size: 12px;
+	color: var(--el-text-color-secondary);
 }
 
 .editor-content-wrapper {
@@ -2299,6 +2578,7 @@ defineExpose({
 	transition: all 0.2s ease;
 	cursor: text;
 	flex: 1;
+	caret-color: var(--el-color-primary);
 }
 
 .chapter-title:hover {
@@ -2355,6 +2635,12 @@ defineExpose({
 	gap: 8px;
 }
 
+.review-dialog-footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
 /* CodeMirror 内部样式 */
 .editor-content :deep(.cm-editor) {
 	height: 100% !important; /* 强制占满容器高度，不自动扩展 */
@@ -2375,6 +2661,36 @@ defineExpose({
 	color: var(--el-text-color-primary);
 	font-size: v-bind(fontSizePx);
 	line-height: v-bind(lineHeightStr);
+	caret-color: var(--el-color-primary);
+}
+
+.editor-content :deep(.cm-line) {
+	caret-color: inherit;
+}
+
+.editor-content :deep(.cm-gutters) {
+	background: var(--el-fill-color-lighter);
+	color: var(--el-text-color-secondary);
+	border-right: 1px solid var(--el-border-color-light);
+}
+
+.editor-content :deep(.cm-lineNumbers .cm-gutterElement) {
+	padding: 0 10px 0 8px;
+	font-size: 12px;
+}
+
+.editor-content :deep(.cm-cursor),
+.editor-content :deep(.cm-dropCursor) {
+	border-left-color: var(--el-color-primary) !important;
+}
+
+.editor-content :deep(.cm-cursorLayer .cm-cursor) {
+	border-left-width: 2px !important;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 38%, transparent);
+}
+
+.editor-content :deep(.cm-selectionBackground) {
+	background: color-mix(in srgb, var(--el-color-primary) 20%, transparent) !important;
 }
 
 /* 取消高亮行背景，保证纯文本阅读观感 */
@@ -2497,6 +2813,7 @@ defineExpose({
 .context-menu-compact {
 	display: flex;
 	justify-content: center;
+	gap: 8px;
 }
 
 .context-menu-expanded {
@@ -2567,6 +2884,16 @@ defineExpose({
 	padding: 10px !important;
 }
 
+:deep(.review-prompt-dropdown .el-scrollbar__wrap) {
+	max-height: 320px;
+	overflow-y: auto;
+}
+
+@keyframes review-spin {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
+
 /* 自定义 AI 高亮效果 */
 .editor-content :deep(.cm-ai-highlight) {
 	background: linear-gradient(120deg, 
@@ -2625,5 +2952,40 @@ defineExpose({
 	background: rgba(59, 130, 246, 0.24);
 	color: rgba(147, 197, 253, 0.98);
 	box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
+}
+
+.dark .chapter-title {
+	caret-color: #93c5fd;
+}
+
+.dark .editor-content :deep(.cm-gutters) {
+	background: color-mix(in srgb, var(--el-fill-color-darker) 86%, #0f172a);
+	color: var(--el-text-color-secondary);
+	border-right-color: var(--el-border-color);
+}
+
+.dark .editor-content :deep(.cm-selectionBackground) {
+	background: rgba(59, 130, 246, 0.28) !important;
+}
+
+.dark .editor-content,
+.dark .editor-content :deep(.cm-editor),
+.dark .editor-content :deep(.cm-scroller) {
+	background: #242b36 !important;
+}
+
+.dark .editor-content :deep(.cm-content),
+.dark .editor-content :deep(.cm-line) {
+	caret-color: #ffffff !important;
+}
+
+.dark .editor-content :deep(.cm-cursor),
+.dark .editor-content :deep(.cm-dropCursor),
+.dark .editor-content :deep(.cm-cursorLayer .cm-cursor) {
+	border-left-color: #ffffff !important;
+	border-left-width: 3px !important;
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.45),
+		0 0 12px rgba(191, 219, 254, 0.58);
 }
 </style>

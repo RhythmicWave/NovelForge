@@ -22,7 +22,16 @@ class LLMConfig(SQLModel, table=True):
     model_name: str
     api_base: Optional[str] = None
     api_key: str
-    base_url: Optional[str] = None
+    # 这里必须带 server_default，启动期自动补列逻辑才会认为它是“安全追加列”。
+    # 仅有 Python 默认值不够，旧库在 ALTER TABLE 时需要数据库侧默认值来回填历史行。
+    api_protocol: str = Field(
+        default="chat_completions",
+        sa_column=Column(sa.String, nullable=False, server_default="chat_completions"),
+    )
+    custom_request_path: Optional[str] = None
+    models_path: Optional[str] = None
+    user_agent: Optional[str] = None
+    base_url: Optional[str] = None  # 历史兼容字段，新实现统一收口到 api_base
     # 统计与配额（-1 表示不限）——在 DB 层也设置 server_default，便于 Alembic 自动包含
     token_limit: int = Field(
         default=-1,
@@ -131,22 +140,6 @@ class Card(SQLModel, table=True):
     ai_modified: bool = Field(default=False)  # 是否由AI修改过
     needs_confirmation: bool = Field(default=False)  # 是否需要用户确认（用于触发工作流）
     last_modified_by: Optional[str] = Field(default=None)  # 最后修改者：'user' | 'ai' | None
-
-
-class ReviewRecord(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="project.id", index=True)
-    review_type: str = Field(default="chapter", index=True)
-    target_type: str = Field(default="card", index=True)
-    target_id: int = Field(index=True)
-    target_title: Optional[str] = None
-    prompt_name: str = Field(default="章节审核", index=True)
-    llm_config_id: Optional[int] = Field(default=None, index=True)
-    quality_gate: str = Field(default="revise", index=True)
-    result_text: str = Field(default="")
-    content_snapshot: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now, nullable=False, index=True)
-
 
 # 伏笔登记表
 class ForeshadowItem(SQLModel, table=True):

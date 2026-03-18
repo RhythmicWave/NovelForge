@@ -7,11 +7,19 @@ from app.db.models import Card, CardType, Project
 from app.schemas.card import CardCreate, CardUpdate, CardTypeCreate, CardTypeUpdate
 from app.exceptions import BusinessException
 import logging
+import hashlib
 # 引入动态信息模型
 from app.schemas.entity import UpdateDynamicInfo, CharacterCard, DynamicInfoItem
 from sqlalchemy import update as sa_update
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_legacy_snapshot_hash(input_text: str) -> str:
+    hash_value = 5381
+    for char in input_text or "":
+        hash_value = ((hash_value << 5) + hash_value) ^ ord(char)
+    return f"h{(hash_value & 0xFFFFFFFF):x}"
 
 
 def _resolve_context_template_slots(source: object, fallback: object | None = None, is_free_project: bool = False) -> dict[str, Optional[str]]:
@@ -403,6 +411,122 @@ class CardService:
         }
 
     # ---- 移动与复制 ----
+    def replace_field_text_by_lines(
+        self,
+        card_id: int,
+        field_path: str,
+        start_line: int,
+        end_line: int,
+        new_text: str,
+        expected_excerpt: Optional[str] = None,
+        snapshot_hash: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        按行号替换文本字段片段（位置型替换）。
+        """
+        import copy
+
+        card = self.get_by_id(card_id)
+        if not card:
+            return {"success": False, "error": f"卡片 {card_id} 不存在"}
+
+        normalized_path = field_path
+        if not normalized_path.startswith("content."):
+            normalized_path = f"content.{normalized_path}"
+
+        try:
+            current_value = card.content or {}
+            parts = normalized_path.split(".")[1:]
+            for part in parts:
+                if isinstance(current_value, dict):
+                    current_value = current_value.get(part, "")
+                else:
+                    return {"success": False, "error": f"字段路径 {normalized_path} 无效: 无法遍历到 {part}"}
+        except Exception as e:
+            return {"success": False, "error": f"获取字段值失败: {str(e)}"}
+
+        if not isinstance(current_value, str):
+            return {"success": False, "error": f"字段 {field_path} 不是文本类型"}
+
+        if start_line < 1 or end_line < start_line:
+            return {"success": False, "error": "行号范围无效"}
+
+        line_sep = "\r\n" if "\r\n" in current_value else "\n"
+        lines = current_value.splitlines()
+        if not lines:
+            lines = [""]
+
+        total_lines = len(lines)
+        if end_line > total_lines:
+            return {"success": False, "error": f"行号超出范围: 当前共 {total_lines} 行"}
+
+        start_index = start_line - 1
+        end_index = end_line
+        current_excerpt = line_sep.join(lines[start_index:end_index])
+        excerpt_hash = hashlib.sha256(current_excerpt.encode("utf-8")).hexdigest()
+        full_hash = hashlib.sha256(current_value.encode("utf-8")).hexdigest()
+        legacy_excerpt_hash = _compute_legacy_snapshot_hash(current_excerpt)
+        legacy_full_hash = _compute_legacy_snapshot_hash(current_value)
+        if snapshot_hash and snapshot_hash not in {
+            excerpt_hash,
+            full_hash,
+            legacy_excerpt_hash,
+            legacy_full_hash,
+        }:
+            return {
+                "success": False,
+                "error": "快照校验失败，正文可能已变化",
+                "expected_snapshot_hash": snapshot_hash,
+                "actual_excerpt_hash": excerpt_hash,
+                "actual_full_hash": full_hash,
+                "actual_legacy_excerpt_hash": legacy_excerpt_hash,
+                "actual_legacy_full_hash": legacy_full_hash,
+            }
+
+        if expected_excerpt is not None and expected_excerpt.strip() and expected_excerpt.strip() != current_excerpt.strip():
+            return {
+                "success": False,
+                "error": "原片段校验失败，正文可能已变化",
+                "expected_excerpt": expected_excerpt,
+                "actual_excerpt": current_excerpt,
+            }
+
+        new_lines = new_text.splitlines()
+        updated_lines = lines[:start_index] + new_lines + lines[end_index:]
+        updated_value = line_sep.join(updated_lines)
+        if current_value.endswith("\r\n"):
+            updated_value = f"{updated_value}\r\n"
+        elif current_value.endswith("\n"):
+            updated_value = f"{updated_value}\n"
+
+        new_content = copy.deepcopy(card.content or {})
+        target = new_content
+        path_parts = normalized_path.split(".")[1:]
+        for part in path_parts[:-1]:
+            if part not in target or not isinstance(target[part], dict):
+                target[part] = {}
+            target = target[part]
+        target[path_parts[-1]] = updated_value
+
+        card.content = new_content
+        flag_modified(card, "content")
+        self.db.add(card)
+        self.db.commit()
+        self.db.refresh(card)
+
+        return {
+            "success": True,
+            "card_id": card.id,
+            "card_title": card.title,
+            "field_path": field_path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "replaced_line_count": end_line - start_line + 1,
+            "new_line_count": len(new_lines),
+            "line_delta": len(new_lines) - (end_line - start_line + 1),
+            "snapshot_hash": excerpt_hash,
+        }
+
     def move_card(self, card_id: int, target_project_id: int, parent_id: Optional[int] = None) -> Optional[Card]:
         root = self.get_by_id(card_id)
         if not root:

@@ -201,10 +201,9 @@
           </el-tab-pane>
           </template>
           
-          <el-tab-pane label="审核历史" name="review-history">
+          <el-tab-pane label="审核结果" name="review-history">
             <ReviewHistoryPanel
-              :project-id="projectStore.currentProject?.id"
-              :default-review-type="defaultReviewTypeForSidebar"
+              :target-card-id="reviewTargetCardIdForSidebar"
             />
           </el-tab-pane>
         </el-tabs>
@@ -353,6 +352,7 @@ import { getCardSchema, createCardType } from '@renderer/api/setting'
 import { getProjects } from '@renderer/api/projects'
 import { getCardsForProject, copyCard, getCardAIParams, searchCards } from '@renderer/api/cards'
 import { generateAIContent } from '@renderer/api/ai'
+import type { AssistantRef, ChapterExcerptRef, ReviewResultRef } from '@renderer/api/ai'
  
  // Mock components that will be created later
  const CardEditorHost = defineAsyncComponent(() => import('@renderer/components/cards/CardEditorHost.vue'));
@@ -889,7 +889,14 @@ function handleNodeClick(data: any) {
     const content = (full?.content || (data as any).content || {})
     if (pid && data?.id) {
       // 仅追加 auto 引用：store 规则会保留已存在的 manual，不会被 auto 覆盖
-      assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: data.id, cardTitle: title, content })
+      assistantStore.addAutoRef({
+        refType: 'card',
+        projectId: pid,
+        projectName: pname,
+        cardId: data.id,
+        cardTitle: title,
+        content,
+      })
     }
   } catch {}
 }
@@ -1058,7 +1065,14 @@ watch(activeCard, (c) => {
    if (!c) return
    const pid = projectStore.currentProject?.id as number
    const pname = projectStore.currentProject?.name || ''
-   assistantStore.addAutoRef({ projectId: pid, projectName: pname, cardId: (c as any).id, cardTitle: (c as any).title || '', content: (c as any).content || {} })
+  assistantStore.addAutoRef({
+    refType: 'card',
+    projectId: pid,
+    projectName: pname,
+    cardId: (c as any).id,
+    cardTitle: (c as any).title || '',
+    content: (c as any).content || {},
+  })
    
    //  更新卡片上下文（用于灵感助手工具调用）
    assistantStore.updateActiveCard(c as any, pid)
@@ -1224,7 +1238,14 @@ function handleContextCommand(command: string, data: any) {
       const full = (cards.value || []).find((c:any) => c.id === data.id)
       const title = (full?.title || data.title || '') as string
       const content = (full?.content || (data as any).content || {})
-      assistantStore.addInjectedRefDirect({ projectId: pid, projectName: pname, cardId: data.id, cardTitle: title, content }, 'manual')
+      assistantStore.addInjectedRefDirect({
+        refType: 'card',
+        projectId: pid,
+        projectName: pname,
+        cardId: data.id,
+        cardTitle: title,
+        content,
+      }, 'manual')
       ElMessage.success('已添加为引用')
     } catch {}
   }
@@ -1386,18 +1407,18 @@ const isChapterContent = computed(() => {
   return activeCard.value?.card_type?.name === '章节正文'
 })
 
-const activeCardTypeName = computed(() => activeCard.value?.card_type?.name || '')
-
-const isStageOutlineCard = computed(() => activeCardTypeName.value === '阶段大纲')
-
-const isChapterOutlineCard = computed(() => activeCardTypeName.value === '章节大纲')
-
 const showRightSidebarTabs = computed(() => {
-  return isChapterContent.value || isStageOutlineCard.value || isChapterOutlineCard.value
+  return Boolean(activeCard.value)
 })
 
-const defaultReviewTypeForSidebar = computed<'all' | 'chapter' | 'stage'>(() => {
-  return isStageOutlineCard.value ? 'stage' : 'chapter'
+const reviewTargetCardIdForSidebar = computed<number | null>(() => {
+  const card = activeCard.value as any
+  if (!card) return null
+  if (card?.card_type?.name === '内容审核卡片') {
+    const target = Number(card?.content?.review_target_card_id || 0)
+    return Number.isFinite(target) && target > 0 ? target : null
+  }
+  return Number(card.id || 0) || null
 })
 
 const rightSidebarTabNames = computed(() => {
@@ -1551,6 +1572,33 @@ const assistantFinalize = async (summary: string) => {
   } catch {}
 }
 
+function onAssistantAddRef(e: CustomEvent) {
+  try {
+    const payload = (e as any)?.detail || {}
+    const ref = (payload.ref || payload) as AssistantRef
+    assistantStore.addInjectedRefDirect(ref, (ref as any)?.source || 'manual')
+    activeRightTab.value = 'assistant'
+  } catch {}
+}
+
+function onAssistantAddExcerptRef(e: CustomEvent) {
+  try {
+    const payload = (e as any)?.detail || {}
+    const ref = (payload.ref || payload) as ChapterExcerptRef
+    assistantStore.addChapterExcerptRef(ref, (ref as any)?.source || 'manual')
+    activeRightTab.value = 'assistant'
+  } catch {}
+}
+
+function onAssistantAddReviewRef(e: CustomEvent) {
+  try {
+    const payload = (e as any)?.detail || {}
+    const ref = (payload.ref || payload) as ReviewResultRef
+    assistantStore.addReviewResultRef(ref, (ref as any)?.source || 'manual')
+    activeRightTab.value = 'assistant'
+  } catch {}
+}
+
 async function onAssistantFinalize(e: CustomEvent) {
   try {
     const card = activeCard.value as any
@@ -1604,6 +1652,16 @@ async function handleJumpToCard(payload: { projectId: number; cardId: number }) 
   } catch {}
 }
 
+function onJumpToCardEvent(e: CustomEvent) {
+  const detail = (e as any)?.detail || {}
+  const cardId = Number(detail.cardId || 0)
+  if (!cardId) return
+  void handleJumpToCard({
+    projectId: Number(detail.projectId || projectStore.currentProject?.id || 0),
+    cardId,
+  })
+}
+
 // --- Lifecycle ---
 
 onMounted(async () => {
@@ -1622,6 +1680,10 @@ onMounted(async () => {
   window.addEventListener('nf:navigate', onNavigate as any)
   window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
   window.addEventListener('nf:switch-right-tab', onSwitchRightTab as any)
+  window.addEventListener('nf:assistant-add-ref', onAssistantAddRef as any)
+  window.addEventListener('nf:assistant-add-excerpt-ref', onAssistantAddExcerptRef as any)
+  window.addEventListener('nf:assistant-add-review-ref', onAssistantAddReviewRef as any)
+  window.addEventListener('nf:jump-to-card', onJumpToCardEvent as any)
   await refreshAssistantContext()
 })
 
@@ -1629,7 +1691,11 @@ onMounted(async () => {
    window.removeEventListener('nf:navigate', onNavigate as any)
    window.removeEventListener('nf:assistant-finalize', onAssistantFinalize as any)
    window.removeEventListener('nf:switch-right-tab', onSwitchRightTab as any)
- })
+   window.removeEventListener('nf:assistant-add-ref', onAssistantAddRef as any)
+   window.removeEventListener('nf:assistant-add-excerpt-ref', onAssistantAddExcerptRef as any)
+   window.removeEventListener('nf:assistant-add-review-ref', onAssistantAddReviewRef as any)
+   window.removeEventListener('nf:jump-to-card', onJumpToCardEvent as any)
+  })
 
  function onNavigate(e: CustomEvent) {
    if ((e as any).detail?.to === 'market') {
