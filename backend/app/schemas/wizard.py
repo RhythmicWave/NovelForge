@@ -156,7 +156,7 @@ class ChapterOutline(BaseModel):
     title: str= Field(description="章节标题")
     chapter_number: int = Field(description="章节序号")
     
-    overview: str = Field(description="章节细纲,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。为了帮助写作时把握节奏，请分几个小节或节拍来组织内容，而不是简单地罗列事件或者一段话简单概括。",min_length=100)
+    overview: str = Field(description="章节细纲,详略得当，避免过于单薄。如果主角有了显著的提升，则相关信息不能省略，需要准确数据描述出来(如实力大幅提升、经济或资源大幅增长了多少)。",min_length=100)
     entity_list: List[str] = Field(
         description="章节中出场的重要实体列表，只能从上下文提供的组织/角色/场景卡实体中选择，不得新增、自创；实体名称必须是纯名称（不得包含括号/备注）。注意,为了精简上下文，避免实体列表中出现该章节未出场的冗余实体",
     )
