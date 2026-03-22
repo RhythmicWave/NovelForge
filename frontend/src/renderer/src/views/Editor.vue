@@ -1,7 +1,7 @@
 <template>
   <div class="editor-layout">
     <!-- 左侧卡片导航树 -->
-    <el-aside class="sidebar card-navigation-sidebar" :style="{ width: leftSidebarWidth + 'px' }" @contextmenu.prevent="onSidebarContextMenu">
+    <el-aside class="sidebar card-navigation-sidebar" :style="{ width: leftSidebarDisplayWidth + 'px' }" @contextmenu.prevent="onSidebarContextMenu">
       <div class="sidebar-header">
         <h3 class="sidebar-title">创作卡片</h3>
         
@@ -130,7 +130,7 @@
     </el-aside>
     
     <!-- 拖拽条 -->
-    <div class="resizer left-resizer" @mousedown="startResizing('left')"></div>
+    <div v-if="isLeftSidebarVisible" class="resizer left-resizer" @mousedown="startResizing('left')"></div>
 
     <!-- 中栏主内容区 -->
     <el-main class="main-content">
@@ -228,6 +228,9 @@
         @jump-to-card="handleJumpToCard"
       />
     </el-aside>
+    <el-button class="left-sidebar-toggle" type="primary" size="small" @click="toggleLeftSidebar">
+      {{ isLeftSidebarVisible ? '隐藏导航' : '显示导航' }}
+    </el-button>
   </div>
 
   <!-- 新建卡片对话框 -->
@@ -556,6 +559,12 @@ const handleSearch = debounce(async (query: string) => {
 
 // Composables
   const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
+  const isLeftSidebarVisible = ref(true)
+  const leftSidebarDisplayWidth = computed(() => (isLeftSidebarVisible.value ? leftSidebarWidth.value : 0))
+  
+  function toggleLeftSidebar() {
+    isLeftSidebarVisible.value = !isLeftSidebarVisible.value
+  }
   
  // 统一 TreeSelect 样式/属性，确保选项可见
  const treeSelectProps = {
@@ -1872,6 +1881,13 @@ function onSwitchRightTab(e: CustomEvent) {
 }
 .right-resizer { cursor: col-resize; width: 5px; background: transparent; }
 .right-resizer:hover { background: var(--el-color-primary-light-7); }
+.left-sidebar-toggle {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
 .nf-import-dialog :deep(.el-input__wrapper) { font-size: 14px; }
 .nf-import-dialog :deep(.el-input__inner) { font-size: 14px; }
 .nf-import-dialog :deep(.el-table .cell) { font-size: 14px; color: var(--el-text-color-primary); }
