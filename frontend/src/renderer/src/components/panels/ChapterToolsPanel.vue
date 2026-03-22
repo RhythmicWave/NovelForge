@@ -364,7 +364,12 @@ onMounted(async () => {
 	gap: 14px;
 	height: 100%;
 	overflow-y: auto;
-	background: linear-gradient(180deg, rgba(248, 250, 252, 0.94) 0%, rgba(255, 255, 255, 0.98) 100%);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--el-fill-color-light) 55%, transparent) 0%,
+			var(--el-bg-color) 100%
+		);
 }
 
 .panel-toolbar {
@@ -390,8 +395,9 @@ onMounted(async () => {
 
 .tool-card {
 	border-radius: 14px;
-	border: 1px solid rgba(15, 23, 42, 0.08);
-	box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+	border: 1px solid var(--el-border-color-light);
+	background: var(--el-bg-color-overlay);
+	box-shadow: 0 10px 28px color-mix(in srgb, var(--el-text-color-primary) 6%, transparent);
 }
 
 .busy-banner {
@@ -400,9 +406,10 @@ onMounted(async () => {
 	gap: 8px;
 	padding: 10px 12px;
 	border-radius: 12px;
-	background: rgba(37, 99, 235, 0.08);
-	color: #1d4ed8;
+	background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-fill-color-light));
+	color: var(--el-color-primary);
 	font-size: 13px;
+	border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
 }
 
 .busy-icon {
