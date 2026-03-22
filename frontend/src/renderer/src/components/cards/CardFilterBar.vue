@@ -54,11 +54,12 @@ function emitChange() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 0 16px 0;
 }
-.left { display: flex; gap: 12px; align-items: center; flex: 1; }
-.right { display: flex; gap: 12px; align-items: center; }
+.left { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; flex: 1; }
+.right { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .search-input { max-width: 360px; width: 100%; }
 .type-select { min-width: 220px; }
 .sort-select { width: 140px; }

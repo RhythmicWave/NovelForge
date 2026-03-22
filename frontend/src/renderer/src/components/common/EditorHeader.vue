@@ -134,13 +134,15 @@ function getSlotTagType(kind: ContextTemplateKind): 'success' | 'warning' | 'inf
   display: flex; 
   align-items: center; 
   justify-content: space-between; 
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 8px 12px; 
   border-bottom: 1px solid var(--el-border-color-light); 
   background: var(--el-bg-color);
 }
 
-.left { display: flex; align-items: center; gap: 10px; }
-.right { display: flex; align-items: center; gap: 8px; }
+.left { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .context-action-combo { display: inline-flex; align-items: stretch; }
 .context-main-button { 
   border-top-right-radius: 0; 
