@@ -44,6 +44,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listKnowledge, createKnowledge, updateKnowledge, deleteKnowledge, type Knowledge } from '@renderer/api/setting'
+import { resetKnowledgeOptionCache } from '@renderer/services/knowledgeOptionResolver'
 
 const loading = ref(false)
 const items = ref<Knowledge[]>([])
@@ -73,6 +74,7 @@ async function save() {
     if (!f?.name || !f.content) { ElMessage.warning('请填写名称与内容'); return }
     if (editor.value.editing && f.id) {
       const saved = await updateKnowledge(f.id, { name: f.name, description: f.description || '', content: f.content })
+      resetKnowledgeOptionCache()
       ElMessage.success('已更新')
       // 局部更新
       if (saved) {
@@ -81,6 +83,7 @@ async function save() {
       }
     } else {
       const created = await createKnowledge({ name: f.name, description: f.description || '', content: f.content })
+      resetKnowledgeOptionCache()
       ElMessage.success('已创建')
       if (created) items.value.unshift(created)
     }
@@ -93,6 +96,7 @@ async function save() {
 async function remove(row: Knowledge) {
   try {
     await deleteKnowledge(row.id)
+    resetKnowledgeOptionCache()
     ElMessage.success('已删除')
     items.value = items.value.filter(i => i.id !== row.id)
   } catch (e:any) {

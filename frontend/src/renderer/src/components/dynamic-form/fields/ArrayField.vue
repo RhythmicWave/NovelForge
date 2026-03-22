@@ -59,7 +59,7 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
-import { schemaService, type JSONSchema } from '@renderer/api/schema'
+import type { JSONSchema } from '@renderer/api/schema'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { resolveActualSchema } from '@renderer/services/schemaFieldParser'
 
@@ -171,11 +171,11 @@ function addItem() {
  */
 function createArrayItemDefaultValue(schema: JSONSchema): any {
   const actualSchema = resolveActualSchema(schema, props.schema)
-  
+
   if (actualSchema.default !== undefined) {
     return actualSchema.default
   }
-  
+
   switch (actualSchema.type) {
     case 'string': return ''
     case 'number':
@@ -189,7 +189,7 @@ function createArrayItemDefaultValue(schema: JSONSchema): any {
 
 function resolveAnyOfForValue(base: JSONSchema, value: any): JSONSchema | null {
   if (!base.anyOf) return null
-  
+
   // 简单实现：找到第一个非null的Schema
   const nonNullSchema = base.anyOf.find((s: any) => s && s.type !== 'null')
   return nonNullSchema ? resolveActualSchema(nonNullSchema as JSONSchema, props.schema) : null
@@ -226,4 +226,4 @@ function resolveAnyOfForValue(base: JSONSchema, value: any): JSONSchema | null {
   margin-top: 10px;
   width: 100%;
 }
-</style> 
+</style>

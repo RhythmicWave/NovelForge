@@ -53,6 +53,43 @@
             </div>
           </li>
         </ul>
+
+        <div class="facts-title" v-if="Array.isArray((assembled.facts_structured as any)?.item_summaries) && ((assembled.facts_structured as any)?.item_summaries?.length > 0)">物品摘要</div>
+        <ul class="list" v-if="Array.isArray((assembled.facts_structured as any)?.item_summaries) && ((assembled.facts_structured as any)?.item_summaries?.length > 0)">
+          <li v-for="(item, idx) in ((assembled.facts_structured as any)?.item_summaries as any[] || [])" :key="`item-${idx}`" class="relation-item">
+            <div class="relation-head">
+              {{ (item as any).name }}
+              <el-tag v-if="(item as any).category" size="small" style="margin-left:6px;">{{ (item as any).category }}</el-tag>
+            </div>
+            <div v-if="(item as any).description" class="muted" style="margin: 2px 0;">{{ (item as any).description }}</div>
+            <div v-if="(item as any).current_state" class="muted">当前状态：{{ (item as any).current_state }}</div>
+            <div v-if="(item as any).owner_hint" class="muted">归属提示：{{ (item as any).owner_hint }}</div>
+            <div v-if="(item as any).power_or_effect" class="muted">效果/用途：{{ (item as any).power_or_effect }}</div>
+            <div v-if="(item as any).constraints" class="muted">限制条件：{{ (item as any).constraints }}</div>
+            <div v-if="Array.isArray((item as any)?.important_events) && ((item as any).important_events?.length > 0)" class="muted">
+              重要事件：
+              <ul class="list">
+                <li v-for="(eventText, eventIdx) in ((item as any).important_events as string[] || [])" :key="eventIdx">{{ eventText }}</li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+
+        <div class="facts-title" v-if="Array.isArray((assembled.facts_structured as any)?.concept_summaries) && ((assembled.facts_structured as any)?.concept_summaries?.length > 0)">概念摘要</div>
+        <ul class="list" v-if="Array.isArray((assembled.facts_structured as any)?.concept_summaries) && ((assembled.facts_structured as any)?.concept_summaries?.length > 0)">
+          <li v-for="(concept, idx) in ((assembled.facts_structured as any)?.concept_summaries as any[] || [])" :key="`concept-${idx}`" class="relation-item">
+            <div class="relation-head">
+              {{ (concept as any).name }}
+              <el-tag v-if="(concept as any).category" size="small" style="margin-left:6px;">{{ (concept as any).category }}</el-tag>
+            </div>
+            <div v-if="(concept as any).description" class="muted" style="margin: 2px 0;">{{ (concept as any).description }}</div>
+            <div v-if="(concept as any).rule_definition" class="muted">规则定义：{{ (concept as any).rule_definition }}</div>
+            <div v-if="(concept as any).mastery_hint" class="muted">掌握提示：{{ (concept as any).mastery_hint }}</div>
+            <div v-if="(concept as any).cost" class="muted">代价：{{ (concept as any).cost }}</div>
+            <div v-if="Array.isArray((concept as any)?.known_by) && ((concept as any).known_by?.length > 0)" class="muted">已知掌握者：{{ ((concept as any).known_by as string[]).join('、') }}</div>
+            <div v-if="Array.isArray((concept as any)?.counter_relations) && ((concept as any).counter_relations?.length > 0)" class="muted">克制/对立：{{ ((concept as any).counter_relations as string[]).join('、') }}</div>
+          </li>
+        </ul>
         
       </div>
       <pre class="pre" v-if="!assembled.facts_structured && assembled.facts_subgraph">{{ assembled.facts_subgraph }}</pre>

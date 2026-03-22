@@ -323,6 +323,7 @@ import { Plus, Search } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { debounce } from 'lodash-es'
 import { 
+  Box,
   CollectionTag,
   MagicStick,
   ChatLineRound,
@@ -1204,6 +1205,12 @@ function getIconByCardType(typeName?: string) {
       return User
     case '场景卡':
       return OfficeBuilding
+    case '组织卡':
+      return Connection
+    case '物品卡':
+      return Box
+    case '概念卡':
+      return CollectionTag
     case '文件夹':
       return Folder
     default:
@@ -1263,32 +1270,41 @@ async function onCardSchemaSaved() {
   } catch {}
 }
 
+function openCreateCardDialog(options?: { title?: string; cardTypeName?: string; parentId?: number | null }) {
+  newCardForm.title = options?.title || ''
+  newCardForm.parent_id = options?.parentId == null ? '' as any : options.parentId as any
+  if (options?.cardTypeName) {
+    const cardType = cardStore.cardTypes.find(ct => ct.name === options.cardTypeName)
+    newCardForm.card_type_id = cardType?.id
+  } else {
+    newCardForm.card_type_id = undefined
+  }
+  activeTab.value = 'editor'
+  isCreateCardDialogVisible.value = true
+  blankMenuVisible.value = false
+}
+
 // 打开"新建卡片"对话框并预填父ID
 function openCreateChild(parentId: number) {
-  newCardForm.title = ''
-  newCardForm.card_type_id = undefined
-  newCardForm.parent_id = parentId as any
-  isCreateCardDialogVisible.value = true
+  openCreateCardDialog({ parentId })
 }
 
 // 打开"新建卡片"对话框（分组节点专用）：预填父ID和卡片类型
 function openCreateChildInGroup(parentId: number, groupType: string) {
-  newCardForm.title = ''
-  newCardForm.parent_id = parentId as any
-  
-  // 根据分组类型名称查找对应的卡片类型ID
-  const cardType = cardStore.cardTypes.find(ct => ct.name === groupType)
-  newCardForm.card_type_id = cardType?.id
-  
-  isCreateCardDialogVisible.value = true
+  openCreateCardDialog({ parentId, cardTypeName: groupType })
 }
 
 function openCreateRoot() {
-  newCardForm.title = ''
-  newCardForm.card_type_id = undefined
-  newCardForm.parent_id = '' as any
-  isCreateCardDialogVisible.value = true
-  blankMenuVisible.value = false
+  openCreateCardDialog()
+}
+
+function onOpenCreateCardEvent(e: Event) {
+  const detail = (e as CustomEvent)?.detail || {}
+  openCreateCardDialog({
+    title: typeof detail.title === 'string' ? detail.title : '',
+    cardTypeName: typeof detail.cardTypeName === 'string' ? detail.cardTypeName : '',
+    parentId: Number.isFinite(Number(detail.parentId)) ? Number(detail.parentId) : null,
+  })
 }
 
 // 空白处右键：仅当未命中节点时显示菜单
@@ -1518,7 +1534,12 @@ async function refreshAssistantContext() {
     // 计算上下文（沿用 contextResolver）
     const { resolveTemplate } = await import('@renderer/services/contextResolver')
     // 使用卡片当前保存的 ai_context_template 和 content
-    const resolved = resolveTemplate({ template: card.ai_context_template || '', cards: cards.value, currentCard: card })
+    const resolved = resolveTemplate({
+      template: card.ai_context_template || '',
+      cards: cards.value,
+      currentCard: card,
+      assembledContext: prefetchedContext.value,
+    })
     assistantResolvedContext.value = resolved
     // 读取有效 Schema
     const resp = await getCardSchema(card.id)
@@ -1549,6 +1570,7 @@ async function refreshAssistantContext() {
 }
 
 watch(activeCard, () => { if (!assistantSelectionCleared.value) refreshAssistantContext() })
+watch(prefetchedContext, () => { if (!assistantSelectionCleared.value) refreshAssistantContext() })
 
 watch(activeTab, (tab) => {
   if (tab === 'relation-graph') {
@@ -1679,22 +1701,26 @@ onMounted(async () => {
   
   window.addEventListener('nf:navigate', onNavigate as any)
   window.addEventListener('nf:assistant-finalize', onAssistantFinalize as any)
+  window.addEventListener('nf:switch-main-tab', onSwitchMainTab as any)
   window.addEventListener('nf:switch-right-tab', onSwitchRightTab as any)
   window.addEventListener('nf:assistant-add-ref', onAssistantAddRef as any)
   window.addEventListener('nf:assistant-add-excerpt-ref', onAssistantAddExcerptRef as any)
   window.addEventListener('nf:assistant-add-review-ref', onAssistantAddReviewRef as any)
   window.addEventListener('nf:jump-to-card', onJumpToCardEvent as any)
+  window.addEventListener('nf:open-create-card', onOpenCreateCardEvent as any)
   await refreshAssistantContext()
 })
 
  onBeforeUnmount(() => {
    window.removeEventListener('nf:navigate', onNavigate as any)
    window.removeEventListener('nf:assistant-finalize', onAssistantFinalize as any)
+   window.removeEventListener('nf:switch-main-tab', onSwitchMainTab as any)
    window.removeEventListener('nf:switch-right-tab', onSwitchRightTab as any)
    window.removeEventListener('nf:assistant-add-ref', onAssistantAddRef as any)
    window.removeEventListener('nf:assistant-add-excerpt-ref', onAssistantAddExcerptRef as any)
    window.removeEventListener('nf:assistant-add-review-ref', onAssistantAddReviewRef as any)
    window.removeEventListener('nf:jump-to-card', onJumpToCardEvent as any)
+   window.removeEventListener('nf:open-create-card', onOpenCreateCardEvent as any)
   })
 
  function onNavigate(e: CustomEvent) {
@@ -1702,6 +1728,13 @@ onMounted(async () => {
      activeTab.value = 'market'
    }
  }
+
+function onSwitchMainTab(e: CustomEvent) {
+  const tab = (e as any)?.detail?.tab
+  if (tab && ['market', 'editor', 'relation-graph'].includes(tab)) {
+    activeTab.value = tab
+  }
+}
 
 function onSwitchRightTab(e: CustomEvent) {
   const tab = (e as any)?.detail?.tab

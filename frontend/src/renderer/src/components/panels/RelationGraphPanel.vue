@@ -31,7 +31,11 @@
       <el-table-column prop="kind_cn" label="关系" width="120" />
       <el-table-column prop="stance" label="立场" width="100" />
       <el-table-column prop="fact" label="事实" min-width="260" show-overflow-tooltip />
-      <el-table-column prop="updated_at" label="更新时间" width="180" />
+      <el-table-column label="更新时间" width="180">
+        <template #default="{ row }">
+          {{ row.updated_at ? new Date(row.updated_at).toLocaleString() : '' }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="scope">
           <el-button text size="small" @click="openEdit(scope.row)">编辑</el-button>

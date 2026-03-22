@@ -134,7 +134,6 @@ def _localize_schema_titles(schema: Any) -> Any:
     visit(schema)
     return schema
 
-
 @initializer(name="卡片类型", order=20)
 def create_default_card_types(session: Session) -> None:
     """初始化默认卡片类型
@@ -159,10 +158,12 @@ def create_default_card_types(session: Session) -> None:
 
     chapter_review_context_template = (
         "世界观设定: @世界观设定.content\n"
-        "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship}\n"
-        "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description}\n"
+        "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship,content.dynamic_state}\n"
+        "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.dynamic_state}\n"
         "当前故事阶段大纲: @parent.content.overview\n"
         "角色卡:@type:角色卡[index=filter:content.name in $self.content.entity_list].{content.name,content.role_type,content.born_scene,content.description,content.personality,content.core_drive,content.character_arc,content.dynamic_info}\n"
+        "物品卡:@type:物品卡[index=filter:content.name in $self.content.entity_list].{content.name,content.category,content.description,content.current_state,content.power_or_effect}\n"
+        "概念卡:@type:概念卡[index=filter:content.name in $self.content.entity_list].{content.name,content.category,content.description,content.rule_definition,content.mastery_hint}\n"
         "最近的章节原文:@type:章节正文[previous:1].{content.title,content.chapter_number,content.content}\n"
         "参与者实体列表:@self.content.entity_list\n"
         "当前章节大纲:@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.title,content.overview,content.entity_list}\n"
@@ -229,10 +230,12 @@ def create_default_card_types(session: Session) -> None:
         )},
         "章节正文": {"editor_component": "CodeMirrorEditor", "is_ai_enabled": False, "default_ai_context_template": (
             "世界观设定: @世界观设定.content\n"
-            "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship}\n"
-            "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description}\n"
+            "组织/势力设定:@type:组织卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.influence,content.relationship,content.dynamic_state}\n"
+            "场景卡:@type:场景卡[index=filter:content.name in $self.content.entity_list].{content.name,content.description,content.dynamic_state}\n"
             "当前故事阶段大纲: @parent.content.overview\n"
             "角色卡:@type:角色卡[index=filter:content.name in $self.content.entity_list].{content.name,content.role_type,content.born_scene,content.description,content.personality,content.core_drive,content.character_arc,content.dynamic_info}\n"
+            "物品卡:@type:物品卡[index=filter:content.name in $self.content.entity_list].{content.name,content.category,content.description,content.current_state,content.power_or_effect}\n"
+            "概念卡:@type:概念卡[index=filter:content.name in $self.content.entity_list].{content.name,content.category,content.description,content.rule_definition,content.mastery_hint}\n"
             "最近的章节原文，确保能够衔接剧情:@type:章节正文[previous:1].{content.title,content.chapter_number,content.content}\n"
             "参与者实体列表，确保生成内容只会出场这些实体:@self.content.entity_list\n"
             "请根据 @self.content.chapter_number： @self.content.title 的大纲@type:章节大纲[index=filter:content.volume_number = $self.content.volume_number&&content.stage_number= $self.content.stage_number&&content.chapter_number= $self.content.chapter_number].{content.overview} 来创作章节正文内容，可以适当发散、设计与大纲内容不冲突的剧情来进行扩充。你无需在正文中重复标题：@self.content.title \n"
@@ -248,6 +251,8 @@ def create_default_card_types(session: Session) -> None:
         "角色卡": {"default_ai_context_template": None},
         "场景卡": {"default_ai_context_template": None},
         "组织卡": {"default_ai_context_template": None},
+        "物品卡": {"default_ai_context_template": None, "is_ai_enabled": False},
+        "概念卡": {"default_ai_context_template": None, "is_ai_enabled": False},
         "文件夹": {"is_singleton": False, "is_ai_enabled": False, "default_ai_context_template": None},
     }
 
@@ -267,6 +272,8 @@ def create_default_card_types(session: Session) -> None:
         "角色卡": {"prompt_name": "角色动态信息提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
         "场景卡": {"prompt_name": "内容生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
         "组织卡": {"prompt_name": "关系提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
+        "物品卡": None,
+        "概念卡": None,
     }
 
     # 类型名称到内置响应模型的映射（直接用于生成 json_schema）
@@ -287,6 +294,8 @@ def create_default_card_types(session: Session) -> None:
         "角色卡": "CharacterCard",
         "场景卡": "SceneCard",
         "组织卡": "OrganizationCard",
+        "物品卡": "ItemCard",
+        "概念卡": "ConceptCard",
         "文件夹": "Text",
     }
 
