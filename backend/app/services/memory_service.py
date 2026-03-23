@@ -20,6 +20,8 @@ from app.schemas.memory import ParticipantTyped
 
 # 从数据库加载提示词
 from app.services import prompt_service
+from app.services.memory_extractors.memory_base import log_extract_prompt
+from app.services.memory_extractors.registry_factory import get_memory_extractor_registry
 
 # 使用可切换的知识图谱 Provider
 from app.services.kg_provider import get_provider, KnowledgeGraphUnavailableError
@@ -42,10 +44,12 @@ _ALLOWED_PAIRS: Dict[str, List[Tuple[str, str]]] = {
     '领导': [('character','organization'), ('organization','organization')],
     '创立': [('character','organization') , ('organization','organization')],
 
-    # '拥有': [('character','item'), ('organization','item')],
-    # '使用': [('character','item'), ('organization','item')],
-    # '修炼': [('character','concept')],
-    # '领悟': [('character','concept')],
+    '拥有': [('character','item'), ('organization','item')],
+    '使用': [('character','item'), ('organization','item')],
+    '修炼': [('character','concept')],
+    '领悟': [('character','concept')],
+    '承载': [('item','concept')],
+    '映射': [('concept','item')],
 
     '控制': [('organization','scene')],
     '位于': [('scene','organization')],
@@ -104,6 +108,219 @@ class MemoryService:
     def __init__(self, session: Session):
         self.session = session
         self.graph = get_provider()
+        self.extractor_registry = get_memory_extractor_registry()
+
+    def list_extractors(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "code": extractor.code,
+                "name": extractor.name,
+                "target": extractor.target,
+                "preview_supported": extractor.preview_supported,
+            }
+            for extractor in self.extractor_registry.list_all()
+        ]
+
+    async def extract_preview(
+        self,
+        *,
+        extractor_code: str,
+        project_id: int | None,
+        text: str,
+        participants: Optional[List[ParticipantTyped]] = None,
+        llm_config_id: int = 1,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+        extra_context: Optional[str] = None,
+        volume_number: Optional[int] = None,
+        chapter_number: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        extractor = self.extractor_registry.get(extractor_code)
+        typed_participants = participants or []
+        data = await extractor.extract(
+            service=self,
+            session=self.session,
+            project_id=project_id,
+            text=text,
+            participants=typed_participants,
+            llm_config_id=llm_config_id,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            extra_context=extra_context,
+            context={
+                "volume_number": volume_number,
+                "chapter_number": chapter_number,
+            },
+        )
+        return {
+            "extractor_code": extractor.code,
+            "preview_data": data.model_dump(mode="json"),
+            "affected_targets": extractor.build_affected_targets(data),
+        }
+
+    def apply_preview(
+        self,
+        *,
+        extractor_code: str,
+        project_id: int,
+        data: Dict[str, Any],
+        options: Optional[Dict[str, Any]] = None,
+        volume_number: Optional[int] = None,
+        chapter_number: Optional[int] = None,
+        participants: Optional[List[ParticipantTyped]] = None,
+    ) -> Dict[str, Any]:
+        extractor = self.extractor_registry.get(extractor_code)
+        preview_data = extractor.output_model.model_validate(data)
+        result = extractor.persist(
+            service=self,
+            session=self.session,
+            project_id=project_id,
+            data=preview_data,
+            options=options,
+            context={
+                "volume_number": volume_number,
+                "chapter_number": chapter_number,
+                "participants": participants or [],
+            },
+        )
+        return {
+            "success": True,
+            "written": int(result.get("written", 0)),
+            "updated_card_count": int(result.get("updated_card_count", 0)),
+            "updated_relation_count": int(
+                result.get("updated_relation_count", result.get("written", 0) if extractor.target == "graph" else 0)
+            ),
+            "affected_targets": extractor.build_affected_targets(preview_data),
+            "raw_result": result,
+        }
+
+    async def extract_relations_preview(
+        self,
+        *,
+        text: str,
+        participants: Optional[List[ParticipantTyped]] = None,
+        llm_config_id: int = 1,
+        timeout: Optional[float] = None,
+        prompt_name: Optional[str] = "关系提取",
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> RelationExtraction:
+        prompt = prompt_service.get_prompt_by_name(self.session, prompt_name)
+        system_prompt = prompt.template
+
+        schema_json = RelationExtraction.model_json_schema()
+        system_prompt += f"\n\n请严格按以下 JSON Schema 格式输出:\n{schema_json}"
+
+        participant_names = [p.name for p in participants] if participants else []
+        user_prompt = (
+            f"参与者: {', '.join(participant_names)}\n\n"
+            "请从以下正文中提取:\n"
+            f"{text}"
+        )
+        log_extract_prompt("relation_preview", prompt_name, llm_config_id, system_prompt, user_prompt)
+        res = await llm_service.generate_structured(
+            session=self.session,
+            llm_config_id=llm_config_id,
+            user_prompt=user_prompt,
+            output_type=RelationExtraction,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        if not isinstance(res, RelationExtraction):
+            raise ValueError("LLM 关系抽取失败：输出格式不符合 RelationExtraction")
+        return res
+
+    async def extract_dynamic_info_preview(
+        self,
+        *,
+        text: str,
+        participants: Optional[List[ParticipantTyped]] = None,
+        llm_config_id: int = 1,
+        timeout: Optional[float] = None,
+        prompt_name: Optional[str] = "角色动态信息提取",
+        project_id: Optional[int] = None,
+        extra_context: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> UpdateDynamicInfo:
+        prompt = prompt_service.get_prompt_by_name(self.session, prompt_name)
+        if not prompt:
+            raise ValueError(f"未找到提示词: {prompt_name}")
+        system_prompt = prompt.template
+
+        schema_json = UpdateDynamicInfo.model_json_schema()
+        system_prompt += f"\n\n请严格按以下 JSON Schema 格式输出:\n{schema_json}"
+
+        ref_blocks: List[str] = []
+        if extra_context:
+            ref_blocks.append(f"【大纲参考信息，不允许从中提取信息】\n{extra_context}")
+
+        character_participants = [p for p in (participants or []) if p.type == 'character']
+        if project_id and character_participants:
+            try:
+                lines: List[str] = []
+                for p in character_participants:
+                    st = select(Card).where(Card.project_id == project_id, Card.title == p.name)
+                    card = self.session.exec(st).first()
+                    if not card or not card.card_type or card.card_type.name != '角色卡':
+                        continue
+                    try:
+                        from app.schemas.entity import CharacterCard
+
+                        model = CharacterCard.model_validate(card.content or {})
+                        di = model.dynamic_info or {}
+                        if not di:
+                            continue
+                        lines.append(f"- {p.name}:")
+                        for cat_enum, items in di.items():
+                            if len(items) == 0:
+                                continue
+                            preview = "; ".join([f"[{it.id}] {it.info}" for it in items[:5]])
+                            limit = DYNAMIC_INFO_LIMITS.get(cat_enum, 3)
+                            info_line = f"  - {cat_enum} ({len(items)}/{limit}): {preview}"
+                            lines.append(info_line)
+                    except Exception as e:
+                        logger.error(f"Error preparing dynamic info context: {e}")
+                        continue
+                if lines:
+                    ref_blocks.append("【现有角色动态信息（只读参考）】\n" + "\n".join(lines))
+            except Exception as e:
+                logger.error(f"Error preparing dynamic info context: {e}")
+
+        ref_text = ("\n\n".join(ref_blocks) + "\n\n") if ref_blocks else ""
+        participant_text = ""
+        if character_participants:
+            participant_text = (
+                "本章当前参与角色（仅作优先参考，不是硬限制；如果正文里明确出现了其他重要角色，也可以提取）：\n"
+                f"{', '.join([p.name for p in character_participants])}\n\n"
+            )
+        user_prompt = (
+            f"{ref_text}"
+            f"章节正文:\n{text}\n\n"
+            f"{participant_text}"
+            "请从以上正文中提取本章值得写回角色卡的动态信息。"
+        )
+
+        log_extract_prompt("character_dynamic_preview", prompt_name, llm_config_id, system_prompt, user_prompt)
+        res = await llm_service.generate_structured(
+            session=self.session,
+            llm_config_id=llm_config_id,
+            user_prompt=user_prompt,
+            output_type=UpdateDynamicInfo,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+
+        if not isinstance(res, UpdateDynamicInfo):
+            raise ValueError("LLM 动态信息抽取失败：输出格式不符合 UpdateDynamicInfo")
+
+        return res
 
     async def extract_relations_llm(self, text: str, participants: Optional[List[ParticipantTyped]] = None, llm_config_id: int = 1, timeout: Optional[float] = None, prompt_name: Optional[str] = "关系提取") -> RelationExtraction:
         # 优先使用默认提示词，如果不存在则回退到硬编码版本
@@ -120,6 +337,7 @@ class MemoryService:
             "请从以下正文中抽取：\n"
             f"{text}"
         )
+        log_extract_prompt("relation_extract", prompt_name, llm_config_id, system_prompt, user_prompt)
         res = await llm_service.generate_structured(
             session=self.session,
             llm_config_id=llm_config_id,
@@ -133,7 +351,7 @@ class MemoryService:
         return res
 
     async def extract_dynamic_info_from_text(self, text: str, participants: Optional[List[ParticipantTyped]] = None, llm_config_id: int = 1, timeout: Optional[float] = None, prompt_name: Optional[str] = "角色动态信息提取", project_id: Optional[int] = None, extra_context: Optional[str] = None) -> UpdateDynamicInfo:
-        """从文本中为指定参与者抽取动态信息。extra_context 由前端拼装（可包含分卷主线/支线、阶段概述等任意文本）。"""
+        """从文本中抽取角色动态信息。participants 仅作为优先参考，不作为硬限制。"""
         prompt = prompt_service.get_prompt_by_name(self.session, prompt_name)
         if not prompt:
             raise ValueError(f"未找到提示词: {prompt_name}")
@@ -185,15 +403,21 @@ class MemoryService:
                 logger.error(f"Error preparing dynamic info context: {e}")
 
         ref_text = ("\n\n".join(ref_blocks) + "\n\n") if ref_blocks else ""
+        participant_text = ""
+        if character_participants:
+            participant_text = (
+                "本章当前参与角色（仅作优先参考，不是硬限制；如果正文里明确出现了其他重要角色，也可以提取）：\n"
+                f"{', '.join([p.name for p in character_participants])}\n\n"
+            )
 
         user_prompt = (
             f"{ref_text}"
-            f"章节正文：\n"
-            f"{text}"
-            f"请为以下参与者抽取动态信息：\n"
-            f"{', '.join([p.name for p in character_participants])}\n\n"
+            f"章节正文：\n{text}\n\n"
+            f"{participant_text}"
+            "请从以上正文中提取本章值得写回角色卡的动态信息。"
         )
 
+        log_extract_prompt("character_dynamic_extract", prompt_name, llm_config_id, system_prompt, user_prompt)
         res = await llm_service.generate_structured(
             session=self.session,
             llm_config_id=llm_config_id,
@@ -205,12 +429,6 @@ class MemoryService:
 
         if not isinstance(res, UpdateDynamicInfo):
             raise ValueError("LLM 动态信息抽取失败：输出格式不符合 UpdateDynamicInfo")
-        
-        # 后处理：仅保留 character_participants 中的角色
-        if character_participants:
-            name_set = {p.name for p in character_participants}
-            if isinstance(res.info_list, list):
-                res.info_list = [it for it in res.info_list if (it.name or '').strip() in name_set]
         
         return res
 

@@ -1,4 +1,5 @@
 import type { CardRead } from '@renderer/api/cards'
+import type { AssembleContextResponse } from '@renderer/api/ai'
 
 // 上下文解析变量
 export interface ResolveVars {
@@ -13,6 +14,7 @@ export interface ResolveContext {
   template: string
   cards: CardRead[]
   currentCard?: CardRead
+  assembledContext?: AssembleContextResponse | null
 }
 
 // 构建树并输出先序顺序（按每层 display_order 排序），用于“全局之前”判定
@@ -159,9 +161,9 @@ function getNearestAncestorOfType(cards: CardRead[], card: CardRead | undefined,
   return undefined
 }
 
-// 针对实体卡（角色/场景/组织）：若 life_span 为“短期”，且候选卡不在当前卡片所在分卷下，则忽略
+// 针对实体卡（角色/场景/组织/物品/概念）：若 life_span 为“短期”，且候选卡不在当前卡片所在分卷下，则忽略
 function filterShortLivedEntityAcrossVolumes(cards: CardRead[], currentCard: CardRead | undefined, list: CardRead[]): CardRead[] {
-  const entityTypes = new Set(['角色卡', '场景卡', '组织卡'])
+  const entityTypes = new Set(['角色卡', '场景卡', '组织卡', '物品卡', '概念卡'])
   if (!currentCard) return list
   const currentVol = getNearestAncestorOfType(cards, currentCard, '分卷大纲')
   const currentVolId = currentVol?.id
@@ -183,6 +185,33 @@ function stringifyValue(val: any): string {
   if (val == null) return ''
   if (typeof val === 'object') return JSON.stringify(val, null, 2)
   return String(val)
+}
+
+function getStructuredFacts(ctx: ResolveContext): Record<string, any> {
+  return ((ctx.assembledContext as any)?.facts_structured || {}) as Record<string, any>
+}
+
+function getFactsTokenValue(token: string, ctx: ResolveContext): any {
+  const facts = getStructuredFacts(ctx)
+  if (token === 'facts.fact_summaries') return facts.fact_summaries || []
+  if (token === 'facts.relation_summaries') return facts.relation_summaries || []
+  if (token === 'facts.item_summaries' || token === 'facts.entity:item') return facts.item_summaries || []
+  if (token === 'facts.concept_summaries' || token === 'facts.entity:concept') return facts.concept_summaries || []
+  return undefined
+}
+
+function getKgTokenValue(token: string, ctx: ResolveContext): any {
+  const m = token.match(/^kg:(.+)$/)
+  if (!m) return undefined
+  const entityName = m[1].trim().toLowerCase()
+  if (!entityName) return []
+  const relations = getStructuredFacts(ctx).relation_summaries
+  if (!Array.isArray(relations)) return []
+  return relations.filter((item: any) => {
+    const a = String(item?.a || '').trim().toLowerCase()
+    const b = String(item?.b || '').trim().toLowerCase()
+    return a === entityName || b === entityName
+  })
 }
 
 // 解析值表达式：支持 $self.$parent.$current 引用，JSON，数字与普通字符串
@@ -414,6 +443,16 @@ function resolveToken(rawToken: string, ctx: ResolveContext, vars: ResolveVars):
   // @核心蓝图.content
 
   const token = rawToken.replace(/^@/, '')
+
+  const factsTokenValue = getFactsTokenValue(token, ctx)
+  if (factsTokenValue !== undefined) {
+    return stringifyValue(factsTokenValue)
+  }
+
+  const kgTokenValue = getKgTokenValue(token, ctx)
+  if (kgTokenValue !== undefined) {
+    return stringifyValue(kgTokenValue)
+  }
 
   // 优先处理特殊选择器，避免被标题规则误匹配
   if (token.startsWith('stage:current')) {

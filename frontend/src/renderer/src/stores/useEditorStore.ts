@@ -30,6 +30,13 @@ export interface ChapterReplaceLineRangeOp {
 
 export type ChapterReplaceOp = ChapterReplaceTextOp | ChapterReplaceLineRangeOp
 
+export interface ChapterExtractRunOptions {
+  llm_config_id?: number
+  temperature?: number
+  max_tokens?: number
+  timeout?: number
+}
+
 export const useEditorStore = defineStore('editor', () => {
   // 当前激活的编辑器
   const activeEditor = ref<{ type: string; id: string; data?: any } | null>(null)
@@ -73,9 +80,15 @@ export const useEditorStore = defineStore('editor', () => {
   const persistActiveChapterDraftRef = ref<null | (() => Promise<boolean>)>(null)
 
   // 用于跨组件触发“提取动态信息”的回调
-  const triggerExtractDynamicInfoRef = ref<null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)>(null)
+  const triggerExtractDynamicInfoRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
   // 用于跨组件触发“提取关系入图”的回调
-  const triggerExtractRelationsRef = ref<null | ((opts: { llm_config_id?: number }) => Promise<void>)>(null)
+  const triggerExtractRelationsRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
+  // 用于跨组件触发“提取物品状态”的回调
+  const triggerExtractItemStateRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
+  // 用于跨组件触发“提取概念掌握”的回调
+  const triggerExtractConceptStateRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
+  const triggerExtractSceneStateRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
+  const triggerExtractOrganizationStateRef = ref<null | ((opts: ChapterExtractRunOptions) => Promise<void>)>(null)
 
   // 写作上下文共享：卷号/章节号/标题（供其它面板使用）
   const currentVolumeNumber = ref<number | null>(null)
@@ -180,23 +193,63 @@ export const useEditorStore = defineStore('editor', () => {
     return await persistActiveChapterDraftRef.value()
   }
 
-  function setTriggerExtractDynamicInfo(fn: null | ((opts: { llm_config_id?: number; preview?: boolean }) => Promise<void>)) {
+  function setTriggerExtractDynamicInfo(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
     triggerExtractDynamicInfoRef.value = fn
   }
 
-  async function triggerExtractDynamicInfo(opts: { llm_config_id?: number; preview?: boolean }) {
+  async function triggerExtractDynamicInfo(opts: ChapterExtractRunOptions) {
     if (triggerExtractDynamicInfoRef.value) {
       await triggerExtractDynamicInfoRef.value(opts)
     }
   }
 
-  function setTriggerExtractRelations(fn: null | ((opts: { llm_config_id?: number }) => Promise<void>)) {
+  function setTriggerExtractRelations(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
     triggerExtractRelationsRef.value = fn
   }
 
-  async function triggerExtractRelations(opts: { llm_config_id?: number }) {
+  async function triggerExtractRelations(opts: ChapterExtractRunOptions) {
     if (triggerExtractRelationsRef.value) {
       await triggerExtractRelationsRef.value(opts)
+    }
+  }
+
+  function setTriggerExtractItemState(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
+    triggerExtractItemStateRef.value = fn
+  }
+
+  async function triggerExtractItemState(opts: ChapterExtractRunOptions) {
+    if (triggerExtractItemStateRef.value) {
+      await triggerExtractItemStateRef.value(opts)
+    }
+  }
+
+  function setTriggerExtractConceptState(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
+    triggerExtractConceptStateRef.value = fn
+  }
+
+  async function triggerExtractConceptState(opts: ChapterExtractRunOptions) {
+    if (triggerExtractConceptStateRef.value) {
+      await triggerExtractConceptStateRef.value(opts)
+    }
+  }
+
+  function setTriggerExtractSceneState(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
+    triggerExtractSceneStateRef.value = fn
+  }
+
+  async function triggerExtractSceneState(opts: ChapterExtractRunOptions) {
+    if (triggerExtractSceneStateRef.value) {
+      await triggerExtractSceneStateRef.value(opts)
+    }
+  }
+
+  function setTriggerExtractOrganizationState(fn: null | ((opts: ChapterExtractRunOptions) => Promise<void>)) {
+    triggerExtractOrganizationStateRef.value = fn
+  }
+
+  async function triggerExtractOrganizationState(opts: ChapterExtractRunOptions) {
+    if (triggerExtractOrganizationStateRef.value) {
+      await triggerExtractOrganizationStateRef.value(opts)
     }
   }
 
@@ -218,6 +271,10 @@ export const useEditorStore = defineStore('editor', () => {
     persistActiveChapterDraftRef.value = null
     triggerExtractDynamicInfoRef.value = null
     triggerExtractRelationsRef.value = null
+    triggerExtractItemStateRef.value = null
+    triggerExtractConceptStateRef.value = null
+    triggerExtractSceneStateRef.value = null
+    triggerExtractOrganizationStateRef.value = null
     currentVolumeNumber.value = null
     currentChapterNumber.value = null
     currentChapterTitle.value = ''
@@ -264,7 +321,15 @@ export const useEditorStore = defineStore('editor', () => {
     triggerExtractDynamicInfo,
     setTriggerExtractRelations,
     triggerExtractRelations,
+    setTriggerExtractItemState,
+    triggerExtractItemState,
+    setTriggerExtractConceptState,
+    triggerExtractConceptState,
+    setTriggerExtractSceneState,
+    triggerExtractSceneState,
+    setTriggerExtractOrganizationState,
+    triggerExtractOrganizationState,
     setCurrentContextInfo,
     reset
   }
-}) 
+})

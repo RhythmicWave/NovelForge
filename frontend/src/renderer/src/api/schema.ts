@@ -13,6 +13,7 @@ export interface JSONSchema {
   enum?: any[]
   const?: any
   minLength?: number
+  'x-knowledge-source'?: string
 
   // Object properties
   properties?: { [key: string]: JSONSchema }

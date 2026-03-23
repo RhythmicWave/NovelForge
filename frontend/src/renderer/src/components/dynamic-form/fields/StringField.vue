@@ -55,4 +55,4 @@ const isLongText = computed(() => {
 const placeholder = computed(() => {
   return props.schema.description || `请输入 ${props.label}`
 })
-</script> 
+</script>

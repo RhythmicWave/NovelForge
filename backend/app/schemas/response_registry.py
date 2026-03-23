@@ -12,7 +12,7 @@ from app.schemas.wizard import (
 	Tags, WorldviewTemplate, Chapter,
  WritingGuide, ReviewResultCardContent
 )
-from app.schemas.entity import OrganizationCard
+from app.schemas.entity import ConceptCard, ItemCard, OrganizationCard
 from app.schemas.workflow_models import BookStageChunkPlan, BookStageFinalPlan
 
 
@@ -35,6 +35,8 @@ RESPONSE_MODEL_MAP: Dict[str, Any] = {
 	'CharacterCard': CharacterCard,
 	'SceneCard': SceneCard,
 	'OrganizationCard': OrganizationCard,
+	'ItemCard': ItemCard,
+	'ConceptCard': ConceptCard,
 	# 显式导出嵌套类型，便于前端字段树解析
 	'StageLine': StageLine,
 	'StoryLine': StoryLine,
