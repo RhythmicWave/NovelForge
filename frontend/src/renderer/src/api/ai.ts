@@ -74,32 +74,9 @@ export interface AIConfigOptions {
 export type AssembleContextRequest = components['schemas']['AssembleContextRequest']
 type AssembleContextResponseBase = components['schemas']['AssembleContextResponse']
 
-export interface ItemSummary {
-  name: string
-  category?: string
-  description?: string
-  owner_hint?: string | null
-  current_state?: string | null
-  power_or_effect?: string | null
-  constraints?: string | null
-  important_events?: string[]
-}
-
-export interface ConceptSummary {
-  name: string
-  category?: string
-  description?: string
-  rule_definition?: string
-  cost?: string | null
-  mastery_hint?: string | null
-  known_by?: string[]
-  counter_relations?: string[]
-}
-
-export interface FactsStructuredExtended extends NonNullable<AssembleContextResponseBase['facts_structured']> {
-  item_summaries?: ItemSummary[]
-  concept_summaries?: ConceptSummary[]
-}
+export type ItemSummary = components['schemas']['ItemSummary']
+export type ConceptSummary = components['schemas']['ConceptSummary']
+export type FactsStructuredExtended = NonNullable<AssembleContextResponseBase['facts_structured']>
 
 export type AssembleContextResponse = Omit<AssembleContextResponseBase, 'facts_structured'> & {
   facts_structured?: FactsStructuredExtended | null
