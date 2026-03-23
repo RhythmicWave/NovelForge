@@ -19,7 +19,7 @@
 						</el-dropdown-menu>
 					</template>
 				</el-dropdown>
-				
+
 				<el-dropdown @command="(c:any) => lineHeight = c" size="small">
 					<el-button size="small">
 						{{ lineHeight }}
@@ -37,7 +37,7 @@
 			</div>
 
 			<div class="toolbar-divider"></div>
-			
+
 			<!-- AI功能组 -->
 			<div class="toolbar-group toolbar-group-ai">
 				<span class="group-label">AI</span>
@@ -147,8 +147,8 @@
 		<!-- 标题区域 -->
 	<div class="chapter-header">
 		<div class="title-section">
-			<h1 
-				class="chapter-title" 
+			<h1
+				class="chapter-title"
 				contenteditable="true"
 				@blur="handleTitleBlur"
 				@keydown.enter.prevent="handleTitleEnter"
@@ -174,15 +174,15 @@
 
 		<!-- 右键快速编辑菜单 -->
 		<Teleport to="body">
-			<div 
-				v-if="contextMenu.visible" 
+			<div
+				v-if="contextMenu.visible"
 				class="context-menu-popup"
 				:style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
 			>
 				<div v-if="!contextMenu.expanded" class="context-menu-compact">
-					<el-button 
-						type="primary" 
-						size="small" 
+					<el-button
+						type="primary"
+						size="small"
 						@click="expandContextMenu"
 					>
 						快速编辑
@@ -205,23 +205,23 @@
 						style="margin-bottom: 8px;"
 					/>
 					<div class="context-menu-actions">
-						<el-button 
-							type="primary" 
-							size="small" 
+						<el-button
+							type="primary"
+							size="small"
 							:loading="aiLoading"
 							@click="handleContextMenuPolish"
 						>
 							<el-icon><Document /></el-icon> 润色
 						</el-button>
-						<el-button 
-							type="primary" 
+						<el-button
+							type="primary"
 							size="small"
 							:loading="aiLoading"
 							@click="handleContextMenuExpand"
 						>
 							<el-icon><MagicStick /></el-icon> 扩写
 						</el-button>
-						<el-button 
+						<el-button
 							size="small"
 							@click="closeContextMenu"
 						>
@@ -281,14 +281,91 @@
 		/>
 
 		<el-dialog v-model="previewDialogVisible" title="动态信息预览" width="70%">
+			<template #header>
+				<div class="preview-dialog-header">
+					<div class="preview-dialog-header__title">动态信息预览</div>
+				</div>
+			</template>
 			<div v-if="previewData">
-				<div v-for="role in previewData.info_list" :key="role.name" class="role-block">
-					<h4>{{ role.name }}</h4>
+				<div v-if="dynamicMissingCards.length" class="missing-card-panel">
+					<el-alert
+						type="warning"
+						:closable="false"
+						show-icon
+						title="以下角色在本章正文中被提取到了，但当前项目里还没有对应角色卡。确认更新时这些角色会被跳过；如果需要，请先手动新建对应角色卡，再回到当前预览继续确认。"
+					/>
+					<div class="missing-card-list">
+						<div v-for="item in dynamicMissingCards" :key="item.key" class="missing-card-item">
+							<span>{{ item.title }}</span>
+							<el-button size="small" type="primary" plain @click="openCreateCardFromPreview(item)">
+								新增{{ item.cardTypeName }}
+							</el-button>
+						</div>
+					</div>
+				</div>
+				<div v-if="dynamicParticipantReviewNotices.length" class="participant-review-panel">
+					<el-alert
+						type="info"
+						:closable="false"
+						show-icon
+						title="以下角色仍在本章参与实体里，但这次动态提取结果中没有出现。若确认他们已不再参与本章节，可将其移出本章参与实体；如果只是本章没有新的动态信息，也可以忽略。"
+					/>
+					<div class="missing-card-list">
+						<div v-for="item in dynamicParticipantReviewNotices" :key="item.key" class="missing-card-item">
+							<span>{{ item.title }}</span>
+							<el-button size="small" type="warning" plain @click="removeParticipantFromCurrentChapter(item)">
+								移出本章参与实体
+							</el-button>
+						</div>
+					</div>
+				</div>
+				<el-empty
+					v-if="isDynamicPreviewEmpty"
+					description="本次未提取到可写回的角色动态信息。你可以直接关闭预览，或调整提示词后重试。"
+				/>
+				<div v-for="(role, roleIndex) in validDynamicPreviewRoles" :key="role.name" class="role-block">
+					<el-input
+						v-if="isPreviewEditing(buildPreviewEditKey('dynamic-role', roleIndex, 'name'))"
+						v-model="role.name"
+						size="small"
+						class="preview-entity-name-input"
+						@blur="deactivatePreviewEdit(buildPreviewEditKey('dynamic-role', roleIndex, 'name'))"
+					/>
+					<div
+						v-else
+						class="preview-read-field preview-read-field--title"
+						@click="activatePreviewEdit(buildPreviewEditKey('dynamic-role', roleIndex, 'name'))"
+					>
+						{{ formatPreviewDisplayValue(role.name) }}
+					</div>
 					<div v-for="(items, catKey) in role.dynamic_info" :key="String(catKey)" class="cat-block">
 						<div class="cat-title">{{ formatCategory(catKey) }}</div>
-						<el-table :data="items as any[]" size="small" border>
+						<el-table :data="items as any[]" size="small" border class="preview-table">
 							<el-table-column prop="id" label="ID" width="60" />
-							<el-table-column prop="info" label="信息" min-width="360" />
+							<el-table-column label="信息" min-width="360">
+								<template #default="scope">
+									<el-input
+										v-if="isPreviewEditing(buildPreviewEditKey('dynamic-role', roleIndex, String(catKey), scope.$index, 'info'))"
+										v-model="scope.row.info"
+										type="textarea"
+										:autosize="compactTextareaAutosize"
+										@blur="deactivatePreviewEdit(buildPreviewEditKey('dynamic-role', roleIndex, String(catKey), scope.$index, 'info'))"
+									/>
+									<div
+										v-else
+										class="preview-read-field preview-read-field--multiline"
+										@click="activatePreviewEdit(buildPreviewEditKey('dynamic-role', roleIndex, String(catKey), scope.$index, 'info'))"
+									>
+										<div
+											v-for="(line, lineIndex) in formatPreviewDisplayLines(scope.row.info)"
+											:key="lineIndex"
+											class="preview-read-field__line"
+										>
+											{{ line }}
+										</div>
+									</div>
+								</template>
+							</el-table-column>
 							<el-table-column label="操作" width="90">
 								<template #default="scope">
 									<el-button type="danger" text size="small" @click="removePreviewItem(role.name, String(catKey), scope.$index)">删除</el-button>
@@ -297,51 +374,758 @@
 						</el-table>
 					</div>
 				</div>
+				<el-alert
+					class="preview-bottom-tip"
+					type="info"
+					:closable="false"
+					show-icon
+					:title="previewConfirmReminder"
+				/>
 			</div>
 			<template #footer>
 				<el-button @click="previewDialogVisible=false">取消</el-button>
-				<el-button type="primary" @click="confirmApplyUpdates">确定更新</el-button>
+				<el-button type="primary" :loading="dynamicPreviewApplying" @click="confirmApplyUpdates">确认</el-button>
 			</template>
 		</el-dialog>
 
 		<el-dialog v-model="relationsPreviewVisible" title="关系入图预览" width="70%">
+			<template #header>
+				<div class="preview-dialog-header">
+					<div class="preview-dialog-header__title">关系入图预览</div>
+				</div>
+			</template>
 			<div v-if="relationsPreview">
-				<div style="margin-top: 16px" v-if="relationsPreview.relations?.length">
+				<div v-if="relationMissingCards.length" class="missing-card-panel">
+					<el-alert
+						type="warning"
+						:closable="false"
+						show-icon
+						title="以下关系端点在卡片树中还没有对应实体卡。确认入图仍可继续；如果你希望先补齐实体卡，可以先手动新建，再回到当前预览继续确认。"
+					/>
+					<div class="missing-card-list">
+						<div v-for="item in relationMissingCards" :key="item.key" class="missing-card-item">
+							<span>{{ item.title }} · {{ item.cardTypeName }}</span>
+							<el-button size="small" type="primary" plain @click="openCreateCardFromPreview(item)">
+								新增{{ item.cardTypeName }}
+							</el-button>
+						</div>
+					</div>
+				</div>
+				<el-empty
+					v-if="isRelationsPreviewEmpty"
+					description="本次未提取到可入图的关系信息。你可以直接关闭预览，或调整模型参数后重试。"
+				/>
+				<div style="margin-top: 16px" v-if="validRelationPreviewItems.length">
 					<h4>关系项</h4>
-					<el-table :data="relationsPreview.relations" size="small" border>
-						<el-table-column prop="a" label="A" width="160" />
-						<el-table-column prop="kind" label="关系" width="120" />
-						<el-table-column prop="b" label="B" width="160" />
-						<el-table-column label="证据">
-							<template #default="{ row }">
-								<div v-if="row.a_to_b_addressing || row.b_to_a_addressing">
-									<div v-if="row.a_to_b_addressing">A称呼B: {{ row.a_to_b_addressing }}</div>
-									<div v-if="row.b_to_a_addressing">B称呼A: {{ row.b_to_a_addressing }}</div>
+					<el-table :data="validRelationPreviewItems" size="small" border class="preview-table">
+						<el-table-column label="A" width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('relation', $index, 'a'))"
+									v-model="row.a"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('relation', $index, 'a'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('relation', $index, 'a'))"
+								>
+									{{ formatPreviewDisplayValue(row.a) }}
 								</div>
-								<div v-if="row.recent_dialogues?.length">
-									<div>对话样例：</div>
-									<ul style="margin: 4px 0 0 16px; padding: 0;">
-										<li v-for="(d, i) in row.recent_dialogues" :key="i" style="list-style: disc;">
-											{{ d }}
-										</li>
-									</ul>
+							</template>
+						</el-table-column>
+						<el-table-column label="关系" width="140">
+							<template #default="{ row, $index }">
+								<el-select
+									v-if="isPreviewEditing(buildPreviewEditKey('relation', $index, 'kind'))"
+									v-model="row.kind"
+									size="small"
+									style="width: 100%"
+									@change="deactivatePreviewEdit(buildPreviewEditKey('relation', $index, 'kind'))"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('relation', $index, 'kind'))"
+								>
+									<el-option v-for="kind in RELATION_KIND_OPTIONS" :key="kind" :label="kind" :value="kind" />
+								</el-select>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('relation', $index, 'kind'))"
+								>
+									{{ formatPreviewDisplayValue(row.kind, '点击选择') }}
 								</div>
-								<div v-if="row.recent_event_summaries?.length">
-									<div>
-										近期事件：{{ row.recent_event_summaries[ row.recent_event_summaries.length - 1 ].summary }}
-										<span v-if="row.recent_event_summaries[row.recent_event_summaries.length-1].volume_number != null || row.recent_event_summaries[row.recent_event_summaries.length-1].chapter_number != null" class="event-meta">
-											（卷{{ row.recent_event_summaries[row.recent_event_summaries.length-1].volume_number ?? '-' }}·章{{ row.recent_event_summaries[row.recent_event_summaries.length-1].chapter_number ?? '-' }}）
-										</span>
+							</template>
+						</el-table-column>
+						<el-table-column label="B" width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('relation', $index, 'b'))"
+									v-model="row.b"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('relation', $index, 'b'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('relation', $index, 'b'))"
+								>
+									{{ formatPreviewDisplayValue(row.b) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="说明" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('relation', $index, 'description'))"
+									v-model="row.description"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('relation', $index, 'description'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('relation', $index, 'description'))"
+								>
+									<div
+										v-for="(line, lineIndex) in formatPreviewDisplayLines(row.description)"
+										:key="lineIndex"
+										class="preview-read-field__line"
+									>
+										{{ line }}
 									</div>
 								</div>
 							</template>
 						</el-table-column>
+						<el-table-column label="证据">
+							<template #default="{ row, $index }">
+								<div
+									v-if="!isPreviewEditing(buildPreviewEditKey('relation', $index, 'evidence'))"
+									class="preview-read-field preview-read-field--multiline preview-evidence-summary"
+									@click="activatePreviewEdit(buildPreviewEditKey('relation', $index, 'evidence'))"
+								>
+									<div class="preview-read-field__line">A 对 B 称呼：{{ formatPreviewDisplayValue(row.a_to_b_addressing, '未填写') }}</div>
+									<div class="preview-read-field__line">B 对 A 称呼：{{ formatPreviewDisplayValue(row.b_to_a_addressing, '未填写') }}</div>
+									<div
+										v-for="(line, lineIndex) in formatPreviewDisplayLines(row.recent_dialogues, '点击补充近期对白')"
+										:key="`dialogue-${lineIndex}`"
+										class="preview-read-field__line"
+									>
+										对白：{{ line }}
+									</div>
+									<div
+										v-for="(line, lineIndex) in formatEventSummaryDisplayLines(row.recent_event_summaries, '点击补充近期事件摘要')"
+										:key="`event-${lineIndex}`"
+										class="preview-read-field__line"
+									>
+										事件：{{ line }}
+									</div>
+								</div>
+								<div
+									v-else
+									class="preview-evidence-editor"
+								>
+									<el-input
+										v-model="row.a_to_b_addressing"
+										size="small"
+										placeholder="A 对 B 的称呼"
+									/>
+									<el-input
+										v-model="row.b_to_a_addressing"
+										size="small"
+										placeholder="B 对 A 的称呼"
+									/>
+									<el-input
+										:model-value="joinPreviewLines(row.recent_dialogues)"
+										type="textarea"
+										:autosize="compactTextareaAutosize"
+										placeholder="每行一条对话样例"
+										@update:model-value="value => updatePreviewStringArray(row, 'recent_dialogues', value)"
+									/>
+									<el-input
+										:model-value="joinEventSummaryLines(row.recent_event_summaries)"
+										type="textarea"
+										:autosize="compactTextareaAutosize"
+										placeholder="每行一条近期事件摘要"
+										@update:model-value="value => updateRelationEventSummaries(row, value)"
+									/>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="操作" width="90">
+							<template #default="{ row, $index }">
+								<el-button type="danger" text size="small" @click="removeRelationPreviewItem($index, row)">删除</el-button>
+							</template>
+						</el-table-column>
 					</el-table>
 				</div>
+				<el-alert
+					class="preview-bottom-tip"
+					type="info"
+					:closable="false"
+					show-icon
+					:title="previewConfirmReminder"
+				/>
 			</div>
 			<template #footer>
 				<el-button @click="relationsPreviewVisible=false">取消</el-button>
-				<el-button type="primary" @click="confirmIngestRelationsFromPreview">确认入图</el-button>
+				<el-button type="primary" :loading="relationsPreviewApplying" @click="confirmIngestRelationsFromPreview">确认</el-button>
+			</template>
+		</el-dialog>
+
+		<el-dialog v-model="memoryPreviewVisible" :title="memoryPreviewTitleResolved" width="78%">
+			<template #header>
+				<div class="preview-dialog-header">
+					<div class="preview-dialog-header__title">{{ memoryPreviewTitleResolved }}</div>
+				</div>
+			</template>
+			<div v-if="memoryPreviewData">
+				<div v-if="memoryMissingCards.length" class="missing-card-panel">
+					<el-alert
+						type="warning"
+						:closable="false"
+						show-icon
+						title="以下实体在本章正文中被提取到了，但当前项目里还没有对应卡片。确认写入时这些实体会被跳过；如果需要，请先手动新建对应卡片，再回到当前预览继续确认。"
+					/>
+					<div class="missing-card-list">
+						<div v-for="item in memoryMissingCards" :key="item.key" class="missing-card-item">
+							<span>{{ item.title }} · {{ item.cardTypeName }}</span>
+							<el-button size="small" type="primary" plain @click="openCreateCardFromPreview(item)">
+								新增{{ item.cardTypeName }}
+							</el-button>
+						</div>
+					</div>
+				</div>
+				<div v-if="memoryParticipantReviewNotices.length" class="participant-review-panel">
+					<el-alert
+						type="info"
+						:closable="false"
+						show-icon
+						title="以下实体仍在本章参与实体里，但这次提取结果中没有出现。若确认它们已不再参与本章节，可将其移出本章参与实体；如果只是本章没有新的状态变化，也可以忽略。"
+					/>
+					<div class="missing-card-list">
+						<div v-for="item in memoryParticipantReviewNotices" :key="item.key" class="missing-card-item">
+							<span>{{ item.title }} · {{ item.cardTypeName }}</span>
+							<el-button size="small" type="warning" plain @click="removeParticipantFromCurrentChapter(item)">
+								移出本章参与实体
+							</el-button>
+						</div>
+					</div>
+				</div>
+				<el-empty
+					v-if="isMemoryPreviewEmpty"
+					:description="memoryPreviewEmptyDescription"
+				/>
+				<div v-if="memoryPreviewExtractorCode === 'scene_state' && validScenePreviewItems.length" style="margin-top: 16px">
+					<h4>场景状态预览</h4>
+					<el-table :data="validScenePreviewItems" size="small" border class="preview-table">
+						<el-table-column label="名称" width="150">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('scene', $index, 'name'))"
+									v-model="row.name"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('scene', $index, 'name'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('scene', $index, 'name'))"
+								>
+									{{ formatPreviewDisplayValue(row.name) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="简介" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('scene', $index, 'description'))"
+									v-model="row.description"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('scene', $index, 'description'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('scene', $index, 'description'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.description)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="剧情作用" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('scene', $index, 'function_in_story'))"
+									v-model="row.function_in_story"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('scene', $index, 'function_in_story'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('scene', $index, 'function_in_story'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.function_in_story)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="当前状态" min-width="220">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('scene', $index, 'dynamic_state'))"
+									:model-value="joinPreviewLines(row.dynamic_state)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一条当前状态"
+									@update:model-value="value => updatePreviewStringArray(row, 'dynamic_state', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('scene', $index, 'dynamic_state'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('scene', $index, 'dynamic_state'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.dynamic_state)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="操作" width="90">
+							<template #default="{ row, $index }">
+								<el-button type="danger" text size="small" @click="removeMemoryCardPreviewItem('scenes', $index, row)">删除</el-button>
+							</template>
+						</el-table-column>
+					</el-table>
+				</div>
+
+				<div v-if="memoryPreviewExtractorCode === 'organization_state' && validOrganizationPreviewItems.length" style="margin-top: 16px">
+					<h4>组织状态预览</h4>
+					<el-table :data="validOrganizationPreviewItems" size="small" border class="preview-table">
+						<el-table-column label="名称" width="150">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('organization', $index, 'name'))"
+									v-model="row.name"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('organization', $index, 'name'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('organization', $index, 'name'))"
+								>
+									{{ formatPreviewDisplayValue(row.name) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="简介" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('organization', $index, 'description'))"
+									v-model="row.description"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('organization', $index, 'description'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('organization', $index, 'description'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.description)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="影响力" min-width="160">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('organization', $index, 'influence'))"
+									v-model="row.influence"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('organization', $index, 'influence'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('organization', $index, 'influence'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.influence)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="对外关系" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('organization', $index, 'relationship'))"
+									:model-value="joinPreviewLines(row.relationship)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一条对外关系"
+									@update:model-value="value => updatePreviewStringArray(row, 'relationship', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('organization', $index, 'relationship'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('organization', $index, 'relationship'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.relationship)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="当前状态" min-width="220">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('organization', $index, 'dynamic_state'))"
+									:model-value="joinPreviewLines(row.dynamic_state)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一条当前状态"
+									@update:model-value="value => updatePreviewStringArray(row, 'dynamic_state', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('organization', $index, 'dynamic_state'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('organization', $index, 'dynamic_state'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.dynamic_state)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="操作" width="90">
+							<template #default="{ row, $index }">
+								<el-button type="danger" text size="small" @click="removeMemoryCardPreviewItem('organizations', $index, row)">删除</el-button>
+							</template>
+						</el-table-column>
+					</el-table>
+				</div>
+
+				<div v-if="memoryPreviewExtractorCode === 'item_state' && validItemPreviewItems.length" style="margin-top: 16px">
+					<h4>物品状态预览</h4>
+					<el-table :data="validItemPreviewItems" size="small" border class="preview-table">
+						<el-table-column label="名称" width="150">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'name'))"
+									v-model="row.name"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'name'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'name'))"
+								>
+									{{ formatPreviewDisplayValue(row.name) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="类别" width="120">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'category'))"
+									v-model="row.category"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'category'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'category'))"
+								>
+									{{ formatPreviewDisplayValue(row.category) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="简介" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'description'))"
+									v-model="row.description"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'description'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'description'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.description)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="归属提示" width="140">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'owner_hint'))"
+									v-model="row.owner_hint"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'owner_hint'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'owner_hint'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.owner_hint)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="当前状态" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'current_state'))"
+									v-model="row.current_state"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'current_state'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'current_state'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.current_state)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="作用/效果" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'power_or_effect'))"
+									v-model="row.power_or_effect"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'power_or_effect'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'power_or_effect'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.power_or_effect)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="限制" min-width="160">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'constraints'))"
+									v-model="row.constraints"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'constraints'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'constraints'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.constraints)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="重要事件" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('item', $index, 'important_events'))"
+									:model-value="joinPreviewLines(row.important_events)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一条重要事件"
+									@update:model-value="value => updatePreviewStringArray(row, 'important_events', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('item', $index, 'important_events'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('item', $index, 'important_events'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.important_events)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="操作" width="90">
+							<template #default="{ row, $index }">
+								<el-button type="danger" text size="small" @click="removeMemoryCardPreviewItem('items', $index, row)">删除</el-button>
+							</template>
+						</el-table-column>
+					</el-table>
+				</div>
+
+				<div v-if="memoryPreviewExtractorCode === 'concept_state' && validConceptPreviewItems.length" style="margin-top: 16px">
+					<h4>概念掌握预览</h4>
+					<el-table :data="validConceptPreviewItems" size="small" border class="preview-table">
+						<el-table-column label="名称" width="150">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'name'))"
+									v-model="row.name"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'name'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'name'))"
+								>
+									{{ formatPreviewDisplayValue(row.name) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="类别" width="120">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'category'))"
+									v-model="row.category"
+									size="small"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'category'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'category'))"
+								>
+									{{ formatPreviewDisplayValue(row.category) }}
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="简介" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'description'))"
+									v-model="row.description"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'description'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'description'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.description)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="规则定义" min-width="220">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'rule_definition'))"
+									v-model="row.rule_definition"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'rule_definition'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'rule_definition'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.rule_definition)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="代价" min-width="160">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'cost'))"
+									v-model="row.cost"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'cost'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'cost'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.cost)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="掌握提示" min-width="180">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'mastery_hint'))"
+									v-model="row.mastery_hint"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'mastery_hint'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'mastery_hint'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.mastery_hint)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="已知掌握者" min-width="160">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'known_by'))"
+									:model-value="joinPreviewLines(row.known_by)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一个已知掌握者"
+									@update:model-value="value => updatePreviewStringArray(row, 'known_by', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'known_by'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'known_by'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.known_by)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="克制关系" min-width="160">
+							<template #default="{ row, $index }">
+								<el-input
+									v-if="isPreviewEditing(buildPreviewEditKey('concept', $index, 'counter_relations'))"
+									:model-value="joinPreviewLines(row.counter_relations)"
+									type="textarea"
+									:autosize="compactTextareaAutosize"
+									placeholder="每行一条克制关系"
+									@update:model-value="value => updatePreviewStringArray(row, 'counter_relations', value)"
+									@blur="deactivatePreviewEdit(buildPreviewEditKey('concept', $index, 'counter_relations'))"
+								/>
+								<div
+									v-else
+									class="preview-read-field preview-read-field--multiline"
+									@click="activatePreviewEdit(buildPreviewEditKey('concept', $index, 'counter_relations'))"
+								>
+									<div v-for="(line, lineIndex) in formatPreviewDisplayLines(row.counter_relations)" :key="lineIndex" class="preview-read-field__line">{{ line }}</div>
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column label="操作" width="90">
+							<template #default="{ row, $index }">
+								<el-button type="danger" text size="small" @click="removeMemoryCardPreviewItem('concepts', $index, row)">删除</el-button>
+							</template>
+						</el-table-column>
+					</el-table>
+				</div>
+				<el-alert
+					class="preview-bottom-tip"
+					type="info"
+					:closable="false"
+					show-icon
+					:title="previewConfirmReminder"
+				/>
+			</div>
+			<template #footer>
+				<el-button @click="closeMemoryPreview">取消</el-button>
+				<el-button type="primary" :loading="memoryPreviewApplying" @click="applyMemoryPreviewConfirm">确认</el-button>
 			</template>
 		</el-dialog>
 	</div>
@@ -355,14 +1139,24 @@ import SimpleMarkdown from '../common/SimpleMarkdown.vue'
 import { useCardStore } from '@renderer/stores/useCardStore'
 import { useProjectStore } from '@renderer/stores/useProjectStore'
 import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/stores/usePerCardAISettingsStore'
-import { useEditorStore } from '@renderer/stores/useEditorStore'
+import { useEditorStore, type ChapterExtractRunOptions } from '@renderer/stores/useEditorStore'
 import { useAppStore } from '@renderer/stores/useAppStore'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
-import type { CardRead, CardUpdate } from '@renderer/api/cards'
+import { updateCardRaw, type CardRead, type CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
 import { runReview, upsertReviewCard, type QualityGate, type ReviewDraftResult, type ReviewRunRequest } from '@renderer/api/chapterReviews'
 import { getCardAIParams, updateCardAIParams, applyCardAIParamsToType } from '@renderer/api/setting'
-import { extractDynamicInfoOnly, updateDynamicInfoOnly, type UpdateDynamicInfoOutput, extractRelationsOnly, ingestRelationsFromPreview, type RelationExtractionOutput } from '@renderer/api/memory'
+import {
+	extractDynamicInfoOnly,
+	updateDynamicInfoOnly,
+	type UpdateDynamicInfoOutput,
+	extractRelationsOnly,
+	ingestRelationsFromPreview,
+	type RelationExtractionOutput,
+	extractMemoryPreview,
+	applyMemoryPreview,
+	type ExtractPreviewResponse,
+} from '@renderer/api/memory'
 import { ArrowDown, Document, MagicStick, CircleClose, Connection, List, Timer, Select, Loading } from '@element-plus/icons-vue'
 import AIPerCardParams from '../common/AIPerCardParams.vue'
 import ContinuationBudgetDialog, { type ContinuationWordControlMode } from './dialogs/ContinuationBudgetDialog.vue'
@@ -382,7 +1176,11 @@ const props = defineProps<{
 	generationContextKind?: ContextTemplateKind
 	reviewContextKind?: ContextTemplateKind
 }>()
-const emit = defineEmits<{ 
+
+const previewConfirmReminder =
+	'若信息提取有误，如卡片名称不准确，请手动编辑调整后再确认，避免数据回写对应卡片失败'
+
+const emit = defineEmits<{
 	(e: 'update:chapter', value: any): void
 	(e: 'save'): void
 	(e: 'switch-tab', tab: string): void
@@ -542,39 +1340,51 @@ watch(() => props.card, async (newCard) => {
 // 监听卡片内容变化（如灵感助手修改后），同步到编辑器
 watch(() => props.card?.content, (newContent) => {
 	if (!newContent || !view) return
-	
+
 	try {
-		const newText = typeof (newContent as any)?.content === 'string' 
-			? (newContent as any).content 
+		const newText = typeof (newContent as any)?.content === 'string'
+			? (newContent as any).content
 			: ''
 		const currentText = getText()
-		
+		const currentContent = localCard.content || {}
+		const syncedContent = {
+			...currentContent,
+			...(newContent as any),
+			content: currentText,
+			word_count: typeof (newContent as any)?.word_count === 'number'
+				? (newContent as any).word_count
+				: currentText.length,
+		}
+
 		// 只有当内容真的不同，且不是由当前编辑器触发的保存时，才更新
 		// （通过比较 originalContent 判断：如果相同说明是外部修改）
 		if (newText !== currentText && newText !== originalContent.value) {
 			console.log('🔄 [CodeMirror] 检测到外部内容更新，同步到编辑器')
-			
+
 			// 更新编辑器内容
 			setText(newText)
-			
+
 			// 更新 localCard
 			localCard.content = {
-				...(localCard.content || {}),
-				...(newContent as any),
+				...syncedContent,
 				content: newText,
 				word_count: newText.length
 			}
-			
+
 			// 更新原始内容引用（避免触发 dirty）
 			originalContent.value = newText
 			isDirty.value = false
 			emit('update:dirty', false)
-			
+
 			// 更新字数
 			wordCount.value = computeWordCount(newText)
-			
+
 			console.log('✅ [CodeMirror] 编辑器内容已同步')
+			return
 		}
+
+		// 即使正文文本未变化，也要同步 entity_list 等字段，保证预览始终读取最新章节挂载实体。
+		localCard.content = syncedContent
 	} catch (e) {
 		console.error('❌ [CodeMirror] 同步内容失败:', e)
 	}
@@ -621,27 +1431,6 @@ const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
 const reviewAbortController = ref<AbortController | null>(null)
 const canInterruptAiTask = computed(() => aiLoading.value || reviewLoading.value || Boolean(reviewAbortController.value))
-const previewBeforeUpdate = ref(true)
-
-// 章节正文：保存时是否自动触发提取（角色动态信息 / 关系入图）
-const AUTO_EXTRACT_DYNAMIC_KEY = 'nf:chapter:auto_extract_dynamic_on_save'
-const AUTO_EXTRACT_RELATIONS_KEY = 'nf:chapter:auto_extract_relations_on_save'
-
-function isDynamicAutoExtractEnabled(): boolean {
-	try {
-		return localStorage.getItem(AUTO_EXTRACT_DYNAMIC_KEY) === '1'
-	} catch {
-		return false
-	}
-}
-
-function isRelationsAutoExtractEnabled(): boolean {
-	try {
-		return localStorage.getItem(AUTO_EXTRACT_RELATIONS_KEY) === '1'
-	} catch {
-		return false
-	}
-}
 
 // 右键菜单状态
 const contextMenu = reactive({
@@ -755,9 +1544,47 @@ const previewDialogVisible = ref(false)
 const previewData = ref<UpdateDynamicInfoOutput | null>(null)
 const relationsPreviewVisible = ref(false)
 const relationsPreview = ref<RelationExtractionOutput | null>(null)
+const memoryPreviewVisible = ref(false)
+type MemoryExtractorCode = 'scene_state' | 'organization_state' | 'item_state' | 'concept_state'
+const memoryPreviewExtractorCode = ref<MemoryExtractorCode | ''>('')
+const memoryPreviewData = ref<ExtractPreviewResponse['preview_data'] | null>(null)
+watch([previewDialogVisible, relationsPreviewVisible, memoryPreviewVisible], ([dynamicOpen, relationOpen, memoryOpen]) => {
+	if (!dynamicOpen && !relationOpen && !memoryOpen) {
+		deactivatePreviewEdit()
+	}
+})
+type ManagedCardTypeName = '角色卡' | '场景卡' | '组织卡' | '物品卡' | '概念卡'
+type ManagedEntityType = 'character' | 'scene' | 'organization' | 'item' | 'concept'
+interface MissingCardNotice {
+	key: string
+	title: string
+	cardTypeName: ManagedCardTypeName
+	entityType: ManagedEntityType
+}
+interface ParticipantReviewNotice {
+	key: string
+	title: string
+	cardTypeName: ManagedCardTypeName
+	entityType: ManagedEntityType
+}
+const ENTITY_TYPE_TO_CARD_TYPE_NAME: Record<ManagedEntityType, ManagedCardTypeName> = {
+	character: '角色卡',
+	scene: '场景卡',
+	organization: '组织卡',
+	item: '物品卡',
+	concept: '概念卡',
+}
+const RELATION_KIND_OPTIONS = [
+	'同盟', '队友', '同门', '敌对', '亲属', '师徒', '对手', '伙伴', '上级', '下属', '指导',
+	'隶属', '成员', '领导', '创立', '拥有', '使用', '修炼', '领悟', '承载', '映射',
+	'控制', '位于', '影响', '克制', '关于', '其他',
+]
 const reviewText = ref('')
 const reviewDraft = ref<ReviewDraftResult | null>(null)
 const reviewCardSaving = ref(false)
+const dynamicPreviewApplying = ref(false)
+const relationsPreviewApplying = ref(false)
+const memoryPreviewApplying = ref(false)
 const continuationDialogVisible = ref(false)
 const continuationDialogState = reactive<{
 	targetWordCount: number
@@ -768,6 +1595,237 @@ const continuationDialogState = reactive<{
 	wordControlMode: 'balanced',
 	guidance: '',
 })
+
+const memoryPreviewTitleResolved = computed(() => {
+	switch (memoryPreviewExtractorCode.value) {
+		case 'scene_state':
+			return '场景状态预览'
+		case 'organization_state':
+			return '组织状态预览'
+		case 'item_state':
+			return '物品状态预览'
+		case 'concept_state':
+			return '概念掌握预览'
+		default:
+			return '记忆预览'
+	}
+})
+
+function hasMeaningfulText(value: unknown): boolean {
+	return String(value || '').trim().length > 0
+}
+
+function hasMeaningfulStringArray(values: unknown): boolean {
+	return normalizePreviewLines(values).length > 0
+}
+
+function hasMeaningfulRelationPreviewItem(item: any): boolean {
+	if (!item || typeof item !== 'object') return false
+	return [
+		item.a,
+		item.kind,
+		item.b,
+		item.description,
+		item.a_to_b_addressing,
+		item.b_to_a_addressing,
+	].some(hasMeaningfulText)
+		|| hasMeaningfulStringArray(item.recent_dialogues)
+		|| (Array.isArray(item.recent_event_summaries)
+			&& item.recent_event_summaries.some((entry: any) => hasMeaningfulText(entry?.summary)))
+}
+
+function hasMeaningfulMemoryPreviewItem(item: any, fields: string[]): boolean {
+	if (!item || typeof item !== 'object') return false
+	return fields.some(field => {
+		const value = item[field]
+		if (Array.isArray(value)) return hasMeaningfulStringArray(value)
+		return hasMeaningfulText(value)
+	})
+}
+
+const validRelationPreviewItems = computed(() =>
+	(relationsPreview.value?.relations || []).filter(item => hasMeaningfulRelationPreviewItem(item)),
+)
+const isRelationsPreviewEmpty = computed(() => validRelationPreviewItems.value.length === 0)
+const compactTextareaAutosize = { minRows: 1, maxRows: 4 }
+const activePreviewEditKey = ref('')
+
+const validDynamicPreviewRoles = computed(() => {
+	const roles = previewData.value?.info_list || []
+	return roles.filter(role =>
+		Object.values(role?.dynamic_info || {}).some(items => Array.isArray(items) && items.length > 0),
+	)
+})
+
+const isDynamicPreviewEmpty = computed(() => validDynamicPreviewRoles.value.length === 0)
+
+const validScenePreviewItems = computed(() =>
+	(memoryPreviewData.value?.scenes || []).filter(item =>
+		hasMeaningfulMemoryPreviewItem(item, ['name', 'description', 'function_in_story', 'dynamic_state']),
+	),
+)
+
+const validOrganizationPreviewItems = computed(() =>
+	(memoryPreviewData.value?.organizations || []).filter(item =>
+		hasMeaningfulMemoryPreviewItem(item, ['name', 'description', 'influence', 'relationship', 'dynamic_state']),
+	),
+)
+
+const validItemPreviewItems = computed(() =>
+	(memoryPreviewData.value?.items || []).filter(item =>
+		hasMeaningfulMemoryPreviewItem(item, [
+			'name',
+			'category',
+			'description',
+			'owner_hint',
+			'current_state',
+			'power_or_effect',
+			'constraints',
+			'important_events',
+		]),
+	),
+)
+
+const validConceptPreviewItems = computed(() =>
+	(memoryPreviewData.value?.concepts || []).filter(item =>
+		hasMeaningfulMemoryPreviewItem(item, [
+			'name',
+			'category',
+			'description',
+			'rule_definition',
+			'cost',
+			'mastery_hint',
+			'known_by',
+			'counter_relations',
+		]),
+	),
+)
+
+const isMemoryPreviewEmpty = computed(() => {
+	return !(
+		validScenePreviewItems.value.length > 0
+		|| validOrganizationPreviewItems.value.length > 0
+		|| validItemPreviewItems.value.length > 0
+		|| validConceptPreviewItems.value.length > 0
+	)
+})
+
+const memoryPreviewEmptyDescription = computed(() => {
+	switch (memoryPreviewExtractorCode.value) {
+		case 'scene_state':
+			return '本次未提取到可写回的场景状态。你可以直接关闭预览，或调整提示词后重试。'
+		case 'organization_state':
+			return '本次未提取到可写回的组织状态。你可以直接关闭预览，或调整提示词后重试。'
+		case 'item_state':
+			return '本次未提取到可写回的物品状态。你可以直接关闭预览，或调整提示词后重试。'
+		case 'concept_state':
+			return '本次未提取到可写回的概念掌握信息。你可以直接关闭预览，或调整提示词后重试。'
+		default:
+			return '本次未提取到可写回的内容。'
+	}
+})
+
+function getMemoryExtractorDisplayLabel(extractorCode: MemoryExtractorCode): string {
+	switch (extractorCode) {
+		case 'scene_state':
+			return '场景状态'
+		case 'organization_state':
+			return '组织状态'
+		case 'item_state':
+			return '物品状态'
+		case 'concept_state':
+			return '概念掌握'
+		default:
+			return '记忆'
+	}
+}
+
+function buildPreviewEditKey(...parts: Array<string | number | null | undefined>): string {
+	return parts
+		.map(part => String(part ?? '').trim())
+		.filter(Boolean)
+		.join('::')
+}
+
+function isPreviewEditing(key: string): boolean {
+	return activePreviewEditKey.value === key
+}
+
+function activatePreviewEdit(key: string) {
+	activePreviewEditKey.value = key
+}
+
+function deactivatePreviewEdit(key?: string) {
+	if (!key || activePreviewEditKey.value === key) {
+		activePreviewEditKey.value = ''
+	}
+}
+
+function splitPreviewLines(value: string): string[] {
+	return String(value || '')
+		.split(/\r?\n+/)
+		.map(line => line.trim())
+		.filter(Boolean)
+}
+
+function normalizePreviewLines(values: unknown): string[] {
+	if (Array.isArray(values)) {
+		return values
+			.map(item => String(item || '').trim())
+			.filter(Boolean)
+	}
+	const text = String(values || '').trim()
+	return text ? [text] : []
+}
+
+function joinPreviewLines(values: unknown): string {
+	return Array.isArray(values)
+		? values.map(item => String(item || '').trim()).filter(Boolean).join('\n')
+		: ''
+}
+
+function updatePreviewStringArray(target: Record<string, any>, key: string, value: string) {
+	target[key] = splitPreviewLines(value)
+}
+
+function joinEventSummaryLines(values: unknown): string {
+	return Array.isArray(values)
+		? values.map(item => String(item?.summary || '').trim()).filter(Boolean).join('\n')
+		: ''
+}
+
+function formatPreviewDisplayValue(value: unknown, fallback = '点击修改'): string {
+	const text = String(value || '').trim()
+	return text || fallback
+}
+
+function formatPreviewDisplayLines(values: unknown, fallback = '点击补充'): string[] {
+	const lines = normalizePreviewLines(values)
+	return lines.length ? lines : [fallback]
+}
+
+function formatEventSummaryDisplayLines(values: unknown, fallback = '点击补充'): string[] {
+	if (Array.isArray(values)) {
+		const lines = values
+			.map(item => String(item?.summary || '').trim())
+			.filter(Boolean)
+		return lines.length ? lines : [fallback]
+	}
+	return [fallback]
+}
+
+function updateRelationEventSummaries(target: Record<string, any>, value: string) {
+	const lines = splitPreviewLines(value)
+	const previous = Array.isArray(target.recent_event_summaries) ? target.recent_event_summaries : []
+	target.recent_event_summaries = lines.map((summary, index) => {
+		const oldItem = previous[index]
+		return {
+			...(oldItem && typeof oldItem === 'object' ? oldItem : {}),
+			summary,
+		}
+	})
+}
+
 const activeContinuationConfig = reactive<{
 	targetWordCount: number
 	wordControlMode: ContinuationWordControlMode
@@ -981,12 +2039,12 @@ function appendAtEnd(delta: string) {
 function initEditor() {
 	if (!cmRoot.value) return
 	const initialText = String((localCard.content as any)?.content || '')
-	
+
 	// 保存原始内容
 	originalContent.value = initialText
 	isDirty.value = false
 	emit('update:dirty', false)
-	
+
 	const customKeymap = [
 		{
 			key: 'Enter',
@@ -1046,14 +2104,14 @@ function initEditor() {
 					if (!update.docChanged) return
 					const txt = update.state.doc.toString()
 					wordCount.value = computeWordCount(txt)
-					
+
 					// 检测dirty状态
 					const newDirty = txt !== originalContent.value
 					if (newDirty !== isDirty.value) {
 						isDirty.value = newDirty
 						emit('update:dirty', newDirty)
 					}
-					
+
 					localCard.content = {
 						...(localCard.content || {}),
 						content: txt,
@@ -1078,7 +2136,7 @@ function initEditor() {
 	// 初始化字数
 	wordCount.value = computeWordCount(getText())
 	ready.value = true
-	
+
 	// 添加右键菜单监听器到 CodeMirror 的 DOM 元素
 	if (view && cmRoot.value) {
 		const editorDom = cmRoot.value.querySelector('.cm-editor') as HTMLElement
@@ -1097,22 +2155,22 @@ async function loadPrompts() {
 	try {
 		const options = await getAIConfigOptions()
 		const allPrompts = options?.prompts || []
-		
+
 		// 获取所有提示词名称
 		const allPromptNames = allPrompts.map(p => p.name)
 		reviewPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['章节审核']
-		
+
 		// 润色和扩写都使用所有可用提示词
 		polishPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['润色']
 		expandPrompts.value = allPromptNames.length > 0 ? allPromptNames : ['扩写']
-		
+
 		// 设置默认选中的提示词
 		if (allPromptNames.includes('润色')) {
 			currentPolishPrompt.value = '润色'
 		} else if (allPromptNames.length > 0) {
 			currentPolishPrompt.value = allPromptNames[0]
 		}
-		
+
 		if (allPromptNames.includes('扩写')) {
 			currentExpandPrompt.value = '扩写'
 		} else if (allPromptNames.length > 0) {
@@ -1198,35 +2256,12 @@ async function handleSave(newTitle?: string) {
 	}
 	localCard.content = nextContent as any
 	await cardStore.modifyCard(localCard.id, updatePayload)
-		
+
 	// 保存成功后重置dirty状态
 	originalContent.value = getText()
 	isDirty.value = false
 	emit('update:dirty', false)
 
-	// 若当前卡片为章节正文，且开启了“保存时自动提取”，则在保存成功后自动触发提取
-	try {
-		const typeName = (props.card as any)?.card_type?.name || ''
-		const needDynamic = isDynamicAutoExtractEnabled()
-		const needRelations = isRelationsAutoExtractEnabled()
-		if (typeName === '章节正文' && (needDynamic || needRelations)) {
-			const llmConfigId = resolveLlmConfigId()
-			if (llmConfigId) {
-				if (needDynamic) {
-					await extractDynamicInfoWithLlm(llmConfigId)
-				}
-				if (needRelations) {
-					await extractRelationsWithLlm(llmConfigId)
-				}
-			} else if (needDynamic || needRelations) {
-				ElMessage.warning('未找到章节对应的AI参数配置，自动提取已跳过，请在右侧手动执行提取')
-			}
-		}
-	} catch (e) {
-		console.error('自动提取失败:', e)
-		ElMessage.error('自动提取失败，请在右侧手动点击重试')
-	}
-		
 	// 返回保存的内容供历史版本使用
 	return updatePayload.content
 }
@@ -1244,6 +2279,20 @@ function resolvePromptName(): string | undefined {
 function resolveSampling() {
 	const src: any = perCardParams.value || editingParams.value || {}
 	return { temperature: src.temperature, max_tokens: src.max_tokens, timeout: src.timeout }
+}
+
+function buildExtractRunOptions(
+	opts?: ChapterExtractRunOptions,
+	fallbackLlmConfigId?: number
+): ChapterExtractRunOptions | null {
+	const llmConfigId = typeof opts?.llm_config_id === 'number' ? opts.llm_config_id : fallbackLlmConfigId
+	if (!llmConfigId) return null
+	return {
+		llm_config_id: llmConfigId,
+		temperature: typeof opts?.temperature === 'number' ? opts.temperature : undefined,
+		max_tokens: typeof opts?.max_tokens === 'number' ? opts.max_tokens : undefined,
+		timeout: typeof opts?.timeout === 'number' ? opts.timeout : undefined,
+	}
 }
 
 function formatFactsFromContext(ctx: any | null | undefined): string {
@@ -1275,6 +2324,29 @@ function formatFactsFromContext(ctx: any | null | undefined): string {
 						lines.push(`    - ${ev.summary}${tag ? `（${tag}）` : ''}`)
 					}
 				}
+			}
+		}
+		if (Array.isArray(factsStruct.item_summaries) && factsStruct.item_summaries.length) {
+			lines.push('物品摘要:')
+			for (const item of factsStruct.item_summaries) {
+				lines.push(`- ${item.name}${item.category ? `（${item.category}）` : ''}`)
+				if (item.description) lines.push(`  · 描述: ${item.description}`)
+				if (item.current_state) lines.push(`  · 当前状态: ${item.current_state}`)
+				if (item.owner_hint) lines.push(`  · 归属提示: ${item.owner_hint}`)
+				if (item.power_or_effect) lines.push(`  · 作用/效果: ${item.power_or_effect}`)
+				if (item.constraints) lines.push(`  · 限制条件: ${item.constraints}`)
+			}
+		}
+		if (Array.isArray(factsStruct.concept_summaries) && factsStruct.concept_summaries.length) {
+			lines.push('概念摘要:')
+			for (const concept of factsStruct.concept_summaries) {
+				lines.push(`- ${concept.name}${concept.category ? `（${concept.category}）` : ''}`)
+				if (concept.description) lines.push(`  · 描述: ${concept.description}`)
+				if (concept.rule_definition) lines.push(`  · 规则定义: ${concept.rule_definition}`)
+				if (concept.mastery_hint) lines.push(`  · 掌握提示: ${concept.mastery_hint}`)
+				if (concept.cost) lines.push(`  · 代价: ${concept.cost}`)
+				if (Array.isArray(concept.known_by) && concept.known_by.length) lines.push(`  · 已知掌握者: ${concept.known_by.join('、')}`)
+				if (Array.isArray(concept.counter_relations) && concept.counter_relations.length) lines.push(`  · 克制/对立: ${concept.counter_relations.join('、')}`)
 			}
 		}
 		const text = lines.join('\n')
@@ -1551,44 +2623,44 @@ async function executeExpand() {
 // 右键菜单处理函数
 function handleEditorContextMenu(e: MouseEvent) {
 	console.log(' [ContextMenu] 右键事件触发')
-	
+
 	// 检查是否有选中文本
 	const selection = getSelectionWithLineInfo()
 	if (!selection || !selection.text.trim()) {
 		console.log('⚠️ [ContextMenu] 没有选中文本，使用默认菜单')
 		return // 没有选中文本，使用默认右键菜单
 	}
-	
-	
+
+
 	e.preventDefault()
 	e.stopPropagation()
-	
+
 	// 保存选中的文本信息
 	contextMenu.selectedText = selection
 	contextMenu.visible = true
 	contextMenu.expanded = false
 	contextMenu.userRequirement = ''
-	
+
 	// 设置自定义高亮，替代默认选中效果
 	setHighlight(selection.from, selection.to)
-	
+
 	// 计算菜单位置（避免超出屏幕）
 	const menuWidth = 280
 	const menuHeight = 200
 	let x = e.clientX
 	let y = e.clientY
-	
+
 	if (x + menuWidth > window.innerWidth) {
 		x = window.innerWidth - menuWidth - 10
 	}
 	if (y + menuHeight > window.innerHeight) {
 		y = window.innerHeight - menuHeight - 10
 	}
-	
+
 	contextMenu.x = x
 	contextMenu.y = y
-	
-	
+
+
 	// 延迟注册点击外部关闭的监听器，避免立即触发
 	setTimeout(() => {
 		if (!contextMenuClickListenerAdded) {
@@ -1618,7 +2690,7 @@ function closeContextMenu() {
 	contextMenu.expanded = false
 	contextMenu.userRequirement = ''
 	contextMenu.selectedText = null
-	
+
 	// 移除点击外部关闭的监听器
 	if (contextMenuClickListenerAdded) {
 		window.removeEventListener('click', handleClickOutside, { capture: true })
@@ -1702,9 +2774,9 @@ async function executeAIEdit(
 	}
 
 	const llmConfigId = resolveLlmConfigId()
-	if (!llmConfigId) { 
+	if (!llmConfigId) {
 		ElMessage.error('请先设置有效的模型ID')
-		return 
+		return
 	}
 
 	aiLoading.value = true
@@ -1730,7 +2802,7 @@ async function executeAIEdit(
 	if (userRequirement) {
 		contextParts.push(`【用户要求】\n${userRequirement}`)
 	}
-	
+
 	// 提取上文（选中内容之前）
 	const beforeText = fullText.substring(0, selectedText.from)
 	if (beforeText.trim()) {
@@ -1738,10 +2810,10 @@ async function executeAIEdit(
 		const truncatedBefore = beforeText.length > 1000 ? '...' + beforeText.slice(-1000) : beforeText
 		contextParts.push(`【上文】\n${truncatedBefore}`)
 	}
-	
+
 	// 选中的内容
 	contextParts.push(`【需要${promptName}的内容】\n${selectedText.text}`)
-	
+
 	// 提取下文（选中内容之后）
 	const afterText = fullText.substring(selectedText.to)
 	if (afterText.trim()) {
@@ -1815,8 +2887,8 @@ function rejectPendingAiEdit() {
 }
 
 function executeAIGeneration(
-	requestData: ContinuationRequest, 
-	replaceMode = false, 
+	requestData: ContinuationRequest,
+	replaceMode = false,
 	taskName = 'AI生成',
 	replaceFrom?: number,
 	replaceTo?: number
@@ -1826,7 +2898,7 @@ function executeAIGeneration(
 	let outputStartPos = replaceFrom ?? 0
 	let currentOutputLength = 0
 
-	if (view) { 
+	if (view) {
 		view.focus()
 		if (!replaceMode) {
 			// 续写模式：光标移到末尾
@@ -1859,7 +2931,7 @@ function executeAIGeneration(
 				const normalized = String(delta)
 					.replace(/\r/g, '')
 					.replace(/\n+/g, m => (m.length === 2 ? '\n' : m))
-				
+
 				if (replaceMode) {
 					// 替换模式：保留原文，在其后追加预览内容
 					if (view) {
@@ -2009,6 +3081,179 @@ function extractParticipantsWithTypeForCurrentChapter(): { name: string, type: s
 	return result.slice(0, 10) // 适当放宽数量限制
 }
 
+function getExistingCardTitleSet(cardTypeName: ManagedCardTypeName): Set<string> {
+	const set = new Set<string>()
+	for (const card of cards.value || []) {
+		if (card?.card_type?.name !== cardTypeName) continue
+		const title = String(card?.title || '').trim()
+		if (title) set.add(title)
+	}
+	return set
+}
+
+function collectMissingCardNotices(items: Array<{ title?: string | null; cardTypeName: ManagedCardTypeName; entityType: ManagedEntityType }>): MissingCardNotice[] {
+	const grouped = new Map<ManagedCardTypeName, Set<string>>()
+	const notices: MissingCardNotice[] = []
+	for (const item of items) {
+		const title = String(item.title || '').trim()
+		if (!title) continue
+		let existingTitles = grouped.get(item.cardTypeName)
+		if (!existingTitles) {
+			existingTitles = getExistingCardTitleSet(item.cardTypeName)
+			grouped.set(item.cardTypeName, existingTitles)
+		}
+		if (existingTitles.has(title)) continue
+		const key = `${item.cardTypeName}:${title}`
+		if (notices.some(entry => entry.key === key)) continue
+		notices.push({
+			key,
+			title,
+			cardTypeName: item.cardTypeName,
+			entityType: item.entityType,
+		})
+	}
+	return notices
+}
+
+function buildRelationMissingCardNotices(relations: Array<{ a?: string; b?: string }>): MissingCardNotice[] {
+	const participantTypeMap = new Map(
+		extractParticipantsWithTypeForCurrentChapter()
+			.filter(item => item.type in ENTITY_TYPE_TO_CARD_TYPE_NAME)
+			.map(item => [item.name.trim(), item.type as ManagedEntityType]),
+	)
+	const candidates: Array<{ title: string; cardTypeName: ManagedCardTypeName; entityType: ManagedEntityType }> = []
+	for (const relation of relations || []) {
+		for (const rawName of [relation?.a, relation?.b]) {
+			const title = String(rawName || '').trim()
+			if (!title) continue
+			const entityType = participantTypeMap.get(title)
+			if (!entityType) continue
+			candidates.push({
+				title,
+				cardTypeName: ENTITY_TYPE_TO_CARD_TYPE_NAME[entityType],
+				entityType,
+			})
+		}
+	}
+	return collectMissingCardNotices(candidates)
+}
+
+function getParticipantNamesByType(entityType: ManagedEntityType): string[] {
+	const result = new Set<string>()
+	for (const item of extractParticipantsWithTypeForCurrentChapter()) {
+		if (item.type !== entityType) continue
+		const title = String(item.name || '').trim()
+		if (title) result.add(title)
+	}
+	return Array.from(result)
+}
+
+function collectStaleParticipantNotices(
+	entityType: ManagedEntityType,
+	extractedNames: Iterable<string>,
+): ParticipantReviewNotice[] {
+	const extractedSet = new Set(
+		Array.from(extractedNames)
+			.map(name => String(name || '').trim())
+			.filter(Boolean),
+	)
+	return getParticipantNamesByType(entityType)
+		.filter(name => !extractedSet.has(name))
+		.map(name => ({
+			key: `${entityType}:${name}`,
+			title: name,
+			cardTypeName: ENTITY_TYPE_TO_CARD_TYPE_NAME[entityType],
+			entityType,
+		}))
+}
+
+const dynamicMissingCards = computed(() => collectMissingCardNotices(
+	validDynamicPreviewRoles.value.map(role => ({
+		title: role.name,
+		cardTypeName: '角色卡' as ManagedCardTypeName,
+		entityType: 'character' as ManagedEntityType,
+	})),
+))
+
+const relationMissingCards = computed(() => buildRelationMissingCardNotices(validRelationPreviewItems.value))
+
+const dynamicParticipantReviewNotices = computed(() => collectStaleParticipantNotices(
+	'character',
+	validDynamicPreviewRoles.value.map(role => role.name),
+))
+
+const memoryPrimaryMissingCards = computed(() => {
+	if (!memoryPreviewData.value || !memoryPreviewExtractorCode.value) return [] as MissingCardNotice[]
+	if (memoryPreviewExtractorCode.value === 'scene_state') {
+		return collectMissingCardNotices(
+			validScenePreviewItems.value.map(item => ({
+				title: item.name,
+				cardTypeName: '场景卡' as ManagedCardTypeName,
+				entityType: 'scene' as ManagedEntityType,
+			})),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'organization_state') {
+		return collectMissingCardNotices(
+			validOrganizationPreviewItems.value.map(item => ({
+				title: item.name,
+				cardTypeName: '组织卡' as ManagedCardTypeName,
+				entityType: 'organization' as ManagedEntityType,
+			})),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'item_state') {
+		return collectMissingCardNotices(
+			validItemPreviewItems.value.map(item => ({
+				title: item.name,
+				cardTypeName: '物品卡' as ManagedCardTypeName,
+				entityType: 'item' as ManagedEntityType,
+			})),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'concept_state') {
+		return collectMissingCardNotices(
+			validConceptPreviewItems.value.map(item => ({
+				title: item.name,
+				cardTypeName: '概念卡' as ManagedCardTypeName,
+				entityType: 'concept' as ManagedEntityType,
+			})),
+		)
+	}
+	return [] as MissingCardNotice[]
+})
+
+const memoryParticipantReviewNotices = computed(() => {
+	if (!memoryPreviewData.value || !memoryPreviewExtractorCode.value) return [] as ParticipantReviewNotice[]
+	if (memoryPreviewExtractorCode.value === 'scene_state') {
+		return collectStaleParticipantNotices(
+			'scene',
+			validScenePreviewItems.value.map(item => item.name),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'organization_state') {
+		return collectStaleParticipantNotices(
+			'organization',
+			validOrganizationPreviewItems.value.map(item => item.name),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'item_state') {
+		return collectStaleParticipantNotices(
+			'item',
+			validItemPreviewItems.value.map(item => item.name),
+		)
+	}
+	if (memoryPreviewExtractorCode.value === 'concept_state') {
+		return collectStaleParticipantNotices(
+			'concept',
+			validConceptPreviewItems.value.map(item => item.name),
+		)
+	}
+	return [] as ParticipantReviewNotice[]
+})
+
+const memoryMissingCards = computed(() => memoryPrimaryMissingCards.value)
+
 function extractCharacterParticipantsForCurrentChapter(): string[] {
 	try {
 		const list = (localCard.content as any)?.entity_list
@@ -2037,9 +3282,8 @@ function extractCharacterParticipantsForCurrentChapter(): string[] {
 
 // 触发“动态信息提取”（右栏调用）
 editorStore.setTriggerExtractDynamicInfo(async (opts) => {
-	if (typeof opts?.preview === 'boolean') previewBeforeUpdate.value = !!opts.preview
 	if (typeof opts?.llm_config_id === 'number') {
-		await extractDynamicInfoWithLlm(opts.llm_config_id)
+		await extractDynamicInfoWithLlm(opts.llm_config_id, opts)
 	} else {
 		await extractDynamicInfo()
 	}
@@ -2048,9 +3292,33 @@ editorStore.setTriggerExtractDynamicInfo(async (opts) => {
 // 触发“关系提取入图”（右栏调用）
 editorStore.setTriggerExtractRelations(async (opts) => {
 	if (typeof opts?.llm_config_id === 'number') {
-		await extractRelationsWithLlm(opts.llm_config_id)
+		await extractRelationsWithLlm(opts.llm_config_id, opts)
 	} else {
 		await handleIngestRelations()
+	}
+})
+
+editorStore.setTriggerExtractSceneState(async (opts) => {
+	if (typeof opts?.llm_config_id === 'number') {
+		await extractMemoryByCode('scene_state', opts.llm_config_id, opts)
+	}
+})
+
+editorStore.setTriggerExtractOrganizationState(async (opts) => {
+	if (typeof opts?.llm_config_id === 'number') {
+		await extractMemoryByCode('organization_state', opts.llm_config_id, opts)
+	}
+})
+
+editorStore.setTriggerExtractItemState(async (opts) => {
+	if (typeof opts?.llm_config_id === 'number') {
+		await extractMemoryByCode('item_state', opts.llm_config_id, opts)
+	}
+})
+
+editorStore.setTriggerExtractConceptState(async (opts) => {
+	if (typeof opts?.llm_config_id === 'number') {
+		await extractMemoryByCode('concept_state', opts.llm_config_id, opts)
 	}
 })
 
@@ -2111,39 +3379,30 @@ editorStore.setPersistActiveChapterDraft(async () => {
 async function extractDynamicInfo() {
 	const llmConfigId = resolveLlmConfigId()
 	if (!llmConfigId) { ElMessage.error('请先选择一个有效的AI参数配置（模型）'); return }
-	await extractDynamicInfoWithLlm(llmConfigId)
+	await extractDynamicInfoWithLlm(llmConfigId, { llm_config_id: llmConfigId })
 }
 
-async function extractDynamicInfoWithLlm(llmConfigId: number) {
+async function extractDynamicInfoWithLlm(llmConfigId: number, opts?: ChapterExtractRunOptions) {
 	try {
 		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
 		if (!projectId) { ElMessage.error('未找到当前项目ID'); return }
-		// 调用 extractParticipantsWithTypeForCurrentChapter
-		let participants = extractParticipantsWithTypeForCurrentChapter()
+		const participants = extractParticipantsWithTypeForCurrentChapter()
 		const chapterText = getText() || ''
-		// 上下文相关的stage_overview等信息由右栏ContextPanel处理
-		let stageOverview = ''
-		try {
-			if ((props.contextParams as any)?.stage_overview) {
-				stageOverview = String((props.contextParams as any).stage_overview || '')
-			}
-		} catch {}
 		const extraContext = (props.contextParams as any)?.extra_context_fn()
-		if (previewBeforeUpdate.value) {
-			// 仅提取并预览
-			const data = await extractDynamicInfoOnly({ project_id: projectId, text: chapterText, participants, llm_config_id: llmConfigId, extra_context: extraContext } as any)
-			previewData.value = data
-			previewDialogVisible.value = true
-		} else {
-			// 直接提取并更新（已移除旧的组合端点，改为预览+确认流程）
-			const payload: UpdateDynamicInfoOutput = await extractDynamicInfoOnly({ project_id: projectId, text: chapterText, participants, llm_config_id: llmConfigId, extra_context: extraContext } as any)
-			const resp = await updateDynamicInfoOnly({ project_id: projectId, data: payload as any, queue_size: 5 })
-			if (resp?.success) {
-				ElMessage.success(`动态信息已更新：${resp.updated_card_count} 个角色卡`)
-			} else {
-				ElMessage.warning('未检测到需要更新的动态信息')
-			}
-		}
+		const runOptions = buildExtractRunOptions(opts, llmConfigId)
+		const data = await extractDynamicInfoOnly({
+			project_id: projectId,
+			text: chapterText,
+			participants,
+			llm_config_id: llmConfigId,
+			temperature: runOptions?.temperature,
+			max_tokens: runOptions?.max_tokens,
+			timeout: runOptions?.timeout,
+			extra_context: extraContext,
+		} as any)
+		previewData.value = data
+		await ensureEditorMainTabVisible()
+		previewDialogVisible.value = true
 	} catch (e) {
 		console.error(e)
 		ElMessage.error('提取动态信息失败')
@@ -2151,12 +3410,19 @@ async function extractDynamicInfoWithLlm(llmConfigId: number) {
 }
 
 async function confirmApplyUpdates() {
+	if (isDynamicPreviewEmpty.value) {
+		previewDialogVisible.value = false
+		previewData.value = null
+		return
+	}
+	dynamicPreviewApplying.value = true
 	try {
 		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
-		if (!projectId || !previewData.value) { previewDialogVisible.value = false; return }
+		const sanitizedPreviewData = buildSanitizedDynamicPreviewData()
+		if (!projectId || !sanitizedPreviewData) { previewDialogVisible.value = false; return }
 		const modify: any[] = []
 		try {
-			for (const role of (previewData.value.info_list || [])) {
+			for (const role of (sanitizedPreviewData.info_list || [])) {
 				const name = role.name
 				const di: any = role.dynamic_info || {}
 				for (const catKey of Object.keys(di)) {
@@ -2169,11 +3435,22 @@ async function confirmApplyUpdates() {
 				}
 			}
 		} catch {}
-		const payload: any = { ...previewData.value }
+		const payload: any = { ...sanitizedPreviewData }
 		if (modify.length) payload.modify_info_list = modify
-		const resp = await updateDynamicInfoOnly({ project_id: projectId, data: payload as any, queue_size: 5 })
+		const resp = await updateDynamicInfoOnly({
+			project_id: projectId,
+			data: payload as any,
+			queue_size: 5,
+		})
 		if (resp?.success) {
-			ElMessage.success(`动态信息已更新：${resp.updated_card_count} 个角色卡`)
+			let appendedCount = 0
+			try {
+				appendedCount = await appendParticipantsToCurrentChapter(collectConfirmedDynamicParticipantNames())
+			} catch (syncError) {
+				console.error(syncError)
+				ElMessage.warning('动态信息已写入，但同步本章参与实体失败')
+			}
+			ElMessage.success(`动态信息已更新：${resp.updated_card_count} 个角色卡${appendedCount > 0 ? `，并补充 ${appendedCount} 个参与实体` : ''}`)
 			try { await cardStore.fetchCards(projectId) } catch {}
 		} else {
 			ElMessage.warning('未检测到需要更新的动态信息')
@@ -2182,6 +3459,7 @@ async function confirmApplyUpdates() {
 		console.error(e)
 		ElMessage.error('更新动态信息失败')
 	} finally {
+		dynamicPreviewApplying.value = false
 		previewDialogVisible.value = false
 		previewData.value = null
 	}
@@ -2190,39 +3468,29 @@ async function confirmApplyUpdates() {
 async function handleIngestRelations() {
 	const llmConfigId = resolveLlmConfigId()
 	if (!llmConfigId) { ElMessage.error('请先选择一个有效的AI参数配置（模型）'); return }
-	try {
-		const text = getText() || ''
-		const participants = extractParticipantsWithTypeForCurrentChapter()
-		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
-		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
-
-		let mergedText = text
-		try {
-			const factsText = formatFactsFromContext(props.prefetched)
-			if (factsText) mergedText = `【已知事实子图】\n${factsText}\n\n正文如下：\n${text}`
-		} catch {}
-
-		const data = await extractRelationsOnly({ text: mergedText, participants, llm_config_id: llmConfigId, volume_number: vol, chapter_number: ch } as any)
-		relationsPreview.value = data
-		relationsPreviewVisible.value = true
-	} catch (e) {
-		console.error(e)
-		ElMessage.error('关系抽取失败')
-	}
+	await extractRelationsWithLlm(llmConfigId, { llm_config_id: llmConfigId })
 }
 
 async function confirmIngestRelationsFromPreview() {
+	if (isRelationsPreviewEmpty.value) {
+		relationsPreviewVisible.value = false
+		relationsPreview.value = null
+		return
+	}
+	relationsPreviewApplying.value = true
 	try {
 		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
-		if (!projectId || !relationsPreview.value) { relationsPreviewVisible.value = false; return }
+		const sanitizedRelationsPreview = buildSanitizedRelationsPreviewData()
+		if (!projectId || !sanitizedRelationsPreview) { relationsPreviewVisible.value = false; return }
 		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
 		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
-		const resp = await ingestRelationsFromPreview({ project_id: projectId, data: relationsPreview.value, volume_number: vol, chapter_number: ch })
+		const resp = await ingestRelationsFromPreview({ project_id: projectId, data: sanitizedRelationsPreview, volume_number: vol, chapter_number: ch })
 		ElMessage.success(`已写入关系/别名：${resp.written} 条`)
 	} catch (e) {
 		console.error(e)
 		ElMessage.error('关系入图失败')
 	} finally {
+		relationsPreviewApplying.value = false
 		relationsPreviewVisible.value = false
 		relationsPreview.value = null
 	}
@@ -2247,12 +3515,13 @@ function removePreviewItem(roleName: string, catKey: string, index: number) {
 	}
 }
 
-async function extractRelationsWithLlm(llmConfigId: number) {
+async function extractRelationsWithLlm(llmConfigId: number, opts?: ChapterExtractRunOptions) {
 	try {
 		const text = getText() || ''
 		const participants = extractParticipantsWithTypeForCurrentChapter()
 		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
 		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
+		const runOptions = buildExtractRunOptions(opts, llmConfigId)
 
 		let mergedText = text
 		try {
@@ -2260,12 +3529,285 @@ async function extractRelationsWithLlm(llmConfigId: number) {
 			if (factsText) mergedText = `【已知事实子图】\n${factsText}\n\n正文如下：\n${text}`
 		} catch {}
 
-		const data = await extractRelationsOnly({ text: mergedText, participants, llm_config_id: llmConfigId, volume_number: vol, chapter_number: ch } as any)
+		const data = await extractRelationsOnly({
+			text: mergedText,
+			participants,
+			llm_config_id: llmConfigId,
+			temperature: runOptions?.temperature,
+			max_tokens: runOptions?.max_tokens,
+			timeout: runOptions?.timeout,
+			volume_number: vol,
+			chapter_number: ch,
+		} as any)
 		relationsPreview.value = data
+		await ensureEditorMainTabVisible()
 		relationsPreviewVisible.value = true
 	} catch (e) {
 		console.error(e)
 		ElMessage.error('关系抽取失败')
+	}
+}
+
+async function extractMemoryByCode(extractorCode: MemoryExtractorCode, llmConfigId: number, opts?: ChapterExtractRunOptions) {
+	try {
+		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
+		if (!projectId) { ElMessage.error('未找到当前项目ID'); return }
+		const text = getText() || ''
+		const participants = extractParticipantsWithTypeForCurrentChapter()
+		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
+		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
+		const extraContext = (props.contextParams as any)?.extra_context_fn?.()
+		const runOptions = buildExtractRunOptions(opts, llmConfigId)
+
+		let mergedText = text
+		try {
+			const factsText = formatFactsFromContext(props.prefetched)
+			if (factsText) mergedText = `【已知事实子图】\n${factsText}\n\n正文如下：\n${text}`
+		} catch {}
+
+		const data = await extractMemoryPreview({
+			project_id: projectId,
+			extractor_code: extractorCode,
+			text: mergedText,
+			participants,
+			llm_config_id: llmConfigId,
+			temperature: runOptions?.temperature,
+			max_tokens: runOptions?.max_tokens,
+			timeout: runOptions?.timeout,
+			extra_context: extraContext,
+			volume_number: vol,
+			chapter_number: ch,
+		})
+		memoryPreviewExtractorCode.value = extractorCode
+		memoryPreviewData.value = data.preview_data
+		await ensureEditorMainTabVisible()
+		memoryPreviewVisible.value = true
+	} catch (e) {
+		console.error(e)
+		ElMessage.error(`${getMemoryExtractorDisplayLabel(extractorCode)}提取失败`)
+	}
+}
+
+function openCreateCardFromPreview(item: MissingCardNotice) {
+	window.dispatchEvent(new CustomEvent('nf:open-create-card', {
+		detail: {
+			title: item.title,
+			cardTypeName: item.cardTypeName,
+		},
+	}))
+}
+
+function normalizeParticipantEntityName(entry: any): string {
+	return typeof entry === 'string' ? entry.trim() : String(entry?.name || '').trim()
+}
+
+async function appendParticipantsToCurrentChapter(names: string[]): Promise<number> {
+	const cardId = Number((props.card as any)?.id || (localCard as any)?.id || 0)
+	if (!cardId) return 0
+
+	const currentList = Array.isArray((localCard.content as any)?.entity_list)
+		? [...((localCard.content as any).entity_list as any[])]
+		: []
+	const existingNames = new Set(currentList.map(normalizeParticipantEntityName).filter(Boolean))
+	const additions: string[] = []
+
+	for (const rawName of names || []) {
+		const name = String(rawName || '').trim()
+		if (!name || existingNames.has(name)) continue
+		existingNames.add(name)
+		additions.push(name)
+		currentList.push(name)
+	}
+
+	if (!additions.length) return 0
+
+	const baseContent = {
+		...((props.card as any)?.content || {}),
+		...((localCard.content as any) || {}),
+		entity_list: currentList,
+	}
+	const axiosResp: any = await updateCardRaw(cardId, { content: baseContent } as CardUpdate)
+	const updatedCard = axiosResp?.data as CardRead | undefined
+	const index = cards.value.findIndex((c: any) => c.id === cardId)
+	if (index !== -1 && updatedCard) {
+		const existingCard = cards.value[index] as any
+		;(cards.value as any)[index] = { ...existingCard, ...updatedCard, content: baseContent }
+	}
+	;(localCard.content as any).entity_list = currentList
+	return additions.length
+}
+
+function collectConfirmedDynamicParticipantNames(): string[] {
+	const missingTitles = new Set(dynamicMissingCards.value.map(item => item.title))
+	const names = validDynamicPreviewRoles.value
+		.map(role => String(role?.name || '').trim())
+		.filter(name => !!name && !missingTitles.has(name))
+	return Array.from(new Set(names))
+}
+
+function collectConfirmedMemoryParticipantNames(): string[] {
+	if (!memoryPreviewData.value || !memoryPreviewExtractorCode.value) return []
+	const missingTitles = new Set(memoryMissingCards.value.map(item => item.title))
+	let names: string[] = []
+	switch (memoryPreviewExtractorCode.value) {
+		case 'scene_state':
+			names = validScenePreviewItems.value.map(item => String(item?.name || '').trim())
+			break
+		case 'organization_state':
+			names = validOrganizationPreviewItems.value.map(item => String(item?.name || '').trim())
+			break
+		case 'item_state':
+			names = validItemPreviewItems.value.map(item => String(item?.name || '').trim())
+			break
+		case 'concept_state':
+			names = validConceptPreviewItems.value.map(item => String(item?.name || '').trim())
+			break
+		default:
+			names = []
+	}
+	return Array.from(new Set(names.filter(name => !!name && !missingTitles.has(name))))
+}
+
+function buildSanitizedDynamicPreviewData() {
+	if (!previewData.value) return null
+	return {
+		...previewData.value,
+		info_list: validDynamicPreviewRoles.value,
+	}
+}
+
+function buildSanitizedRelationsPreviewData() {
+	if (!relationsPreview.value) return null
+	return {
+		...relationsPreview.value,
+		relations: validRelationPreviewItems.value,
+	}
+}
+
+function buildSanitizedMemoryPreviewData() {
+	if (!memoryPreviewData.value) return null
+	return {
+		...memoryPreviewData.value,
+		scenes: validScenePreviewItems.value,
+		organizations: validOrganizationPreviewItems.value,
+		items: validItemPreviewItems.value,
+		concepts: validConceptPreviewItems.value,
+	}
+}
+
+async function ensureEditorMainTabVisible() {
+	window.dispatchEvent(new CustomEvent('nf:switch-main-tab', {
+		detail: { tab: 'editor' },
+	}))
+	await nextTick()
+}
+
+async function removeParticipantFromCurrentChapter(item: ParticipantReviewNotice) {
+	const cardId = Number((props.card as any)?.id || (localCard as any)?.id || 0)
+	if (!cardId) {
+		ElMessage.warning('未找到当前章节卡片，无法更新参与实体')
+		return
+	}
+	const currentList = Array.isArray((localCard.content as any)?.entity_list)
+		? [...((localCard.content as any).entity_list as any[])]
+		: []
+	const nextList = currentList.filter(entry => {
+		const name = typeof entry === 'string' ? entry : entry?.name
+		return String(name || '').trim() !== item.title
+	})
+	if (nextList.length === currentList.length) {
+		ElMessage.warning(`${item.title} 当前不在本章参与实体列表中`)
+		return
+	}
+	try {
+		const baseContent = {
+			...((props.card as any)?.content || {}),
+			entity_list: nextList,
+		}
+		await cardStore.modifyCard(cardId, { content: baseContent } as any)
+		;(localCard.content as any).entity_list = nextList
+		ElMessage.success(`已将 ${item.title} 移出本章参与实体`)
+	} catch (error) {
+		console.error(error)
+		ElMessage.error('更新本章参与实体失败')
+	}
+}
+
+function removeRelationPreviewItem(index: number, row?: any) {
+	if (!relationsPreview.value?.relations?.length) return
+	if (row) {
+		const targetIndex = relationsPreview.value.relations.indexOf(row)
+		if (targetIndex >= 0) {
+			relationsPreview.value.relations.splice(targetIndex, 1)
+			return
+		}
+	}
+	relationsPreview.value.relations.splice(index, 1)
+}
+
+function removeMemoryCardPreviewItem(kind: 'scenes' | 'organizations' | 'items' | 'concepts', index: number, row?: any) {
+	if (!memoryPreviewData.value) return
+	const list = Array.isArray((memoryPreviewData.value as any)[kind]) ? (memoryPreviewData.value as any)[kind] : []
+	if (row) {
+		const targetIndex = list.indexOf(row)
+		if (targetIndex >= 0) {
+			list.splice(targetIndex, 1)
+			return
+		}
+	}
+	list.splice(index, 1)
+}
+
+function closeMemoryPreview() {
+	memoryPreviewVisible.value = false
+	memoryPreviewData.value = null
+	memoryPreviewExtractorCode.value = ''
+}
+
+async function applyMemoryPreviewConfirm() {
+	if (isMemoryPreviewEmpty.value) {
+		closeMemoryPreview()
+		return
+	}
+	memoryPreviewApplying.value = true
+	try {
+		const projectId = projectStore.currentProject?.id || (localCard as any).project_id
+		const sanitizedMemoryPreviewData = buildSanitizedMemoryPreviewData()
+		if (!projectId || !sanitizedMemoryPreviewData || !memoryPreviewExtractorCode.value) {
+			closeMemoryPreview()
+			return
+		}
+		const participants = extractParticipantsWithTypeForCurrentChapter()
+		const vol = (localCard as any)?.content?.volume_number ?? (props.contextParams as any)?.volume_number
+		const ch = (localCard as any)?.content?.chapter_number ?? (props.contextParams as any)?.chapter_number
+		const resp = await applyMemoryPreview({
+			project_id: projectId,
+			extractor_code: memoryPreviewExtractorCode.value,
+			data: sanitizedMemoryPreviewData as Record<string, any>,
+			participants,
+			volume_number: vol,
+			chapter_number: ch,
+		})
+		if (resp?.success) {
+			const label = getMemoryExtractorDisplayLabel(memoryPreviewExtractorCode.value)
+			let appendedCount = 0
+			try {
+				appendedCount = await appendParticipantsToCurrentChapter(collectConfirmedMemoryParticipantNames())
+			} catch (syncError) {
+				console.error(syncError)
+				ElMessage.warning('提取结果已写入，但同步本章参与实体失败')
+			}
+			ElMessage.success(`${label}已写入：${resp.updated_card_count} 张卡片${appendedCount > 0 ? `，并补充 ${appendedCount} 个参与实体` : ''}`)
+			try { await cardStore.fetchCards(projectId) } catch {}
+		} else {
+			ElMessage.warning('未检测到需要写入的记忆')
+		}
+	} catch (e) {
+		console.error(e)
+		ElMessage.error('写入扩展记忆失败')
+	} finally {
+		memoryPreviewApplying.value = false
+		closeMemoryPreview()
 	}
 }
 
@@ -2281,7 +3823,7 @@ onMounted(() => {
 		const ch = Number((props.contextParams as any)?.chapter_number ?? (props.card as any)?.content?.chapter_number ?? NaN)
 		editorStore.setCurrentContextInfo({ title, volume: Number.isNaN(vol) ? null : vol, chapter: Number.isNaN(ch) ? null : ch })
 	} catch {}
-	
+
 	// ESC 键关闭右键菜单
 	window.addEventListener('keydown', handleKeyDown)
 })
@@ -2310,18 +3852,22 @@ onUnmounted(() => {
 			editorDom.removeEventListener('contextmenu', handleEditorContextMenu)
 		}
 	}
-	
+
 	try { view?.destroy() } catch {}
 	editorStore.setApplyChapterReplacements(null)
 	editorStore.setPersistActiveChapterDraft(null)
 	editorStore.setTriggerExtractDynamicInfo(null)
 	editorStore.setTriggerExtractRelations(null)
+	editorStore.setTriggerExtractSceneState(null)
+	editorStore.setTriggerExtractOrganizationState(null)
+	editorStore.setTriggerExtractItemState(null)
+	editorStore.setTriggerExtractConceptState(null)
 	try { reviewAbortController.value?.abort(); } catch {}
 	try { streamHandle?.cancel(); } catch {}
-	
+
 	// 移除事件监听
 	window.removeEventListener('keydown', handleKeyDown)
-	
+
 	// 清理右键菜单的点击监听器（如果还在）
 	if (contextMenuClickListenerAdded) {
 		window.removeEventListener('click', handleClickOutside, { capture: true })
@@ -2333,28 +3879,28 @@ onUnmounted(() => {
 async function restoreContent(versionContent: any) {
 	try {
 		// 提取章节正文内容
-		const textContent = typeof versionContent === 'string' 
-			? versionContent 
+		const textContent = typeof versionContent === 'string'
+			? versionContent
 			: (versionContent?.content || '')
-		
+
 		// 更新编辑器内容
 		setText(textContent)
-		
+
 		// 更新 localCard.content 的各个字段（保持响应式）
 		if (typeof versionContent === 'object') {
 			Object.assign(localCard.content, versionContent)
 		}
 		// 确保 content 字段是正确的文本
 		localCard.content.content = textContent
-		
+
 		// 更新原始内容（避免触发dirty）
 		originalContent.value = textContent
 		isDirty.value = false
 		emit('update:dirty', false)
-		
+
 		// 更新字数
 		wordCount.value = computeWordCount(textContent)
-		
+
 	} catch (e) {
 		console.error('Failed to restore content:', e)
 		throw e
@@ -2391,10 +3937,10 @@ defineExpose({
 }
 
 /* 最外层容器：固定高度，防止整体滚动 */
-.chapter-studio { 
-	display: flex; 
-	flex-direction: column; 
-	height: 100%; 
+.chapter-studio {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
 	min-height: 0;
 	overflow: hidden; /* 关键：防止整体滚动 */
 }
@@ -2463,8 +4009,8 @@ defineExpose({
 	font-weight: 500;
 }
 
-.flex-spacer { 
-	flex-grow: 1; 
+.flex-spacer {
+	flex-grow: 1;
 }
 
 .ai-action-bar {
@@ -2610,9 +4156,9 @@ defineExpose({
 .editor-content {
 	flex: 1 1 0; /* flex-basis为0，避免被内容撑开 */
 	min-height: 0; /* 允许flex子元素正确收缩和滚动 */
-	overflow: hidden; 
+	overflow: hidden;
 	background-color: var(--el-bg-color);
-	position: relative; 
+	position: relative;
 }
 
 .ai-replace-review-bar {
@@ -2699,6 +4245,89 @@ defineExpose({
 }
 .role-block { margin-bottom: 16px; }
 .cat-title { font-weight: 600; margin: 8px 0; }
+.preview-entity-name-input {
+	margin-bottom: 10px;
+	max-width: 320px;
+}
+.preview-read-field {
+	min-height: 32px;
+	padding: 6px 10px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--el-text-color-primary);
+	line-height: 1.6;
+	cursor: text;
+	transition: background-color .18s ease, border-color .18s ease;
+}
+
+.preview-read-field:hover {
+	background: var(--el-fill-color-light);
+	border-color: var(--el-border-color-lighter);
+}
+
+.preview-read-field--title {
+	margin-bottom: 10px;
+	max-width: 320px;
+	font-weight: 600;
+}
+
+.preview-read-field--multiline {
+	min-height: 52px;
+	white-space: normal;
+}
+
+.preview-read-field__line + .preview-read-field__line {
+	margin-top: 4px;
+}
+
+.preview-table :deep(.el-input__wrapper),
+.preview-table :deep(.el-textarea__inner),
+.preview-table :deep(.el-select__wrapper) {
+	background: transparent;
+	box-shadow: none;
+	border-radius: 8px;
+}
+
+.preview-table :deep(.el-input__wrapper:hover),
+.preview-table :deep(.el-textarea__inner:hover),
+.preview-table :deep(.el-select__wrapper:hover) {
+	background: var(--el-fill-color-light);
+	box-shadow: 0 0 0 1px var(--el-border-color-lighter);
+}
+
+.preview-table :deep(.el-input.is-focus .el-input__wrapper),
+.preview-table :deep(.el-select.is-focus .el-select__wrapper),
+.preview-table :deep(.el-textarea__inner:focus) {
+	background: var(--el-bg-color);
+	box-shadow: 0 0 0 1px var(--el-color-primary);
+}
+
+.preview-table :deep(.el-table__cell) {
+	vertical-align: top;
+}
+
+.preview-evidence-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 4px 0;
+}
+
+.preview-evidence-summary {
+	min-width: 260px;
+}
+
+.preview-evidence-item {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.preview-evidence-item__label {
+	font-size: 12px;
+	color: var(--el-text-color-secondary);
+}
 .preview-block {
 	background: var(--el-fill-color-light);
 	padding: 12px;
@@ -2709,6 +4338,64 @@ defineExpose({
 .event-meta {
 	color: var(--el-text-color-secondary);
 	margin-left: 8px;
+}
+
+.preview-writeback-note {
+	padding: 10px 12px;
+	margin-bottom: 16px;
+	border-radius: 8px;
+	background: var(--el-fill-color-light);
+	color: var(--el-text-color-secondary);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.preview-bottom-tip {
+	margin-top: 16px;
+}
+
+.preview-dialog-header {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.preview-dialog-header__title {
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--el-text-color-primary);
+}
+
+.preview-dialog-header__note {
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--el-text-color-secondary);
+}
+
+.missing-card-panel {
+	margin-bottom: 16px;
+}
+
+.participant-review-panel {
+	margin-bottom: 16px;
+}
+
+.missing-card-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.missing-card-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--el-border-color-lighter);
+	border-radius: 8px;
+	background: var(--el-fill-color-light);
 }
 
 .review-dialog-body {
@@ -2896,9 +4583,9 @@ defineExpose({
 
 /* 自定义 AI 高亮效果 */
 .editor-content :deep(.cm-ai-highlight) {
-	background: linear-gradient(120deg, 
-		rgba(96, 165, 250, 0.2) 0%, 
-		rgba(129, 140, 248, 0.2) 50%, 
+	background: linear-gradient(120deg,
+		rgba(96, 165, 250, 0.2) 0%,
+		rgba(129, 140, 248, 0.2) 50%,
 		rgba(96, 165, 250, 0.2) 100%);
 	background-size: 200% 100%;
 	animation: highlightPulse 2s ease-in-out infinite;
@@ -2934,9 +4621,9 @@ defineExpose({
 
 /* 暗色模式下的高亮 */
 .dark .editor-content :deep(.cm-ai-highlight) {
-	background: linear-gradient(120deg, 
-		rgba(59, 130, 246, 0.25) 0%, 
-		rgba(99, 102, 241, 0.25) 50%, 
+	background: linear-gradient(120deg,
+		rgba(59, 130, 246, 0.25) 0%,
+		rgba(99, 102, 241, 0.25) 50%,
 		rgba(59, 130, 246, 0.25) 100%);
 	background-size: 200% 100%;
 	box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);

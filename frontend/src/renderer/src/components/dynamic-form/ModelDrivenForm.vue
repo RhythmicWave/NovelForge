@@ -75,7 +75,10 @@ function resolveActualSchema(schema: JSONSchema): JSONSchema {
 
 function getFieldComponent(propSchema: JSONSchema) {
   const actualSchema = resolveActualSchema(propSchema);
-  if (actualSchema.enum && actualSchema.enum.length > 0) {
+  if (
+    (actualSchema.enum && actualSchema.enum.length > 0)
+    || actualSchema['x-knowledge-source']
+  ) {
     return EnumField
   }
   if (actualSchema.type === 'array' && (actualSchema.prefixItems || actualSchema.anyOf)) {
