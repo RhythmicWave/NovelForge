@@ -122,7 +122,7 @@ export interface paths {
         put?: never;
         /**
          * 测试 LLM 连接
-         * @description 使用传入参数临时构造一个 LangChain ChatModel 并发起一次最小调用以验证连通性。
+         * @description 使用临时传输配置构建 ChatModel 并执行最小调用。
          */
         post: operations["test_llm_connection_endpoint_api_llm_configs_test_post"];
         delete?: never;
@@ -140,7 +140,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 重置统计（输入/输出token与调用次数清零） */
+        /** 重置统计（输入/输出 token 与调用次数） */
         post: operations["reset_llm_usage_api_llm_configs__config_id__reset_usage_post"];
         delete?: never;
         options?: never;
@@ -157,10 +157,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * 复制 LLM 配置
-         * @description 复制现有的 LLM 配置，创建一个新的配置副本（使用统计会重置为 0）
-         */
+        /** 复制 LLM 配置 */
         post: operations["copy_llm_config_endpoint_api_llm_configs__config_id__copy_post"];
         delete?: never;
         options?: never;
@@ -505,6 +502,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/cards/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Cards */
+        get: operations["search_cards_api_projects__project_id__cards_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/cards/export": {
         parameters: {
             query?: never;
@@ -671,6 +685,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chapter-reviews/cards/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 运行卡片审核（返回审核草稿） */
+        post: operations["run_review_endpoint_api_chapter_reviews_cards_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chapter-reviews/cards/upsert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 创建或更新审核结果卡片 */
+        post: operations["upsert_review_card_endpoint_api_chapter_reviews_cards_upsert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chapter-reviews/cards/{card_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取某张卡片绑定的审核结果卡片 */
+        get: operations["list_review_cards_by_target_endpoint_api_chapter_reviews_cards__card_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chapter-reviews/{review_card_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 删除审核结果卡片 */
+        delete: operations["delete_review_card_endpoint_api_chapter_reviews__review_card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/context/assemble": {
         parameters: {
             query?: never;
@@ -688,6 +770,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memory/extractors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取可用记忆抽取器列表 */
+        get: operations["list_extractors_api_memory_extractors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/extract-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 通用记忆提取预览 */
+        post: operations["extract_preview_api_memory_extract_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/apply-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 通用记忆提取确认写入 */
+        post: operations["apply_preview_api_memory_apply_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/memory/query": {
         parameters: {
             query?: never;
@@ -697,7 +830,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 检索子图/快照 */
+        /** 检索子图快照 */
         post: operations["query_api_memory_query_post"];
         delete?: never;
         options?: never;
@@ -714,7 +847,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 使用 LLM 抽取实体关系并入图（严格） */
+        /** 使用 LLM 抽取关系并写入图谱 */
         post: operations["ingest_relations_llm_api_memory_ingest_relations_llm_post"];
         delete?: never;
         options?: never;
@@ -748,7 +881,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 仅提取动态信息（不更新） */
+        /** 仅提取角色动态信息（不更新） */
         post: operations["extract_dynamic_info_only_api_memory_extract_dynamic_info_post"];
         delete?: never;
         options?: never;
@@ -782,11 +915,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Update Dynamic Info
-         * @description 接收前端预览并确认后的动态信息，执行更新。
-         *     现在调用新的、更完整的服务函数。
-         */
+        /** 根据预览结果写入角色动态信息 */
         post: operations["update_dynamic_info_api_memory_update_dynamic_info_post"];
         delete?: never;
         options?: never;
@@ -1726,6 +1855,18 @@ export interface components {
             /** Message */
             message?: string | null;
         };
+        /** ApiResponse[List[ReviewResultCardRead]] */
+        ApiResponse_List_ReviewResultCardRead__: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /** Data */
+            data?: components["schemas"]["ReviewResultCardRead"][] | null;
+            /** Message */
+            message?: string | null;
+        };
         /** ApiResponse[List[str]] */
         ApiResponse_List_str__: {
             /**
@@ -1759,6 +1900,89 @@ export interface components {
             data?: components["schemas"]["PromptRead"] | null;
             /** Message */
             message?: string | null;
+        };
+        /** ApiResponse[ReviewResultCardRead] */
+        ApiResponse_ReviewResultCardRead_: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            data?: components["schemas"]["ReviewResultCardRead"] | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApiResponse[ReviewRunResponse] */
+        ApiResponse_ReviewRunResponse_: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            data?: components["schemas"]["ReviewRunResponse"] | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApiResponse[bool] */
+        ApiResponse_bool_: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /** Data */
+            data?: boolean | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ApplyPreviewRequest */
+        ApplyPreviewRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Extractor Code */
+            extractor_code: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /** Options */
+            options?: {
+                [key: string]: unknown;
+            } | null;
+            /** Participants */
+            participants?: components["schemas"]["ParticipantTyped"][] | null;
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+        };
+        /** ApplyPreviewResponse */
+        ApplyPreviewResponse: {
+            /** Success */
+            success: boolean;
+            /**
+             * Written
+             * @default 0
+             */
+            written: number;
+            /**
+             * Updated Card Count
+             * @default 0
+             */
+            updated_card_count: number;
+            /**
+             * Updated Relation Count
+             * @default 0
+             */
+            updated_relation_count: number;
+            /** Affected Targets */
+            affected_targets?: {
+                [key: string]: unknown;
+            }[];
+            /** Raw Result */
+            raw_result?: {
+                [key: string]: unknown;
+            };
         };
         /** AssembleContextRequest */
         AssembleContextRequest: {
@@ -1794,7 +2018,7 @@ export interface components {
             current_draft_tail?: string | null;
             /**
              * Recent Chapters Window
-             * @description 最近窗口N（保留，为将来扩展）
+             * @description 最近窗口（保留，将来扩展）
              */
             recent_chapters_window?: number | null;
         };
@@ -1941,8 +2165,6 @@ export interface components {
             ai_context_template?: string | null;
             /** Ai Context Template Review */
             ai_context_template_review?: string | null;
-            /** Ai Context Template Custom */
-            ai_context_template_custom?: string | null;
         };
         /**
          * CardExportRequest
@@ -2008,6 +2230,10 @@ export interface components {
             ai_params?: {
                 [key: string]: unknown;
             } | null;
+            /** Ai Context Template */
+            ai_context_template?: string | null;
+            /** Ai Context Template Review */
+            ai_context_template_review?: string | null;
             /** Id */
             id: number;
             /** Project Id */
@@ -2020,12 +2246,6 @@ export interface components {
             /** Display Order */
             display_order: number;
             card_type: components["schemas"]["CardTypeRead"];
-            /** Ai Context Template */
-            ai_context_template?: string | null;
-            /** Ai Context Template Review */
-            ai_context_template_review?: string | null;
-            /** Ai Context Template Custom */
-            ai_context_template_custom?: string | null;
             /**
              * Ai Modified
              * @default false
@@ -2071,8 +2291,6 @@ export interface components {
             default_ai_context_template?: string | null;
             /** Default Ai Context Template Review */
             default_ai_context_template_review?: string | null;
-            /** Default Ai Context Template Custom */
-            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2110,8 +2328,6 @@ export interface components {
             default_ai_context_template?: string | null;
             /** Default Ai Context Template Review */
             default_ai_context_template_review?: string | null;
-            /** Default Ai Context Template Custom */
-            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2150,8 +2366,6 @@ export interface components {
             default_ai_context_template?: string | null;
             /** Default Ai Context Template Review */
             default_ai_context_template_review?: string | null;
-            /** Default Ai Context Template Custom */
-            default_ai_context_template_custom?: string | null;
             /** Ui Layout */
             ui_layout?: {
                 [key: string]: unknown;
@@ -2175,8 +2389,6 @@ export interface components {
             ai_context_template?: string | null;
             /** Ai Context Template Review */
             ai_context_template_review?: string | null;
-            /** Ai Context Template Custom */
-            ai_context_template_custom?: string | null;
             /** Json Schema */
             json_schema?: {
                 [key: string]: unknown;
@@ -2187,6 +2399,52 @@ export interface components {
             } | null;
             /** Needs Confirmation */
             needs_confirmation?: boolean | null;
+        };
+        /** ConceptSummary */
+        ConceptSummary: {
+            /**
+             * Name
+             * @description 概念名称
+             */
+            name: string;
+            /**
+             * Category
+             * @description 概念类别
+             * @default
+             */
+            category: string;
+            /**
+             * Description
+             * @description 概念简介
+             * @default
+             */
+            description: string;
+            /**
+             * Rule Definition
+             * @description 规则定义
+             * @default
+             */
+            rule_definition: string;
+            /**
+             * Cost
+             * @description 代价或成本
+             */
+            cost?: string | null;
+            /**
+             * Mastery Hint
+             * @description 掌握提示
+             */
+            mastery_hint?: string | null;
+            /**
+             * Known By
+             * @description 已知掌握者
+             */
+            known_by?: string[];
+            /**
+             * Counter Relations
+             * @description 对立或克制关系
+             */
+            counter_relations?: string[];
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -2237,6 +2495,36 @@ export interface components {
              */
             existing_word_count?: number | null;
             /**
+             * Target Word Count
+             * @description 目标总字数
+             */
+            target_word_count?: number | null;
+            /**
+             * Word Control Mode
+             * @description 字数控制模式：prompt_only / balanced
+             */
+            word_control_mode?: ("prompt_only" | "balanced") | null;
+            /**
+             * Continuation Guidance
+             * @description 续写指导要求
+             */
+            continuation_guidance?: string | null;
+            /**
+             * Budget Round Hint
+             * @description 预算运行时回灌的当前轮次提示
+             */
+            budget_round_hint?: number | null;
+            /**
+             * Remaining Word Count Hint
+             * @description 预算运行时回灌的剩余字数提示
+             */
+            remaining_word_count_hint?: number | null;
+            /**
+             * Is Final Round Hint
+             * @description 预算运行时回灌的最后一轮标记
+             */
+            is_final_round_hint?: boolean | null;
+            /**
              * Prompt Name
              * @description 参数卡选择的提示词名称
              */
@@ -2274,18 +2562,18 @@ export interface components {
         DeletionInfo: {
             /**
              * Name
-             * @description 角色名称。
+             * @description 角色名称
              */
             name: string;
             /**
              * Dynamic Type
-             * @description 动态信息类型。
+             * @description 动态信息类型
              * @enum {string}
              */
             dynamic_type: "系统/模拟器/金手指信息" | "等级/修为境界" | "装备/法宝" | "知识/情报" | "资产/领地" | "功法/技能" | "血脉/体质" | "心理想法/目标快照";
             /**
              * Id
-             * @description 要删除的动态信息的ID (不能为-1)
+             * @description 要删除的动态信息 ID
              */
             id: number;
         };
@@ -2293,12 +2581,12 @@ export interface components {
         DynamicInfo: {
             /**
              * Name
-             * @description 角色名称。
+             * @description 角色名称
              */
             name: string;
             /**
              * Dynamic Info
-             * @description 动态信息字典，键为中文类别；值为信息项列表。
+             * @description 动态信息字典，键为中文类别，值为信息项列表
              */
             dynamic_info?: {
                 [key: string]: components["schemas"]["DynamicInfoItem"][];
@@ -2308,13 +2596,13 @@ export interface components {
         DynamicInfoItem: {
             /**
              * Id
-             * @description 手动设置，无需生成；并入时若为-1将自动赋值为该类别的顺序序号（从1开始）
+             * @description 手动设置，无需生成；并入时若为 -1 将自动分配顺序号
              * @default -1
              */
             id: number;
             /**
              * Info
-             * @description 简要描述具体动态信息。
+             * @description 简要描述具体动态信息
              */
             info: string;
         };
@@ -2331,10 +2619,55 @@ export interface components {
              * @default 1
              */
             llm_config_id: number;
+            /** Temperature */
+            temperature?: number | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Timeout */
             timeout?: number | null;
             /** Extra Context */
             extra_context?: string | null;
+        };
+        /** ExtractPreviewRequest */
+        ExtractPreviewRequest: {
+            /** Project Id */
+            project_id?: number | null;
+            /** Extractor Code */
+            extractor_code: string;
+            /** Text */
+            text: string;
+            /** Participants */
+            participants?: components["schemas"]["ParticipantTyped"][] | null;
+            /**
+             * Llm Config Id
+             * @default 1
+             */
+            llm_config_id: number;
+            /** Temperature */
+            temperature?: number | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Timeout */
+            timeout?: number | null;
+            /** Extra Context */
+            extra_context?: string | null;
+            /** Volume Number */
+            volume_number?: number | null;
+            /** Chapter Number */
+            chapter_number?: number | null;
+        };
+        /** ExtractPreviewResponse */
+        ExtractPreviewResponse: {
+            /** Extractor Code */
+            extractor_code: string;
+            /** Preview Data */
+            preview_data: {
+                [key: string]: unknown;
+            };
+            /** Affected Targets */
+            affected_targets?: {
+                [key: string]: unknown;
+            }[];
         };
         /** ExtractRelationsRequest */
         ExtractRelationsRequest: {
@@ -2347,6 +2680,10 @@ export interface components {
              * @default 1
              */
             llm_config_id: number;
+            /** Temperature */
+            temperature?: number | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Timeout */
             timeout?: number | null;
             /** Volume Number */
@@ -2366,6 +2703,16 @@ export interface components {
              * @description 关系摘要（含近期对话/事件）
              */
             relation_summaries?: components["schemas"]["RelationItem"][];
+            /**
+             * Item Summaries
+             * @description 物品摘要
+             */
+            item_summaries?: components["schemas"]["ItemSummary"][];
+            /**
+             * Concept Summaries
+             * @description 概念摘要
+             */
+            concept_summaries?: components["schemas"]["ConceptSummary"][];
         };
         /** ForeshadowDeleteRequest */
         ForeshadowDeleteRequest: {
@@ -2551,6 +2898,10 @@ export interface components {
              * @default 1
              */
             llm_config_id: number;
+            /** Temperature */
+            temperature?: number | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Timeout */
             timeout?: number | null;
             /** Volume Number */
@@ -2633,6 +2984,51 @@ export interface components {
              */
             deps?: string | null;
         };
+        /** ItemSummary */
+        ItemSummary: {
+            /**
+             * Name
+             * @description 物品名称
+             */
+            name: string;
+            /**
+             * Category
+             * @description 物品类别
+             * @default
+             */
+            category: string;
+            /**
+             * Description
+             * @description 物品简介
+             * @default
+             */
+            description: string;
+            /**
+             * Owner Hint
+             * @description 持有者提示
+             */
+            owner_hint?: string | null;
+            /**
+             * Current State
+             * @description 当前状态
+             */
+            current_state?: string | null;
+            /**
+             * Power Or Effect
+             * @description 能力或用途
+             */
+            power_or_effect?: string | null;
+            /**
+             * Constraints
+             * @description 限制条件
+             */
+            constraints?: string | null;
+            /**
+             * Important Events
+             * @description 重要事件
+             */
+            important_events?: string[];
+        };
         /** KnowledgeCreate */
         KnowledgeCreate: {
             /** Name */
@@ -2679,6 +3075,18 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /**
+             * Api Protocol
+             * @default chat_completions
+             * @enum {string}
+             */
+            api_protocol: "chat_completions" | "responses";
+            /** Custom Request Path */
+            custom_request_path?: string | null;
+            /** Models Path */
+            models_path?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
             /**
              * Token Limit
              * @default -1
@@ -2727,6 +3135,18 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /**
+             * Api Protocol
+             * @default chat_completions
+             * @enum {string}
+             */
+            api_protocol: "chat_completions" | "responses";
+            /** Custom Request Path */
+            custom_request_path?: string | null;
+            /** Models Path */
+            models_path?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
             /**
              * Token Limit
              * @default -1
@@ -2777,6 +3197,14 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /** Api Protocol */
+            api_protocol?: ("chat_completions" | "responses") | null;
+            /** Custom Request Path */
+            custom_request_path?: string | null;
+            /** Models Path */
+            models_path?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
             /** Token Limit */
             token_limit?: number | null;
             /** Call Limit */
@@ -2802,6 +3230,16 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key: string;
+            /**
+             * Api Protocol
+             * @default chat_completions
+             * @enum {string}
+             */
+            api_protocol: "chat_completions" | "responses";
+            /** Custom Request Path */
+            custom_request_path?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
         };
         /** LLMGetModelsRequest */
         LLMGetModelsRequest: {
@@ -2811,6 +3249,35 @@ export interface components {
             api_base?: string | null;
             /** Api Key */
             api_key: string;
+            /**
+             * Api Protocol
+             * @default chat_completions
+             * @enum {string}
+             */
+            api_protocol: "chat_completions" | "responses";
+            /** Models Path */
+            models_path?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
+        };
+        /** MemoryExtractorInfo */
+        MemoryExtractorInfo: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Target */
+            target: string;
+            /**
+             * Preview Supported
+             * @default true
+             */
+            preview_supported: boolean;
+        };
+        /** MemoryExtractorListResponse */
+        MemoryExtractorListResponse: {
+            /** Items */
+            items: components["schemas"]["MemoryExtractorInfo"][];
         };
         /**
          * NodeExecutionStatus
@@ -3030,7 +3497,7 @@ export interface components {
              * New Kind Cn
              * @description 新的关系中文类型
              */
-            new_kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
+            new_kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
         };
         /** RelationGraphBatchUpdateStanceRequest */
         RelationGraphBatchUpdateStanceRequest: {
@@ -3144,12 +3611,12 @@ export interface components {
              * Kind Cn
              * @description 关系中文类型
              */
-            kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
+            kind_cn?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
             /**
              * Kind
              * @description 关系中文类型（兼容字段）
              */
-            kind?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
+            kind?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他") | null;
             /**
              * Fact
              * @description 关系事实描述
@@ -3210,7 +3677,7 @@ export interface components {
              * Kind Cn
              * @enum {string}
              */
-            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
             /** Kind En */
             kind_en: string;
         };
@@ -3221,7 +3688,7 @@ export interface components {
             /** Keyword */
             keyword?: string | null;
             /** Kinds */
-            kinds?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他")[];
+            kinds?: ("同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他")[];
             /** Stances */
             stances?: ("友好" | "中立" | "敌意")[];
             /**
@@ -3264,12 +3731,12 @@ export interface components {
              * Kind Cn
              * @enum {string}
              */
-            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            kind_cn: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
             /**
              * Kind
              * @enum {string}
              */
-            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
             /** Fact */
             fact: string;
             /** A To B Addressing */
@@ -3316,7 +3783,7 @@ export interface components {
              * @description 关系类型（中文）
              * @enum {string}
              */
-            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
+            kind: "同盟" | "队友" | "同门" | "敌对" | "亲属" | "师徒" | "对手" | "伙伴" | "上级" | "下属" | "指导" | "隶属" | "成员" | "领导" | "创立" | "拥有" | "使用" | "修炼" | "领悟" | "承载" | "映射" | "控制" | "位于" | "影响" | "克制" | "关于" | "其他";
             /**
              * Description
              * @description 对该关系的简要文字说明（可选）
@@ -3347,6 +3814,191 @@ export interface components {
              * @description A 对 B 的总体立场（可选）
              */
             stance?: ("友好" | "中立" | "敌意") | null;
+        };
+        /** ReviewCardUpsertRequest */
+        ReviewCardUpsertRequest: {
+            /** Project Id */
+            project_id: number;
+            /** Target Card Id */
+            target_card_id: number;
+            /** Target Title */
+            target_title: string;
+            /**
+             * Review Type
+             * @enum {string}
+             */
+            review_type: "chapter" | "stage" | "card" | "custom";
+            /** Review Profile */
+            review_profile: string;
+            /** Target Field */
+            target_field?: string | null;
+            /** Review Text */
+            review_text: string;
+            /**
+             * Quality Gate
+             * @enum {string}
+             */
+            quality_gate: "pass" | "revise" | "block";
+            /** Prompt Name */
+            prompt_name: string;
+            /** Llm Config Id */
+            llm_config_id?: number | null;
+            /** Content Snapshot */
+            content_snapshot?: string | null;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ReviewDraftResult */
+        ReviewDraftResult: {
+            /** Review Text */
+            review_text: string;
+            /**
+             * Quality Gate
+             * @enum {string}
+             */
+            quality_gate: "pass" | "revise" | "block";
+            /**
+             * Review Type
+             * @enum {string}
+             */
+            review_type: "chapter" | "stage" | "card" | "custom";
+            /** Review Profile */
+            review_profile: string;
+            /** Review Target Field */
+            review_target_field?: string | null;
+            /** Prompt Name */
+            prompt_name: string;
+            /** Llm Config Id */
+            llm_config_id?: number | null;
+            /** Target Snapshot */
+            target_snapshot?: string | null;
+            /** Existing Review Card Id */
+            existing_review_card_id?: number | null;
+            /** Review Card Title */
+            review_card_title: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ReviewResultCardRead */
+        ReviewResultCardRead: {
+            /** Card Id */
+            card_id: number;
+            /** Project Id */
+            project_id: number;
+            /** Title */
+            title: string;
+            /** Review Target Card Id */
+            review_target_card_id: number;
+            /** Review Target Title */
+            review_target_title: string;
+            /**
+             * Review Target Type
+             * @default card
+             * @constant
+             */
+            review_target_type: "card";
+            /**
+             * Review Type
+             * @enum {string}
+             */
+            review_type: "chapter" | "stage" | "card" | "custom";
+            /** Review Profile */
+            review_profile: string;
+            /** Review Target Field */
+            review_target_field?: string | null;
+            /**
+             * Quality Gate
+             * @enum {string}
+             */
+            quality_gate: "pass" | "revise" | "block";
+            /** Review Markdown */
+            review_markdown: string;
+            /** Prompt Name */
+            prompt_name: string;
+            /** Llm Config Id */
+            llm_config_id?: number | null;
+            /** Reviewed At */
+            reviewed_at: string;
+            /** Target Snapshot */
+            target_snapshot?: string | null;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ReviewRunRequest */
+        ReviewRunRequest: {
+            /** Card Id */
+            card_id: number;
+            /** Project Id */
+            project_id?: number | null;
+            /** Title */
+            title: string;
+            /**
+             * Target Type
+             * @default card
+             * @constant
+             */
+            target_type: "card";
+            /**
+             * Review Type
+             * @default card
+             * @enum {string}
+             */
+            review_type: "chapter" | "stage" | "card" | "custom";
+            /**
+             * Review Profile
+             * @default generic_card_review
+             */
+            review_profile: string;
+            /**
+             * Target Field
+             * @default content
+             */
+            target_field: string;
+            /** Target Text */
+            target_text?: string | null;
+            /** Context Info */
+            context_info?: string | null;
+            /** Facts Info */
+            facts_info?: string | null;
+            /**
+             * Content Snapshot
+             * @description 可选存储的审核目标快照
+             */
+            content_snapshot?: string | null;
+            /** Llm Config Id */
+            llm_config_id: number;
+            /**
+             * Prompt Name
+             * @default 通用审核
+             */
+            prompt_name: string;
+            /** Temperature */
+            temperature?: number | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Timeout */
+            timeout?: number | null;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ReviewRunResponse */
+        ReviewRunResponse: {
+            /** Review Text */
+            review_text: string;
+            draft: components["schemas"]["ReviewDraftResult"];
         };
         /**
          * RunStatus
@@ -3434,12 +4086,12 @@ export interface components {
         "UpdateDynamicInfo-Input": {
             /**
              * Info List
-             * @description 需要更新的动态信息列表，尽量只提取足够重要的信息
+             * @description 需要更新的动态信息列表
              */
             info_list: components["schemas"]["DynamicInfo"][];
             /**
              * Delete Info List
-             * @description （可选）为新增信息腾出空间而要删除的旧信息列表
+             * @description 可选的删除列表
              */
             delete_info_list?: components["schemas"]["DeletionInfo"][] | null;
         };
@@ -3447,12 +4099,12 @@ export interface components {
         "UpdateDynamicInfo-Output": {
             /**
              * Info List
-             * @description 需要更新的动态信息列表，尽量只提取足够重要的信息
+             * @description 需要更新的动态信息列表
              */
             info_list: components["schemas"]["DynamicInfo"][];
             /**
              * Delete Info List
-             * @description （可选）为新增信息腾出空间而要删除的旧信息列表
+             * @description 可选的删除列表
              */
             delete_info_list?: components["schemas"]["DeletionInfo"][] | null;
         };
@@ -5023,6 +5675,39 @@ export interface operations {
             };
         };
     };
+    search_cards_api_projects__project_id__cards_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_cards_for_project_api_projects__project_id__cards_export_post: {
         parameters: {
             query?: never;
@@ -5466,6 +6151,134 @@ export interface operations {
             };
         };
     };
+    run_review_endpoint_api_chapter_reviews_cards_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ReviewRunResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_review_card_endpoint_api_chapter_reviews_cards_upsert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewCardUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ReviewResultCardRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_review_cards_by_target_endpoint_api_chapter_reviews_cards__card_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_List_ReviewResultCardRead__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_review_card_endpoint_api_chapter_reviews__review_card_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_bool_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assemble_api_context_assemble_post: {
         parameters: {
             query?: never;
@@ -5486,6 +6299,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssembleContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_extractors_api_memory_extractors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryExtractorListResponse"];
+                };
+            };
+        };
+    };
+    extract_preview_api_memory_extract_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_preview_api_memory_apply_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyPreviewResponse"];
                 };
             };
             /** @description Validation Error */
