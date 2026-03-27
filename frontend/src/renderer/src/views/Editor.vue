@@ -25,14 +25,33 @@
       <!-- 下半区：项目卡片树 -->
       <div class="cards-pane" :style="{ height: `calc(100% - ${typesPaneHeight + innerResizerThickness}px)` }" @dragover.prevent @drop="onCardsPaneDrop">
         <div class="cards-title">
-          <div class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</div>
+          <div class="cards-title-head">
+            <div class="cards-title-text">当前项目：{{ projectStore.currentProject?.name }}</div>
+            <div v-if="selectedCardIds.length > 0" class="cards-selection-chip">已选 {{ selectedCardIds.length }}</div>
+          </div>
           <div class="cards-title-actions">
-            <el-button size="small" type="primary" @click="openCreateRoot">新建卡片</el-button>
-            <el-button v-if="!isFreeProject" size="small" @click="openImportFreeCards">导入卡片</el-button>
-            <el-button size="small" @click="openExportDialog">导出卡片</el-button>
-            <el-button v-if="selectedCardIds.length > 0" size="small" type="danger" @click="batchDeleteCards">
+            <el-button
+              class="toolbar-action"
+              :class="selectedCardIds.length > 0 ? 'toolbar-action-create-split' : 'toolbar-action-create-full'"
+              size="small"
+              type="primary"
+              :icon="Plus"
+              @click="openCreateRoot"
+            >
+              新建卡片
+            </el-button>
+            <el-button
+              v-if="selectedCardIds.length > 0"
+              class="toolbar-action toolbar-action-danger toolbar-action-danger-split"
+              size="small"
+              type="danger"
+              :icon="Delete"
+              @click="batchDeleteCards"
+            >
               删除选中 ({{ selectedCardIds.length }})
             </el-button>
+            <el-button v-if="!isFreeProject" class="toolbar-action toolbar-action-secondary" size="small" :icon="Upload" @click="openImportFreeCards">导入卡片</el-button>
+            <el-button class="toolbar-action toolbar-action-secondary" :class="{ 'toolbar-action-secondary--solo': isFreeProject }" size="small" :icon="Download" @click="openExportDialog">导出卡片</el-button>
           </div>
         </div>
         
@@ -228,9 +247,20 @@
         @jump-to-card="handleJumpToCard"
       />
     </el-aside>
-    <el-button class="left-sidebar-toggle" type="primary" size="small" @click="toggleLeftSidebar">
-      {{ isLeftSidebarVisible ? '隐藏导航' : '显示导航' }}
-    </el-button>
+    <el-tooltip :content="isLeftSidebarVisible ? '收起左侧导航' : '展开左侧导航'" placement="right">
+      <button
+        type="button"
+        class="sidebar-edge-toggle"
+        :class="{ 'is-collapsed': !isLeftSidebarVisible }"
+        :style="{ left: `${leftSidebarToggleOffset}px` }"
+        :aria-label="isLeftSidebarVisible ? '收起左侧导航' : '展开左侧导航'"
+        @click="toggleLeftSidebar"
+      >
+        <el-icon class="sidebar-edge-toggle__icon">
+          <component :is="isLeftSidebarVisible ? ArrowLeft : ArrowRight" />
+        </el-icon>
+      </button>
+    </el-tooltip>
   </div>
 
   <!-- 新建卡片对话框 -->
@@ -322,7 +352,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, defineAsyncComponent, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Upload, Download, Delete, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { debounce } from 'lodash-es'
 import { 
@@ -559,13 +589,14 @@ const handleSearch = debounce(async (query: string) => {
 }, 300)
 
 // Composables
-  const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
-  const isLeftSidebarVisible = ref(true)
-  const leftSidebarDisplayWidth = computed(() => (isLeftSidebarVisible.value ? leftSidebarWidth.value : 0))
-  
-  function toggleLeftSidebar() {
-    isLeftSidebarVisible.value = !isLeftSidebarVisible.value
-  }
+const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
+const isLeftSidebarVisible = ref(true)
+const leftSidebarDisplayWidth = computed(() => (isLeftSidebarVisible.value ? leftSidebarWidth.value : 0))
+const leftSidebarToggleOffset = computed(() => (isLeftSidebarVisible.value ? Math.max(leftSidebarDisplayWidth.value - 18, 8) : 10))
+
+function toggleLeftSidebar() {
+  isLeftSidebarVisible.value = !isLeftSidebarVisible.value
+}
   
  // 统一 TreeSelect 样式/属性，确保选项可见
  const treeSelectProps = {
@@ -1902,10 +1933,79 @@ function onSwitchRightTab(e: CustomEvent) {
 .inner-resizer { height: 6px; cursor: row-resize; background: var(--el-fill-color-light); border-top: 1px solid var(--el-border-color-light); border-bottom: 1px solid var(--el-border-color-light); transition: height .12s ease, background-color .12s ease, border-color .12s ease; }
 .inner-resizer:hover { height: 8px; background: var(--el-fill-color); border-top: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); }
 /* 下半区：标题置顶并设置滚动容器 */
-.cards-pane { position: relative; padding-top: 8px; overflow: auto; }
-.cards-title { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); padding: 6px 6px; background: var(--el-bg-color); border-bottom: 1px dashed var(--el-border-color-light); margin-bottom: 6px; }
-.cards-title-text { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cards-title-actions { display: flex; align-items: center; gap: 6px; }
+.cards-pane { position: relative; padding-top: 8px; overflow: auto; overflow-x: hidden; }
+.cards-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+  padding: 8px;
+  background: color-mix(in srgb, var(--el-bg-color) 92%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in srgb, var(--el-border-color-light) 82%, transparent);
+  border-radius: 12px;
+  margin: 0 2px 8px;
+  box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.45);
+}
+.cards-title-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cards-title-text {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cards-selection-chip {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--el-color-danger);
+  background: color-mix(in srgb, var(--el-color-danger-light-9) 78%, var(--el-bg-color));
+  border: 1px solid color-mix(in srgb, var(--el-color-danger-light-7) 82%, transparent);
+}
+.cards-title-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.toolbar-action {
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+  justify-content: center;
+}
+.toolbar-action-create-full {
+  grid-column: 1 / -1;
+}
+.toolbar-action-create-split {
+  grid-column: span 1;
+}
+.toolbar-action-secondary {
+  grid-column: span 1;
+}
+.toolbar-action-secondary--solo {
+  grid-column: 1 / -1;
+}
+.toolbar-action-danger-split {
+  grid-column: span 1;
+}
+.cards-title-actions :deep(.el-button > span) {
+  min-width: 0;
+}
 .assistant-sidebar { 
   border-left: none; 
   background: transparent; 
@@ -1914,12 +2014,53 @@ function onSwitchRightTab(e: CustomEvent) {
 }
 .right-resizer { cursor: col-resize; width: 5px; background: transparent; }
 .right-resizer:hover { background: var(--el-color-primary-light-7); }
-.left-sidebar-toggle {
+.sidebar-edge-toggle {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 30;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  display: grid;
+  place-items: center;
+  align-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--el-border-color) 84%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--el-bg-color) 94%, rgba(255,255,255,0.65));
+  box-shadow:
+    0 10px 22px -18px rgba(15, 23, 42, 0.34),
+    0 3px 8px -6px rgba(15, 23, 42, 0.18);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition:
+    left 0.2s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease,
+    opacity 0.18s ease;
+  backdrop-filter: blur(14px);
+  opacity: 0.92;
+}
+.sidebar-edge-toggle:hover,
+.sidebar-edge-toggle:focus-visible {
+  transform: translateY(-50%) scale(1.04);
+  box-shadow:
+    0 14px 28px -20px rgba(37, 99, 235, 0.28),
+    0 4px 10px -8px rgba(15, 23, 42, 0.2);
+  border-color: color-mix(in srgb, var(--el-color-primary-light-6) 68%, transparent);
+  color: var(--el-color-primary);
+  outline: none;
+  opacity: 1;
+}
+.sidebar-edge-toggle.is-collapsed {
+  background: color-mix(in srgb, var(--el-bg-color) 96%, rgba(255,255,255,0.72));
+}
+.sidebar-edge-toggle__icon {
+  font-size: 15px;
+  line-height: 1;
 }
 .nf-import-dialog :deep(.el-input__wrapper) { font-size: 14px; }
 .nf-import-dialog :deep(.el-input__inner) { font-size: 14px; }

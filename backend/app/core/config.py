@@ -101,6 +101,8 @@ class BootstrapSettings(BaseSettings):
     
     # 是否覆盖更新内置数据（提示词、知识库等）
     overwrite: bool = Field(default=True, alias="BOOTSTRAP_OVERWRITE")
+    # 是否覆盖内置卡片类型的 schema
+    overwrite_card_schemas: bool = Field(default=False, alias="BOOTSTRAP_OVERWRITE_CARD_SCHEMAS")
     
     class Config:
         env_file = ".env"
@@ -120,6 +122,13 @@ class BootstrapSettings(BaseSettings):
         if isinstance(self.overwrite, bool):
             return self.overwrite
         return str(self.overwrite).lower() in ('1', 'true', 'yes', 'on')
+
+    @property
+    def should_overwrite_card_schemas(self) -> bool:
+        """是否应该覆盖内置卡片类型结构。"""
+        if isinstance(self.overwrite_card_schemas, bool):
+            return self.overwrite_card_schemas
+        return str(self.overwrite_card_schemas).lower() in ('1', 'true', 'yes', 'on')
 
 
 class AISettings(BaseSettings):
@@ -203,6 +212,7 @@ class Settings:
             f"  neo4j_uri={self.neo4j.get_uri()},\n"
             f"  max_retries={self.ai.max_tool_call_retries},\n"
             f"  bootstrap_overwrite={self.bootstrap.should_overwrite},\n"
+            f"  bootstrap_overwrite_card_schemas={self.bootstrap.should_overwrite_card_schemas},\n"
             f"  app_name={self.app.app_name}\n"
             f")"
         )
