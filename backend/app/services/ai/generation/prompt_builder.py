@@ -22,7 +22,7 @@ FALLBACK_INSTRUCTION_GUIDE = """## 指令流生成规范
    {"op":"set","path":"<路径>","value":<值>}
    ```
    - 可以设置任何类型的值：字符串、数字、布尔值、对象、数组
-   - 路径格式：JSON Pointer（如 /name, /age, /config/theme）
+   - 路径格式：JSON Pointer（如 /name, /age, /config/theme），请始终以 `/` 开头
    - 示例：{"op":"set","path":"/name","value":"林风"}
    - 示例（数组）：{"op":"set","path":"/tags","value":["热血","玄幻"]}  <-- 注意：必须包含 "value" 键
 
@@ -71,6 +71,7 @@ FALLBACK_INSTRUCTION_GUIDE = """## 指令流生成规范
 - 每次只生成一个或几个相关字段，不要一次性生成所有内容
 - 保持输出的自然流畅，可以用自然语言表达你的思考过程
 - JSON 指令必须严格符合格式，确保可以被正确解析
+- `path` 请优先使用 `/field_name` 这种 JSON Pointer，不要省略前导 `/`
 - 所有必填字段生成完成后，务必输出 {"op":"done"} 表示完成
 """
 

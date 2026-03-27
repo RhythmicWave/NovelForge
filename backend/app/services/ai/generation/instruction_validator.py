@@ -3,9 +3,41 @@
 负责校验指令的格式、路径、类型和约束。
 """
 
+import re
 from typing import Dict, Any, Optional
 from pydantic import ValidationError
 from loguru import logger
+
+
+_ARRAY_INDEX_PATTERN = re.compile(r"\[(\d+)\]")
+
+
+def normalize_instruction_path(path: Any) -> str:
+    """把常见路径写法统一转换为 JSON Pointer。"""
+    if not isinstance(path, str):
+        return ""
+
+    normalized = path.strip()
+    if not normalized:
+        return ""
+
+    if normalized == "$":
+        return "/"
+    if normalized.startswith("$."):
+        normalized = normalized[2:]
+
+    # items[0] -> items/0
+    normalized = _ARRAY_INDEX_PATTERN.sub(r"/\1", normalized)
+    # config.theme -> config/theme
+    normalized = normalized.replace(".", "/")
+
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized.lstrip("/")
+
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+
+    return normalized
 
 
 
@@ -87,6 +119,7 @@ def get_field_schema_by_path(schema: Dict[str, Any], path: str) -> Optional[Dict
     Returns:
         字段的 Schema，如果路径不存在则返回 None
     """
+    path = normalize_instruction_path(path)
     if not path or not path.startswith('/'):
         return None
     
@@ -191,6 +224,114 @@ def validate_type(value: Any, expected_type: Optional[str]) -> bool:
     return isinstance(value, expected_python_type)
 
 
+def _resolve_schema_variant_by_type(
+    schema_node: Dict[str, Any],
+    root_schema: Dict[str, Any],
+    target_type: str,
+) -> Optional[Dict[str, Any]]:
+    """在 nullable/union schema 中选出目标类型分支。"""
+    resolved = resolve_schema(schema_node, root_schema)
+    if resolved.get('type') == target_type:
+        return resolved
+
+    for union_key in ('anyOf', 'oneOf'):
+        options = resolved.get(union_key)
+        if not isinstance(options, list):
+            continue
+        for option in options:
+            resolved_option = resolve_schema(option, root_schema)
+            if resolved_option.get('type') == target_type:
+                return resolved_option
+    return None
+
+
+def _validate_constraints(value: Any, schema_node: Dict[str, Any], path: str) -> None:
+    """校验 enum、长度、数值范围等约束。"""
+    expected_type = schema_node.get('type')
+
+    if 'enum' in schema_node and value not in schema_node['enum']:
+        raise ValueError(f"字段 {path} 的值不在枚举范围内：{schema_node['enum']}")
+
+    if expected_type in ['integer', 'number']:
+        if 'minimum' in schema_node and value < schema_node['minimum']:
+            raise ValueError(f"字段 {path} 的值 {value} 小于最小值 {schema_node['minimum']}")
+        if 'maximum' in schema_node and value > schema_node['maximum']:
+            raise ValueError(f"字段 {path} 的值 {value} 大于最大值 {schema_node['maximum']}")
+
+    if expected_type == 'string':
+        if 'minLength' in schema_node and len(value) < schema_node['minLength']:
+            raise ValueError(f"字段 {path} 的长度 {len(value)} 小于最小长度 {schema_node['minLength']}")
+        if 'maxLength' in schema_node and len(value) > schema_node['maxLength']:
+            raise ValueError(f"字段 {path} 的长度 {len(value)} 大于最大长度 {schema_node['maxLength']}")
+
+    if expected_type == 'array' and isinstance(value, list):
+        if 'minItems' in schema_node and len(value) < schema_node['minItems']:
+            raise ValueError(f"数组 {path} 的长度 {len(value)} 小于最小长度 {schema_node['minItems']}")
+        if 'maxItems' in schema_node and len(value) > schema_node['maxItems']:
+            raise ValueError(f"数组 {path} 的长度 {len(value)} 大于最大长度 {schema_node['maxItems']}")
+
+
+def validate_value_against_schema(
+    value: Any,
+    schema_node: Dict[str, Any],
+    root_schema: Dict[str, Any],
+    path: str,
+) -> None:
+    """按单个 schema 节点递归校验一个值。"""
+    resolved = resolve_schema(schema_node, root_schema)
+
+    for union_key in ('anyOf', 'oneOf'):
+        options = resolved.get(union_key)
+        if not isinstance(options, list):
+            continue
+
+        matched = False
+        last_error: Optional[ValueError] = None
+        for option in options:
+            resolved_option = resolve_schema(option, root_schema)
+            opt_type = resolved_option.get('type')
+            if not validate_type(value, opt_type):
+                continue
+            try:
+                validate_value_against_schema(value, resolved_option, root_schema, path)
+                matched = True
+                break
+            except ValueError as exc:
+                last_error = exc
+
+        if not matched:
+            if last_error:
+                raise last_error
+            allowed_types = [resolve_schema(opt, root_schema).get('type') for opt in options]
+            raise ValueError(
+                f"字段类型或结构错误：路径 {path}，期望 {allowed_types} 之一。实际: {type(value).__name__}"
+            )
+        return
+
+    expected_type = resolved.get('type')
+    if expected_type and not validate_type(value, expected_type):
+        raise ValueError(f"字段类型错误：路径 {path}，期望 {expected_type}，实际 {type(value).__name__}")
+
+    _validate_constraints(value, resolved, path)
+
+    if expected_type == 'object':
+        validate_schema_structure(value, resolved, root_schema, path)
+        return
+
+    if expected_type == 'array' and isinstance(value, list):
+        if isinstance(resolved.get('prefixItems'), list):
+            for idx, item_schema in enumerate(resolved['prefixItems']):
+                if idx >= len(value):
+                    break
+                validate_value_against_schema(value[idx], item_schema, root_schema, f"{path}/{idx}")
+            return
+
+        item_schema = resolved.get('items')
+        if isinstance(item_schema, dict):
+            for idx, item in enumerate(value):
+                validate_value_against_schema(item, item_schema, root_schema, f"{path}/{idx}")
+
+
 def validate_instruction(instruction: Dict[str, Any], schema: Dict[str, Any]) -> None:
     """校验单条指令的合法性
     
@@ -215,6 +356,10 @@ def validate_instruction(instruction: Dict[str, Any], schema: Dict[str, Any]) ->
     
     if not path:
         raise ValueError("指令缺少 path 字段")
+
+    # 兼容模型偶尔输出的裸路径、点路径，统一转成 JSON Pointer 再校验。
+    path = normalize_instruction_path(path)
+    instruction['path'] = path
     
     if value is None and op != 'set':
         raise ValueError(f"指令 {op} 缺少 value 字段")
@@ -224,89 +369,25 @@ def validate_instruction(instruction: Dict[str, Any], schema: Dict[str, Any]) ->
     if not field_schema:
         raise ValueError(f"路径 {path} 不存在于 Schema 中")
     
-    # 2. 类型校验
-    expected_type = field_schema.get('type')
-    
-    # 处理 Optional 类型 (anyOf, oneOf)
-    # 对于 Optional[List[...]] 类型，schema 可能是 {"anyOf": [{"type": "array", ...}, {"type": "null"}]}
-    actual_schema = field_schema
-    if 'anyOf' in field_schema:
-        # 从 anyOf 中找到数组类型的 schema
-        for option in field_schema['anyOf']:
-            if option.get('type') == 'array':
-                actual_schema = option
-                expected_type = 'array'
-                break
-    elif 'oneOf' in field_schema:
-        # 从 oneOf 中找到数组类型的 schema
-        for option in field_schema['oneOf']:
-            if option.get('type') == 'array':
-                actual_schema = option
-                expected_type = 'array'
-                break
-    
     # 对于 append 操作，需要检查数组的 items 类型
     if op == 'append':
-        if expected_type != 'array':
+        actual_schema = _resolve_schema_variant_by_type(field_schema, schema, 'array')
+        if not actual_schema:
             raise ValueError(f"路径 {path} 不是数组类型，无法使用 append 操作")
-        
-        # 获取数组元素的类型
-        items_schema = actual_schema.get('items', {})
-        item_type = items_schema.get('type')
-        
-        if not validate_type(value, item_type):
-            raise ValueError(
-                f"数组元素类型错误：路径 {path}，期望 {item_type}，实际 {type(value).__name__}"
-            )
-        
-        # 深度校验数组元素结构 (针对 Object 类型)
-        if item_type == 'object':
-            validate_schema_structure(value, items_schema, schema)
+        items_schema = actual_schema.get('items')
+        if not isinstance(items_schema, dict):
+            raise ValueError(f"路径 {path} 的数组未定义 items 结构，无法使用 append 操作")
+        validate_value_against_schema(value, items_schema, schema, f"{path}/-")
 
     else:
-        # set 操作
-        # 对于 Optional 类型，需要检查所有可能的类型
-        if 'anyOf' in field_schema or 'oneOf' in field_schema:
-            # 尝试匹配任意一个类型
-            options = field_schema.get('anyOf', field_schema.get('oneOf', []))
-            matched = False
-            last_error = None
-            
-            for option in options:
-                resolved_option = resolve_schema(option, schema)
-                opt_type = resolved_option.get('type')
-                
-                # 类型匹配才深入校验
-                if validate_type(value, opt_type):
-                    try:
-                        # 如果是对象，进行结构校验
-                        if opt_type == 'object':
-                            validate_schema_structure(value, resolved_option, schema)
-                        matched = True
-                        break
-                    except ValueError as e:
-                        last_error = e
-                        continue
-            
-            if not matched:
-                if last_error:
-                    raise last_error
-                allowed_types = [resolve_schema(opt, schema).get('type') for opt in options]
-                raise ValueError(
-                    f"字段类型或结构错误：路径 {path}，期望 {allowed_types} 之一。实际: {type(value).__name__}"
-                )
-        else:
-            # 普通类型校验
-            if not validate_type(value, expected_type):
-                raise ValueError(
-                    f"字段类型错误：路径 {path}，期望 {expected_type}，实际 {type(value).__name__}"
-                )
-            
-            # 如果是对象，进行深度结构校验
-            if expected_type == 'object':
-                validate_schema_structure(value, actual_schema, schema)
+        validate_value_against_schema(value, field_schema, schema, path)
 
-def validate_schema_structure(data: Any, schema_node: Dict[str, Any], root_schema: Dict[str, Any]) -> None:
+def validate_schema_structure(
+    data: Any,
+    schema_node: Dict[str, Any],
+    root_schema: Dict[str, Any],
+    path: str = "",
+) -> None:
     """递归校验数据的结构是否符合 Schema 定义 (包含 required 和 properties)
     
     Args:
@@ -345,69 +426,15 @@ def validate_schema_structure(data: Any, schema_node: Dict[str, Any], root_schem
                 # 既没默认值也不是必填，跳过
                 continue
             
+            field_path = f"{path}/{field_name}" if path else f"/{field_name}"
+
             # B. 处理已存在字段
             field_value = data[field_name]
-            
-            # 递归校验结构 (如果是对象)
-            # 注意：基本类型的 validate_type 已经在 validate_instruction 外层做了一部分，
-            # 但这里是递归内部，需要自己负责
-            
-            # 类型检查
-            expected_type = field_schema.get('type')
-            if expected_type and not validate_type(field_value, expected_type):
-                 # 宽容处理：尝试转换类型? 目前先报错，交给 AI 修复
-                 # (后续可以考虑添加自动类型转换逻辑)
-                 raise ValueError(f"字段 {field_name} 类型错误: 期望 {expected_type}, 实际 {type(field_value).__name__}")
-            
-            # 深度递归
-            if expected_type == 'object':
-                 validate_schema_structure(field_value, field_schema, root_schema)
+
+            validate_value_against_schema(field_value, field_schema, root_schema, field_path)
     
     # 2. (可选) 检查 data 中有多余的字段? (additionalProperties)
     # 目前暂不严格限制，允许 AI 生成额外字段作为"思考备注"或未定义属性
-
-
-    
-    # 3. 约束校验
-    # 枚举约束
-    if 'enum' in field_schema and value not in field_schema['enum']:
-        raise ValueError(
-            f"字段 {path} 的值不在枚举范围内：{field_schema['enum']}"
-        )
-    
-    # 数值范围约束
-    if expected_type in ['integer', 'number']:
-        if 'minimum' in field_schema and value < field_schema['minimum']:
-            raise ValueError(
-                f"字段 {path} 的值 {value} 小于最小值 {field_schema['minimum']}"
-            )
-        if 'maximum' in field_schema and value > field_schema['maximum']:
-            raise ValueError(
-                f"字段 {path} 的值 {value} 大于最大值 {field_schema['maximum']}"
-            )
-    
-    # 字符串长度约束
-    if expected_type == 'string':
-        if 'minLength' in field_schema and len(value) < field_schema['minLength']:
-            raise ValueError(
-                f"字段 {path} 的长度 {len(value)} 小于最小长度 {field_schema['minLength']}"
-            )
-        if 'maxLength' in field_schema and len(value) > field_schema['maxLength']:
-            raise ValueError(
-                f"字段 {path} 的长度 {len(value)} 大于最大长度 {field_schema['maxLength']}"
-            )
-    
-    # 数组长度约束
-    if expected_type == 'array':
-        if isinstance(value, list):
-            if 'minItems' in field_schema and len(value) < field_schema['minItems']:
-                raise ValueError(
-                    f"数组 {path} 的长度 {len(value)} 小于最小长度 {field_schema['minItems']}"
-                )
-            if 'maxItems' in field_schema and len(value) > field_schema['maxItems']:
-                raise ValueError(
-                    f"数组 {path} 的长度 {len(value)} 大于最大长度 {field_schema['maxItems']}"
-                )
 
 
 def apply_instruction(data: Dict[str, Any], instruction: Dict[str, Any]) -> None:
@@ -422,7 +449,7 @@ def apply_instruction(data: Dict[str, Any], instruction: Dict[str, Any]) -> None
     if op == 'done':
         return
     
-    path = instruction.get('path', '')
+    path = normalize_instruction_path(instruction.get('path', ''))
     value = instruction.get('value')
     
     # 移除开头的 /

@@ -9,6 +9,7 @@ from typing import Any, Dict
 from sqlmodel import Session, select
 from loguru import logger
 
+from app.core.config import settings
 from app.db.models import Card, CardType, LLMConfig
 from app.schemas.response_registry import RESPONSE_MODEL_MAP
 from .registry import initializer
@@ -299,6 +300,8 @@ def create_default_card_types(session: Session) -> None:
         "文件夹": "Text",
     }
 
+    overwrite_card_schemas = settings.bootstrap.should_overwrite_card_schemas
+
     existing_types = session.exec(select(CardType)).all()
     existing_type_names = {ct.name for ct in existing_types}
     existing_type_by_name = {ct.name: ct for ct in existing_types}
@@ -345,7 +348,8 @@ def create_default_card_types(session: Session) -> None:
                 if model_class:
                     schema = model_class.model_json_schema(ref_template="#/$defs/{model}")
                     schema = _localize_schema_titles(schema)
-                    ct.json_schema = schema
+                    if ct.json_schema is None or overwrite_card_schemas:
+                        ct.json_schema = schema
             except Exception:
                 pass
             # 若缺失 ai_params 则按预设填充（不覆盖用户已设置的）
@@ -429,4 +433,4 @@ def create_default_card_types(session: Session) -> None:
     #     logger.info(f"Created builtin response model card type: {model_key}")
 
     session.commit()
-    logger.info("Default card types committed.")
+    logger.info(f"Default card types committed. overwrite_card_schemas={overwrite_card_schemas}")
