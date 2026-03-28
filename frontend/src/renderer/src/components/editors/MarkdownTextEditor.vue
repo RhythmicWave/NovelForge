@@ -23,7 +23,7 @@
     <div class="preview-body" v-else>
       <XMarkdown
         :markdown="textContent || '（暂无内容）'"
-        default-theme-mode="light"
+        :default-theme-mode="isDarkMode ? 'dark' : 'light'"
         class="markdown-preview"
       />
     </div>
@@ -35,6 +35,7 @@ import { computed, ref, watch } from 'vue'
 import { XMarkdown } from 'vue-element-plus-x'
 import type { CardRead, CardUpdate } from '@renderer/api/cards'
 import { useCardStore } from '@renderer/stores/useCardStore'
+import { useAppStore } from '@renderer/stores/useAppStore'
 
 const props = defineProps<{
   card: CardRead
@@ -45,6 +46,8 @@ const emit = defineEmits<{
 }>()
 
 const cardStore = useCardStore()
+const appStore = useAppStore()
+const isDarkMode = computed(() => appStore.isDarkMode)
 
 const mode = ref<'edit' | 'preview'>('preview')
 const modeOptions = [
@@ -162,13 +165,29 @@ defineExpose({
   min-height: 100% !important;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   line-height: 1.6;
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
+  border-color: var(--el-border-color);
+  caret-color: var(--el-color-primary);
+}
+
+.markdown-textarea :deep(.el-textarea__inner::placeholder) {
+  color: var(--el-text-color-placeholder);
 }
 
 .preview-body {
   overflow: auto;
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
 }
 
 .markdown-preview {
   min-height: 100%;
+  color: var(--el-text-color-primary);
+}
+
+.markdown-preview :deep(.markdown-body) {
+  background: transparent;
+  color: inherit;
 }
 </style>
