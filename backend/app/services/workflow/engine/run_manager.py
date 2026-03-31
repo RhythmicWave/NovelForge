@@ -133,9 +133,8 @@ class RunManager:
             # 更新状态为运行中
             self.state_manager.update_run_status(run_id, "running")
 
-            # 解析工作流定义
-            definition = workflow.definition_json or {}
-            code = definition.get("code", "")
+            # 读取工作流代码
+            code = workflow.definition_code or ""
 
             if not code:
                 raise ValueError("工作流缺少代码内容")
