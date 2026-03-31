@@ -8,24 +8,27 @@ from app.db.models import Workflow, WorkflowRun
 from .state_manager import StateManager
 from .scheduler import WorkflowScheduler
 
+# 进程级共享状态，所有 RunManager 实例共用
+_scheduler = WorkflowScheduler(max_concurrent_runs=5)
+_executors: Dict[int, Any] = {}  # run_id -> AsyncExecutor
+
 
 class RunManager:
     """工作流运行管理器
-    
+
     职责：
     - 创建和启动运行
     - 管理运行生命周期
     - 提供暂停/恢复/取消接口
     - 协调各个组件
-    
+
     只支持代码式工作流系统。
+    scheduler 和 executors 是进程级单例，跨请求共享。
     """
-    
+
     def __init__(self, session: Session):
         self.session = session
         self.state_manager = StateManager(session)
-        self.scheduler = WorkflowScheduler(max_concurrent_runs=5)
-        self.executors: Dict[int, AsyncExecutor] = {}  # 保存执行器引用（用于暂停/恢复）
     
     def create_run(
         self,
@@ -116,7 +119,7 @@ class RunManager:
         executor_coro = self._execute_run(run, workflow)
         
         # 调度执行
-        await self.scheduler.schedule_run(run_id, executor_coro, priority)
+        await _scheduler.schedule_run(run_id, executor_coro, priority)
     
     async def _execute_run(
         self,
@@ -164,7 +167,7 @@ class RunManager:
             )
             
             # 保存执行器引用（用于暂停/恢复）
-            self.executors[run_id] = executor
+            _executors[run_id] = executor
             
             try:
                 # 消费所有事件（触发器场景不需要处理进度）
@@ -175,8 +178,8 @@ class RunManager:
                 result_context = executor.context
             finally:
                 # 清理执行器引用
-                if run_id in self.executors:
-                    del self.executors[run_id]
+                if run_id in _executors:
+                    del _executors[run_id]
 
             # 更新状态为成功
             self.state_manager.update_run_status(
@@ -212,7 +215,7 @@ class RunManager:
             是否成功取消
         """
         # 尝试从调度器取消
-        if self.scheduler.cancel_run(run_id):
+        if _scheduler.cancel_run(run_id):
             self.state_manager.update_run_status(run_id, "cancelled")
             logger.info(f"[RunManager] 运行已取消: run_id={run_id}")
             return True
@@ -228,13 +231,13 @@ class RunManager:
         Returns:
             是否成功暂停
         """
-        executor = self.executors.get(run_id)
+        executor = _executors.get(run_id)
         if executor:
             executor.pause()
             self.state_manager.update_run_status(run_id, "paused")
             logger.info(f"[RunManager] 运行已暂停: run_id={run_id}")
             return True
-        
+
         logger.warning(f"[RunManager] 无法暂停运行（执行器不存在）: run_id={run_id}")
         return False
     
@@ -257,7 +260,7 @@ class RunManager:
             return False
         
         # 检查执行器是否存在
-        executor = self.executors.get(run_id)
+        executor = _executors.get(run_id)
         if executor:
             # 执行器存在，直接恢复
             executor.resume()

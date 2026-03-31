@@ -64,12 +64,10 @@ from app.services.workflow import (
     get_all_node_metadata,
     RunManager
 )
+from app.services.workflow.engine.run_manager import _executors as _running_executors
 
 
 router = APIRouter()
-
-# 全局字典：保存运行中的执行器实例（用于暂停/恢复）
-_running_executors: Dict[int, Any] = {}  # run_id -> AsyncExecutor
 
 
 @router.get("/nodes/types", response_model=NodeTypesResponse)
