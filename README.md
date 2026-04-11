@@ -58,7 +58,7 @@
   - [内置工作流模板](#workflow-builtins)
   - [项目初始化工作流](#workflow-project-init)
   - [工作流 Agent（自然语言编写工作流）](#workflow-agent)
-  - [工作流使用示例](#workflow-examples)
+  - [工作流使用示例（拆书工作流）](#workflow-examples)
 
 ### 协作与规划
 
@@ -745,6 +745,9 @@ npm run dev
 设置目标项目、模型名、小说章节目录
 
 ![alt text](docImgs/README/image-38.png)
+
+注意，小说文件存放需按满足预设的格式要求，例如按每章节进行分割存储为txt文件
+![alt text](docImgs/README/image-41.png)
 
 点击执行即可
 
