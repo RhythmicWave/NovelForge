@@ -1,12 +1,13 @@
 """运行管理器 - 统一管理代码式工作流运行"""
 
+import asyncio
 from typing import Optional, Dict, Any
 from sqlmodel import Session, select
 from loguru import logger
 
 from app.db.models import Workflow, WorkflowRun
 from .state_manager import StateManager
-from .scheduler import WorkflowScheduler
+from .runtime import workflow_runtime
 
 
 class RunManager:
@@ -24,8 +25,6 @@ class RunManager:
     def __init__(self, session: Session):
         self.session = session
         self.state_manager = StateManager(session)
-        self.scheduler = WorkflowScheduler(max_concurrent_runs=5)
-        self.executors: Dict[int, AsyncExecutor] = {}  # 保存执行器引用（用于暂停/恢复）
     
     def create_run(
         self,
@@ -112,11 +111,33 @@ class RunManager:
         if not workflow:
             raise ValueError(f"工作流不存在: {run.workflow_id}")
         
-        # 创建执行协程
-        executor_coro = self._execute_run(run, workflow)
-        
-        # 调度执行
-        await self.scheduler.schedule_run(run_id, executor_coro, priority)
+        if workflow_runtime.is_active(run_id):
+            logger.info(f"[RunManager] 运行已在调度中: run_id={run_id}")
+            return
+
+        task = asyncio.create_task(self._execute_run_in_new_session(run_id))
+        workflow_runtime.register_task(run_id, task)
+
+    async def _execute_run_in_new_session(self, run_id: int) -> None:
+        """在独立数据库会话中执行后台运行。"""
+        from app.db.session import engine as db_engine
+
+        session = Session(db_engine)
+        try:
+            run = session.get(WorkflowRun, run_id)
+            if not run:
+                logger.error(f"[RunManager] 运行不存在: run_id={run_id}")
+                return
+
+            workflow = session.get(Workflow, run.workflow_id)
+            if not workflow:
+                logger.error(f"[RunManager] 工作流不存在: workflow_id={run.workflow_id}")
+                return
+
+            manager = RunManager(session)
+            await manager._execute_run(run, workflow)
+        finally:
+            session.close()
     
     async def _execute_run(
         self,
@@ -130,12 +151,19 @@ class RunManager:
         run_id = run.id
 
         try:
+            slot_status = await workflow_runtime.acquire_slot(run_id)
+            if slot_status == "cancelled":
+                self.state_manager.update_run_status(run_id, "cancelled")
+                return
+            if slot_status == "paused":
+                self.state_manager.update_run_status(run_id, "paused")
+                return
+
             # 更新状态为运行中
             self.state_manager.update_run_status(run_id, "running")
 
             # 解析工作流定义
-            definition = workflow.definition_json or {}
-            code = definition.get("code", "")
+            code = workflow.definition_code or ""
 
             if not code:
                 raise ValueError("工作流缺少代码内容")
@@ -165,19 +193,23 @@ class RunManager:
             )
             
             # 保存执行器引用（用于暂停/恢复）
-            self.executors[run_id] = executor
+            workflow_runtime.register_executor(run_id, executor)
             
             try:
                 # 消费所有事件（触发器场景不需要处理进度）
                 async for event in executor.execute_stream(plan, initial_context):
                     pass  # 可以在这里添加日志记录
                 
+                if executor.is_paused or workflow_runtime.is_pause_requested(run_id):
+                    self.state_manager.update_run_status(run_id, "paused")
+                    logger.info(f"[RunManager] 运行已暂停: run_id={run_id}")
+                    return
+
                 # 获取最终结果
                 result_context = executor.context
             finally:
                 # 清理执行器引用
-                if run_id in self.executors:
-                    del self.executors[run_id]
+                workflow_runtime.unregister_executor(run_id, executor)
 
             # 更新状态为成功
             self.state_manager.update_run_status(
@@ -191,17 +223,25 @@ class RunManager:
 
             logger.info(f"[RunManager] 运行成功: run_id={run_id}")
 
+        except asyncio.CancelledError:
+            logger.info(f"[RunManager] 运行被取消: run_id={run_id}")
+            self.state_manager.update_run_status(run_id, "cancelled")
+            raise
         except Exception as e:
             error_msg = str(e)
             logger.exception(f"[RunManager] 运行失败: run_id={run_id}")
 
             # 判断是否超时
-            import asyncio
             if isinstance(e, asyncio.TimeoutError):
                 self.state_manager.update_run_status(run_id, "timeout")
             else:
                 self.state_manager.update_run_status(run_id, "failed")
                 self.state_manager.save_error(run_id, error_msg)
+        finally:
+            workflow_runtime.finish_run(
+                run_id,
+                keep_pause=workflow_runtime.is_pause_requested(run_id)
+            )
     
     async def cancel_run(self, run_id: int) -> bool:
         """取消运行
@@ -212,10 +252,15 @@ class RunManager:
         Returns:
             是否成功取消
         """
-        # 尝试从调度器取消
-        if self.scheduler.cancel_run(run_id):
+        if workflow_runtime.request_cancel(run_id):
             self.state_manager.update_run_status(run_id, "cancelled")
             logger.info(f"[RunManager] 运行已取消: run_id={run_id}")
+            return True
+
+        run = self.session.get(WorkflowRun, run_id)
+        if run and run.status in {"queued", "running", "paused"}:
+            self.state_manager.update_run_status(run_id, "cancelled")
+            logger.info(f"[RunManager] 未发现进程内任务，已将运行标记为取消: run_id={run_id}")
             return True
         
         return False
@@ -229,9 +274,7 @@ class RunManager:
         Returns:
             是否成功暂停
         """
-        executor = self.executors.get(run_id)
-        if executor:
-            executor.pause()
+        if workflow_runtime.request_pause(run_id):
             self.state_manager.update_run_status(run_id, "paused")
             logger.info(f"[RunManager] 运行已暂停: run_id={run_id}")
             return True
@@ -258,10 +301,8 @@ class RunManager:
             return False
         
         # 检查执行器是否存在
-        executor = self.executors.get(run_id)
-        if executor:
+        if workflow_runtime.request_resume(run_id):
             # 执行器存在，直接恢复
-            executor.resume()
             self.state_manager.update_run_status(run_id, "running")
             logger.info(f"[RunManager] 运行已恢复: run_id={run_id}")
             return True
