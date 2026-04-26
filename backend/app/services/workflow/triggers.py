@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import threading
 from typing import List, Dict, Any
 from sqlmodel import Session, select
 from time import monotonic
@@ -13,6 +14,7 @@ from loguru import logger
 
 from app.db.models import Card, Workflow, WorkflowRun
 from app.services.workflow.engine import StateManager
+from app.services.workflow.engine.runtime import workflow_runtime
 from app.db.session import engine as db_engine
 from app.core import on_event, Event
 
@@ -205,6 +207,16 @@ def _async_execute_workflow(run_id: int):
     async def _execute():
         session = Session(db_engine)
         try:
+            workflow_runtime.register_task(run_id)
+
+            slot_status = await workflow_runtime.acquire_slot(run_id)
+            if slot_status == "cancelled":
+                StateManager(session).update_run_status(run_id, "cancelled")
+                return
+            if slot_status == "paused":
+                StateManager(session).update_run_status(run_id, "paused")
+                return
+
             # 1. 获取运行记录
             state_manager = StateManager(session)
             run = session.get(WorkflowRun, run_id)
@@ -223,7 +235,10 @@ def _async_execute_workflow(run_id: int):
             try:
                 # 3. 执行代码式工作流
                 await _execute_code_workflow(session, state_manager, run, wf)
-                    
+            except asyncio.CancelledError:
+                state_manager.update_run_status(run_id, "cancelled")
+                logger.info(f"[Trigger] 后台执行已取消: run_id={run_id}")
+                return
             except Exception as e:
                 # 执行失败更新状态
                 state_manager.update_run_status(run_id, "failed")
@@ -233,6 +248,10 @@ def _async_execute_workflow(run_id: int):
         except Exception as e:
             logger.exception(f"[Trigger] 后台执行失败: run_id={run_id}")
         finally:
+            workflow_runtime.finish_run(
+                run_id,
+                keep_pause=workflow_runtime.is_pause_requested(run_id)
+            )
             session.close()
 
     try:
@@ -245,8 +264,14 @@ def _async_execute_workflow(run_id: int):
         if loop and loop.is_running():
             loop.create_task(_execute())
         else:
-            # Use asyncio.run for sync context (e.g. threadpool)
-            asyncio.run(_execute())
+            # Sync endpoints run in a threadpool; start a background loop so the
+            # request can return while the workflow keeps running.
+            thread = threading.Thread(
+                target=lambda: asyncio.run(_execute()),
+                name=f"workflow-run-{run_id}",
+                daemon=True,
+            )
+            thread.start()
             
     except Exception as e:
         logger.error(f"[Trigger] 无法调度后台任务: {e}")
@@ -300,13 +325,22 @@ async def _execute_code_workflow(
         run_id=run_id
     )
     
-    # execute_stream 是一个异步生成器，需要消费所有事件
-    async for event in executor.execute_stream(plan, initial_context):
-        # 记录关键事件
-        if event.type == "error":
-            logger.error(f"[Trigger] 节点执行失败: {event.statement.variable if event.statement else 'unknown'}, error={event.error}")
-        elif event.type == "complete":
-            logger.debug(f"[Trigger] 节点执行完成: {event.statement.variable if event.statement else 'unknown'}")
+    workflow_runtime.register_executor(run_id, executor)
+    try:
+        # execute_stream 是一个异步生成器，需要消费所有事件
+        async for event in executor.execute_stream(plan, initial_context):
+            # 记录关键事件
+            if event.type == "error":
+                logger.error(f"[Trigger] 节点执行失败: {event.statement.variable if event.statement else 'unknown'}, error={event.error}")
+            elif event.type == "complete":
+                logger.debug(f"[Trigger] 节点执行完成: {event.statement.variable if event.statement else 'unknown'}")
+
+        if executor.is_paused or workflow_runtime.is_pause_requested(run_id):
+            state_manager.update_run_status(run_id, "paused")
+            logger.info(f"[Trigger] 工作流已暂停: run_id={run_id}")
+            return
+    finally:
+        workflow_runtime.unregister_executor(run_id, executor)
     
     # 更新状态为成功
     state_manager.update_run_status(

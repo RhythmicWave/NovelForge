@@ -64,12 +64,10 @@ from app.services.workflow import (
     get_all_node_metadata,
     RunManager
 )
+from app.services.workflow.engine.runtime import workflow_runtime
 
 
 router = APIRouter()
-
-# 全局字典：保存运行中的执行器实例（用于暂停/恢复）
-_running_executors: Dict[int, Any] = {}  # run_id -> AsyncExecutor
 
 
 @router.get("/nodes/types", response_model=NodeTypesResponse)
@@ -401,7 +399,7 @@ async def cancel_run(run_id: int, session: Session = Depends(get_session)):
 async def pause_run(run_id: int, session: Session = Depends(get_session)):
     """暂停运行中的工作流
     
-    立即取消所有异步任务并更新数据库状态。
+    通过共享运行时请求暂停，并更新数据库状态。
     """
     logger.info(f"[API] 收到暂停请求: run_id={run_id}")
     
@@ -411,18 +409,17 @@ async def pause_run(run_id: int, session: Session = Depends(get_session)):
         logger.warning(f"[API] 运行不存在: run_id={run_id}")
         raise HTTPException(status_code=404, detail="Run not found")
     
+    if run.status == "paused":
+        logger.info(f"[API] 运行已处于暂停状态: run_id={run_id}")
+        return {"ok": True, "message": "paused"}
+
     # 检查状态
     if run.status not in ["running", "queued"]:
         logger.warning(f"[API] 运行状态不是 running 或 queued: run_id={run_id}, status={run.status}")
         raise HTTPException(status_code=400, detail=f"无法暂停状态为 {run.status} 的运行")
     
-    # 如果执行器存在，调用其 pause() 方法
-    executor = _running_executors.get(run_id)
-    if executor:
-        logger.info(f"[API] 调用执行器的 pause() 方法: run_id={run_id}")
-        executor.pause()  # 同步调用，立即返回
-    else:
-        logger.warning(f"[API] 执行器不存在（可能已完成或未启动）: run_id={run_id}")
+    if not workflow_runtime.request_pause(run_id):
+        logger.warning(f"[API] 未找到进程内执行器，仍将运行标记为暂停: run_id={run_id}")
     
     # 更新状态为暂停
     run.status = "paused"
@@ -495,12 +492,8 @@ async def execute_code_workflow_stream(
         if run.workflow_id != workflow_id:
             raise HTTPException(status_code=400, detail="Run 不属于该工作流")
         
-        # 更新状态为运行中
-        run.status = "running"
-        session.add(run)
-        session.commit()
-        
-        logger.info(f"[CodeWorkflow] 恢复运行: run_id={run_id}, workflow_id={workflow_id}")
+        workflow_runtime.request_resume(run_id)
+        logger.info(f"[CodeWorkflow] 准备恢复运行: run_id={run_id}, workflow_id={workflow_id}")
     else:
         # 新建执行：使用 RunManager 创建（带幂等性保护）
         # 生成幂等键：基于工作流ID和时间窗口（5秒）
@@ -518,16 +511,27 @@ async def execute_code_workflow_stream(
         if run.status == "running":
             logger.warning(f"[CodeWorkflow] 复用现有运行记录（幂等性保护）: run_id={run_id}, workflow_id={workflow_id}")
         else:
-            # 更新状态为运行中
-            run.status = "running"
-            session.add(run)
-            session.commit()
             logger.info(f"[CodeWorkflow] 创建运行记录: run_id={run_id}, workflow_id={workflow_id}")
 
     async def event_stream():
         """流式推送执行事件"""
         executor = None
+        state_manager = StateManager(session)
         try:
+            workflow_runtime.register_task(run_id)
+
+            slot_status = await workflow_runtime.acquire_slot(run_id)
+            if slot_status == "cancelled":
+                state_manager.update_run_status(run_id, "cancelled")
+                yield f"data: {json.dumps({'type': 'cancelled', 'message': '工作流已取消'}, ensure_ascii=False)}\n\n"
+                return
+            if slot_status == "paused":
+                state_manager.update_run_status(run_id, "paused")
+                yield f"data: {json.dumps({'type': 'paused', 'message': '工作流已暂停'}, ensure_ascii=False)}\n\n"
+                return
+
+            state_manager.update_run_status(run_id, "running")
+
             # 解析代码
             from app.services.workflow.parser.marker_parser import WorkflowParser
             parser = WorkflowParser()
@@ -536,8 +540,6 @@ async def execute_code_workflow_stream(
             logger.info(f"[CodeWorkflow] 开始流式执行: run_id={run_id}, 语句数={len(plan.statements)}, resume={resume}")
 
             # 创建状态管理器和执行器
-            state_manager = StateManager(session)
-            
             # 如果不是恢复执行，清理旧状态
             if not resume:
                 from app.services.workflow.engine.execution_state import ExecutionState
@@ -550,17 +552,8 @@ async def execute_code_workflow_stream(
                 run_id=run_id
             )
             
-            # ⚠️ 关键：如果已有执行器在运行，先取消它
-            if run_id in _running_executors:
-                old_executor = _running_executors[run_id]
-                logger.warning(f"[CodeWorkflow] 发现旧执行器仍在运行，先取消: run_id={run_id}")
-                try:
-                    old_executor.pause()  # 同步调用，立即返回
-                except Exception as e:
-                    logger.error(f"[CodeWorkflow] 取消旧执行器失败: {e}")
-            
             # 保存执行器引用（用于暂停）
-            _running_executors[run_id] = executor
+            workflow_runtime.register_executor(run_id, executor)
             logger.info(f"[CodeWorkflow] 执行器已注册: run_id={run_id}")
 
             # 推送 run_id（让前端知道当前运行的 ID）
@@ -569,8 +562,9 @@ async def execute_code_workflow_stream(
             # 流式执行
             async for event in executor.execute_stream(plan, initial_context={}):
                 # 检查是否已暂停（优先检查）
-                if executor.is_paused:
+                if executor.is_paused or workflow_runtime.is_pause_requested(run_id):
                     logger.info(f"[CodeWorkflow] 检测到暂停状态，停止执行: run_id={run_id}")
+                    state_manager.update_run_status(run_id, "paused")
                     # 推送暂停事件
                     yield f"data: {json.dumps({'type': 'paused', 'message': '工作流已暂停'}, ensure_ascii=False)}\n\n"
                     return  # 停止生成器
@@ -617,11 +611,12 @@ async def execute_code_workflow_stream(
             logger.info(f"[CodeWorkflow] 流式执行完成: run_id={run_id}")
 
         except asyncio.CancelledError:
-            # 客户端断开连接（暂停）
-            logger.info(f"[CodeWorkflow] 客户端断开连接，暂停执行: run_id={run_id}")
+            is_cancelled = workflow_runtime.is_cancel_requested(run_id)
+            status = "cancelled" if is_cancelled else "paused"
+            reason = "取消" if is_cancelled else "客户端断开连接，暂停执行"
+            logger.info(f"[CodeWorkflow] {reason}: run_id={run_id}")
             try:
-                state_manager = StateManager(session)
-                state_manager.update_run_status(run_id, "paused")
+                state_manager.update_run_status(run_id, status)
             except:
                 pass
             raise  # 重新抛出以正确关闭连接
@@ -644,10 +639,13 @@ async def execute_code_workflow_stream(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
         
         finally:
-            # 清理执行器引用
-            if run_id in _running_executors:
-                del _running_executors[run_id]
-                logger.info(f"[CodeWorkflow] 执行器已清理: run_id={run_id}")
+            if executor is not None:
+                workflow_runtime.unregister_executor(run_id, executor)
+            workflow_runtime.finish_run(
+                run_id,
+                keep_pause=workflow_runtime.is_pause_requested(run_id)
+            )
+            logger.info(f"[CodeWorkflow] 运行时状态已清理: run_id={run_id}")
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

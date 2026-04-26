@@ -37,11 +37,12 @@ chapter_outline_prompt = Prompt.Load(prompt_id="拆书_章节大纲摘要")
 #</node>
 
 
-#@node(async=true, description="异步批量提取章节大纲（结构模型：通用文本 Text）")
+#@node(async=true, description="异步批量提取章节大纲")
 outline_results = AI.BatchStructured(
     llm_config_id=settings.result.llm_config_id,
     response_model_id="通用文本",
     prompt_template=chapter_outline_prompt.text,
+    use_instruction_flow=True,
     concurrency=settings.result.outline_concurrency,
     max_retries=3,
     items=novel.chapter_list
@@ -88,6 +89,7 @@ stage_chunk_results = AI.SequentialStructured(
     max_tokens=12000,
     timeout=240,
     max_retries=3,
+    use_instruction_flow=True,
     fail_soft=True,
     items=chapter_chunks.result
   )

@@ -7,12 +7,12 @@
     </div>
 
     <div v-if="visible" class="agent-window" :class="{ 'is-collapsed': collapsed }" :style="windowStyle" @mousedown.stop>
-      <div class="window-header" @mousedown.stop>
-        <div class="window-title" @mousedown="handleWindowMouseDown">
+      <div class="window-header" @mousedown.stop="handleWindowMouseDown">
+        <div class="window-title">
           <span>{{ collapsed ? '工作流Agent' : '工作流智能体' }}</span>
           <el-tag v-if="!collapsed" size="small" type="info">工作流 #{{ props.workflowId || '-' }}</el-tag>
         </div>
-        <div class="window-actions">
+        <div class="window-actions" @mousedown.stop>
           <el-button size="small" text @click="toggleCollapsed">
             {{ collapsed ? '展开' : '折叠' }}
           </el-button>
@@ -140,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, VideoPause } from '@element-plus/icons-vue'
 
@@ -238,6 +238,7 @@ watch(() => props.workflowId, () => {
 watch(visible, open => {
   if (!open) return
   clearConversationState()
+  void nextTick(handleViewportResize)
   if (!llmOptions.value.length && !llmLoading.value) {
     void loadLlmOptions()
   }
@@ -646,6 +647,7 @@ function handleTriggerClick() {
 
 function toggleCollapsed() {
   collapsed.value = !collapsed.value
+  void nextTick(handleViewportResize)
 }
 
 function handleCloseWindow() {
@@ -805,16 +807,18 @@ function handleViewportResize() {
 }
 
 .agent-window {
+  --agent-window-edge: 16px;
+  --agent-window-bottom-offset: 88px;
   position: fixed;
-  right: 24px;
-  bottom: 88px;
+  right: var(--agent-window-edge);
+  bottom: var(--agent-window-bottom-offset);
   top: auto;
-  width: 680px;
-  min-width: 420px;
-  max-width: calc(100vw - 16px);
-  height: 780px;
-  min-height: 420px;
-  max-height: calc(100vh - 16px);
+  width: min(680px, calc(100vw - var(--agent-window-edge) - var(--agent-window-edge)));
+  min-width: min(420px, calc(100vw - var(--agent-window-edge) - var(--agent-window-edge)));
+  max-width: calc(100vw - var(--agent-window-edge) - var(--agent-window-edge));
+  height: min(780px, calc(100vh - var(--agent-window-bottom-offset) - var(--agent-window-edge)));
+  min-height: min(420px, calc(100vh - var(--agent-window-bottom-offset) - var(--agent-window-edge)));
+  max-height: calc(100vh - var(--agent-window-bottom-offset) - var(--agent-window-edge));
   display: flex;
   flex-direction: column;
   border-radius: 14px;
@@ -855,6 +859,8 @@ html.dark .agent-window {
   justify-content: space-between;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  cursor: move;
+  flex-shrink: 0;
 }
 
 .window-title {
@@ -862,28 +868,33 @@ html.dark .agent-window {
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  cursor: move;
   user-select: none;
+  min-width: 0;
 }
 
 .window-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: default;
+  flex-shrink: 0;
 }
 
 .window-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  flex-shrink: 0;
 }
 
 .window-body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   padding: 10px 12px;
   gap: 10px;
@@ -923,6 +934,9 @@ html.dark .agent-window {
 }
 
 .patch-panel {
+  flex: 0 1 auto;
+  max-height: min(280px, 38vh);
+  overflow: auto;
   border: 1px solid var(--el-border-color);
   border-radius: 10px;
   padding: 10px;
@@ -970,11 +984,36 @@ html.dark .agent-window {
 .footer-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
 }
 
+.agent-footer {
+  flex-shrink: 0;
+}
+
+:deep(.agent-message-list) {
+  min-height: 0;
+}
+
 :global(.workflow-agent-popper) {
   z-index: 4005 !important;
+}
+
+@media (max-width: 720px), (max-height: 760px) {
+  .agent-window {
+    --agent-window-edge: 8px;
+    --agent-window-bottom-offset: 8px;
+    width: calc(100vw - 16px);
+    min-width: 0;
+    height: calc(100vh - 16px);
+    min-height: 0;
+    max-height: calc(100vh - 16px);
+  }
+
+  .agent-window.is-collapsed {
+    width: min(320px, calc(100vw - 16px));
+  }
 }
 </style>
