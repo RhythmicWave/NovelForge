@@ -51,15 +51,19 @@ const isNoHeader = computed(() => {
 
 async function syncViewFromHash() {
   const hash = window.location.hash || ''
+
   if (hash.startsWith('#/ideas-home')) {
     appStore.goToIdeas()
     try { await projectStore.loadFreeProject() } catch {}
+    return
   }
   if (hash.startsWith('#/workflows')) {
     appStore.goToWorkflows()
+    return
   }
   if (hash.startsWith('#/code-workflows')) {
     appStore.goToCodeWorkflows()
+    return
   }
 }
 

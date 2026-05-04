@@ -1,30 +1,23 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { ElMessage, ElLoading } from 'element-plus'
 
-// 后端API的基础URL
-// 约定：
-//  - web 开发环境：使用同源 + Vite 代理（BASE_URL = ''，请求走 /api 前缀）
-//  - web 生产环境：使用当前 hostname:54321
-//  - Electron / 其他：默认 http://127.0.0.1:54321
-export const BASE_URL: string = (() => {
+function resolveBaseUrl(): string {
   const platform = import.meta.env.VITE_APP_PLATFORM
 
   if (platform === 'web') {
-    if (import.meta.env.DEV) {
-      // 开发模式走 Vite 代理：/api -> http://127.0.0.1:54321
-      return ''
-    }
-    if (typeof window !== 'undefined') {
-      const protocol = window.location.protocol || 'http:'
-      const hostname = window.location.hostname || '127.0.0.1'
-      return `${protocol}//${hostname}:54321`
-    }
     return ''
   }
 
-  // Electron 等非 web 场景
+  const explicitApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
+
+  if (explicitApiBase) {
+    return explicitApiBase.replace(/\/$/, '')
+  }
+
   return 'http://127.0.0.1:54321'
-})()
+}
+
+export const BASE_URL: string = resolveBaseUrl()
 
 // 带 /api 前缀的基础 URL，供流式接口使用
 export const API_BASE_URL: string = BASE_URL
@@ -140,7 +133,9 @@ class HttpClient {
   }
 
   public get<T>(url: string, params?: object, prefix: string = '/api', options?: { showLoading?: boolean, signal?: AbortSignal }): Promise<T> {
-    const fullUrl = prefix ? `${prefix}${url}` : url
+    let normalizedUrl = url
+    if (normalizedUrl === '/projects') normalizedUrl = '/projects/'
+    const fullUrl = prefix ? `${prefix}${normalizedUrl}` : normalizedUrl
     return this.request<T>({ method: 'GET', url: fullUrl, params, signal: options?.signal, ...(options || {}) })
   }
 

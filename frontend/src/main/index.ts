@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import keytar from 'keytar'
 
 const KEYTAR_SERVICE_NAME = 'NovelForge-LLM'
+const backendOrigin = process.env.VITE_API_BASE_URL || 'http://127.0.0.1:54321'
 
 const studioWindows = new Map<string, BrowserWindow>()
 
@@ -48,7 +49,7 @@ function createWindow(): void {
           "default-src 'self'; " +
           "script-src 'self' 'wasm-unsafe-eval'; " +
           "style-src 'self' 'unsafe-inline'; " +
-          "connect-src 'self' http://127.0.0.1:54321 https://api.github.com"
+          `connect-src 'self' ${backendOrigin} https://api.github.com`
         ]
       }
     })

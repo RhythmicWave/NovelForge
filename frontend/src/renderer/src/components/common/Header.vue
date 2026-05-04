@@ -34,7 +34,12 @@ function handleLogoClick() {
 const isLogoClickable = computed(() => currentView.value !== 'dashboard')
 
 function openIdeasWorkbench() {
-  // 直接调用主进程打开新窗口，避免当前窗口路由或状态变化引起的闪烁
+  // Web 环境下直接切换 hash 路由；Electron 环境下再尝试调用主进程接口
+  if (typeof window !== 'undefined' && window.location) {
+    appStore.goToIdeas()
+    window.location.hash = '#/ideas-home'
+    return
+  }
   // @ts-ignore
   window.api?.openIdeasHome?.()
 }
