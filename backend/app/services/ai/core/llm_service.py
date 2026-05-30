@@ -396,7 +396,11 @@ def _build_continuation_user_prompt(
             else:
                 user_prompt_parts.append("【指令】请开始创作新章节。直接输出小说正文。")
 
-    budget_hint = build_budget_hint_text(round_plan, getattr(request, "continuation_guidance", None))
+    budget_hint = build_budget_hint_text(
+        round_plan,
+        getattr(request, "continuation_guidance", None),
+        include_outline_boundary=getattr(request, "append_continuous_novel_directive", True),
+    )
     if budget_hint:
         user_prompt_parts.append(budget_hint)
 

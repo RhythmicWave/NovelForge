@@ -8,6 +8,10 @@ from app.schemas.ai import ContinuationRequest
 
 
 _SENTENCE_ENDINGS = "。！？!?…\n"
+_OUTLINE_BOUNDARY_HINT = (
+    "- 大纲边界优先级高于字数目标：若本章大纲内容写完时字数未达目标，"
+    "应在本章大纲范围内适当丰富细节、动作、对话与心理描写；绝不可越入下一章内容来凑字数。"
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +131,8 @@ def build_round_plan(
 def build_budget_hint_text(
     plan: ContinuationRoundPlan,
     continuation_guidance: str | None = None,
+    *,
+    include_outline_boundary: bool = True,
 ) -> str:
     lines: list[str] = ["【续写预算】", f"- 当前总字数：{plan.current_word_count} 字"]
 
@@ -152,6 +158,9 @@ def build_budget_hint_text(
         lines.append("- 当前为提示词约束模式：目标字数仅作参考，以文风和连贯性优先。")
     else:
         lines.append("- 当前为智能字数控制模式：前两轮优先推进剧情，后续逐步收束字数并完成结尾。")
+
+    if include_outline_boundary:
+        lines.append(_OUTLINE_BOUNDARY_HINT)
 
     if plan.should_warn_wrap_up:
         if plan.rounds_left >= 3:
