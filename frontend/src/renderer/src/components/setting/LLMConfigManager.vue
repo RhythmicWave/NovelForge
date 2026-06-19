@@ -17,6 +17,39 @@
       </el-table-column>
       <el-table-column prop="token_limit" label="Token上限" width="90" />
       <el-table-column prop="call_limit" label="调用上限" width="90" />
+      <el-table-column label="能力标签" min-width="180">
+        <template #default="{ row }">
+          <el-popover v-if="capabilityTags(row).length" placement="top" width="320" trigger="hover">
+            <template #reference>
+              <div class="capability-cell">
+                <el-tag
+                  v-for="tag in capabilityTags(row).slice(0, 2)"
+                  :key="tag"
+                  size="small"
+                  :type="capabilityTagType(tag)"
+                >
+                  {{ tag }}
+                </el-tag>
+                <span v-if="capabilityTags(row).length > 2" class="more-tags">+{{ capabilityTags(row).length - 2 }}</span>
+              </div>
+            </template>
+            <div class="capability-popover">
+              <div class="capability-summary">{{ capabilitySummary(row) }}</div>
+              <div class="capability-popover-tags">
+                <el-tag
+                  v-for="tag in capabilityTags(row)"
+                  :key="tag"
+                  size="small"
+                  :type="capabilityTagType(tag)"
+                >
+                  {{ tag }}
+                </el-tag>
+              </div>
+            </div>
+          </el-popover>
+          <el-button v-else size="small" text type="primary" @click="openEditDialog(row)">能力检测</el-button>
+        </template>
+      </el-table-column>
       <el-table-column width="200">
         <template #header>
           <span>
@@ -43,9 +76,10 @@
           {{ formatNumber((row as any).used_tokens_input || 0) }} / {{ formatNumber((row as any).used_tokens_output || 0) }} / {{ formatNumber((row as any).used_calls || 0) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260">
+      <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
+          <el-button size="small" @click="openEditDialog(row)" plain>能力检测</el-button>
           <el-button size="small" type="primary" @click="handleCopy(row)" plain>复制</el-button>
           <el-button size="small" type="danger" @click="deleteConfig(row.id)">删除</el-button>
           <el-button size="small" type="warning" @click="handleReset(row)" plain>重置</el-button>
@@ -59,6 +93,7 @@
         v-if="editDialogVisible"
         :initial-data="editConfig"
         @save="handleSave"
+        @refresh="loadLLMConfigs"
         @cancel="editDialogVisible = false"
       />
     </el-dialog>
@@ -103,6 +138,21 @@ function formatNumber(num: number): string {
     // 小于1万，直接显示原数字
     return num.toString()
   }
+}
+
+function capabilityTags(row: LLMConfig): string[] {
+  const tags = (row as any).capability_summary?.tags
+  return Array.isArray(tags) ? tags.filter((item) => typeof item === 'string') : []
+}
+
+function capabilitySummary(row: LLMConfig): string {
+  return (row as any).capability_summary?.summary || '暂无检测摘要'
+}
+
+function capabilityTagType(tag: string) {
+  if (tag.includes('失败') || tag.includes('拦截') || tag.includes('不可用')) return 'danger'
+  if (tag.includes('建议') || tag.includes('修复') || tag.includes('仅普通')) return 'warning'
+  return 'success'
 }
 
 async function loadLLMConfigs() {
@@ -197,5 +247,34 @@ onMounted(loadLLMConfigs)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.capability-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.more-tags {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.capability-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.capability-summary {
+  overflow-wrap: anywhere;
+  color: var(--el-text-color-regular);
+}
+
+.capability-popover-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 </style>

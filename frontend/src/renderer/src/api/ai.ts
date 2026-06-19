@@ -120,6 +120,10 @@ function createStreamingRequest(
     onMessage: payload => {
       if (typeof payload?.content === 'string' && payload.content.length) {
         onData(payload.content)
+        return
+      }
+      if (payload && typeof payload === 'object' && typeof payload.type === 'string') {
+        onData(JSON.stringify(payload))
       }
     },
   })

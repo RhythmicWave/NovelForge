@@ -107,10 +107,19 @@ def _normalize_integral_fields(db_config: LLMConfig) -> None:
                 continue
 
 
+def _normalize_capability_fields(db_config: LLMConfig) -> None:
+    mode = (getattr(db_config, "recommended_assistant_mode", None) or "auto").strip().lower()
+    if mode not in {"auto", "standard", "react", "plain"}:
+        mode = "auto"
+    db_config.recommended_assistant_mode = mode
+    db_config.disable_stream = bool(getattr(db_config, "disable_stream", False))
+
+
 def create_llm_config(session: Session, config_in: LLMConfigCreate) -> LLMConfig:
     db_config = LLMConfig.model_validate(config_in)
     _sync_legacy_base_url(db_config)
     _normalize_integral_fields(db_config)
+    _normalize_capability_fields(db_config)
     session.add(db_config)
     session.commit()
     session.refresh(db_config)
@@ -122,6 +131,7 @@ def get_llm_configs(session: Session) -> list[LLMConfig]:
     for cfg in configs:
         _sync_legacy_base_url(cfg)
         _normalize_integral_fields(cfg)
+        _normalize_capability_fields(cfg)
     return configs
 
 
@@ -130,6 +140,7 @@ def get_llm_config(session: Session, config_id: int) -> LLMConfig | None:
     if cfg:
         _sync_legacy_base_url(cfg)
         _normalize_integral_fields(cfg)
+        _normalize_capability_fields(cfg)
     return cfg
 
 
@@ -143,6 +154,7 @@ def update_llm_config(session: Session, config_id: int, config_in: LLMConfigUpda
         setattr(db_config, key, value)
     _sync_legacy_base_url(db_config)
     _normalize_integral_fields(db_config)
+    _normalize_capability_fields(db_config)
 
     session.add(db_config)
     session.commit()
@@ -248,8 +260,13 @@ def copy_llm_config(session: Session, config_id: int) -> LLMConfig | None:
         used_tokens_input=0,
         used_tokens_output=0,
         used_calls=0,
+        capability_summary=source_config.capability_summary,
+        recommended_assistant_mode=getattr(source_config, "recommended_assistant_mode", "auto"),
+        disable_stream=getattr(source_config, "disable_stream", False),
+        capability_last_checked_at=getattr(source_config, "capability_last_checked_at", None),
     )
     _normalize_integral_fields(new_config)
+    _normalize_capability_fields(new_config)
 
     session.add(new_config)
     session.commit()

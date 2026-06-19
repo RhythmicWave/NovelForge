@@ -547,6 +547,165 @@ def get_card_content(
     return result
 
 
+# NF_ASSISTANT_BATCH_PATCH_BEGIN
+def _nf_assistant_get_text_field_for_patch(card, field_path):
+    raw = card.content or {}
+
+    if isinstance(raw, str):
+        if field_path in ("", "content", "/content"):
+            return raw
+        raise ValueError("card.content is a string, field_path must be content")
+
+    if not isinstance(raw, dict):
+        raise ValueError("card.content is not a readable text object")
+
+    normalized = (field_path or "content").strip()
+    candidates = []
+    if normalized.startswith("/"):
+        candidates.append([p for p in normalized.strip("/").split("/") if p])
+    else:
+        candidates.append([p for p in normalized.split(".") if p])
+
+    if normalized == "content":
+        candidates.append(["content", "content"])
+
+    last_error = None
+    for parts in candidates:
+        cur = raw
+        try:
+            for part in parts:
+                if not isinstance(cur, dict) or part not in cur:
+                    raise KeyError(part)
+                cur = cur[part]
+            if isinstance(cur, str):
+                return cur
+            last_error = "field is not text: " + str(field_path)
+        except Exception as exc:
+            last_error = str(exc)
+
+    raise ValueError(last_error or ("field path not found: " + str(field_path)))
+
+
+def _nf_assistant_line_span(text, start_line, end_line):
+    lines = text.split("\n")
+    if start_line < 1 or end_line < start_line or end_line > len(lines):
+        raise ValueError("invalid line range: %s-%s, total lines: %s" % (start_line, end_line, len(lines)))
+    return "\n".join(lines[start_line - 1:end_line])
+
+
+def _nf_assistant_context(text, old_text, radius=120):
+    idx = text.find(old_text)
+    if idx < 0:
+        return "", ""
+    return text[max(0, idx - radius):idx], text[idx + len(old_text):idx + len(old_text) + radius]
+
+
+@tool
+def propose_card_text_patches(card_id: int, field_path: str, patches: list) -> dict:
+    """
+    Create multiple text replacement proposals without writing to DB.
+
+    Use this tool when the user wants multiple local edits with preview,
+    accept/reject, or right-click-polish-like review in the chapter editor.
+
+    patches item:
+    - new_text: required
+    - old_text: required; exact current text is preferred
+    - start_line/end_line: optional, 1-based inclusive, only for relocation hints
+    - instruction/reason: optional
+    - context_before/context_after: optional
+    """
+    deps = _get_deps()
+    logger.info("[Assistant.propose_card_text_patches] card_id=%s path=%s count=%s", card_id, field_path, len(patches or []))
+
+    try:
+        card = deps.session.get(Card, card_id)
+        if not card or card.project_id != deps.project_id:
+            return {"success": False, "error": "card not found or not in current project: %s" % card_id}
+
+        if not patches:
+            return {"success": False, "error": "patches is empty"}
+
+        full_text = _nf_assistant_get_text_field_for_patch(card, field_path or "content")
+        normalized = []
+        failed = []
+
+        for i, item in enumerate(patches[:30], start=1):
+            item = item or {}
+            new_text = str(item.get("new_text") or item.get("revised_text") or item.get("replacement_text") or "")
+            if not new_text:
+                failed.append({"index": i, "error": "missing new_text"})
+                continue
+
+            start_line = item.get("start_line")
+            end_line = item.get("end_line")
+            old_text = item.get("old_text") or item.get("original_text")
+
+            if (not old_text) and start_line and end_line:
+                try:
+                    old_text = _nf_assistant_line_span(full_text, int(start_line), int(end_line))
+                except Exception as exc:
+                    failed.append({"index": i, "error": "invalid line range: %s" % exc})
+                    continue
+
+            if not old_text:
+                failed.append({"index": i, "error": "missing old_text and start_line/end_line"})
+                continue
+
+            old_text = str(old_text)
+            context_before = str(item.get("context_before") or "")
+            context_after = str(item.get("context_after") or "")
+            if not context_before and not context_after:
+                context_before, context_after = _nf_assistant_context(full_text, old_text)
+
+            normalized.append({
+                "id": int(item.get("id") or i),
+                "index": i,
+                "card_id": card.id,
+                "field_path": field_path or "content",
+                "start_line": int(start_line) if start_line else None,
+                "end_line": int(end_line) if end_line else None,
+                "old_text": old_text,
+                "original_text": old_text,
+                "new_text": new_text,
+                "context_before": context_before,
+                "context_after": context_after,
+                "instruction": item.get("instruction") or item.get("reason") or "",
+                "status": "pending",
+            })
+
+        if not normalized:
+            return {
+                "success": False,
+                "kind": "assistant_text_patch_batch",
+                "status": "text_patch_batch_failed",
+                "error": "no valid patch proposals",
+                "failed_count": len(failed),
+                "failed_patches": failed,
+            }
+
+        return {
+            "success": True,
+            "kind": "assistant_text_patch_batch",
+            "status": "text_patch_batch_partial" if failed else "text_patch_batch_proposed",
+            "message": "Created %s text patch proposals. Review them in the chapter editor." % len(normalized),
+            "card_id": card.id,
+            "card_title": card.title,
+            "field_path": field_path or "content",
+            "count": len(normalized),
+            "patches": normalized,
+            "failed_count": len(failed),
+            "failed_patches": failed,
+            "preview_only": True,
+            "needs_user_accept": True,
+        }
+
+    except Exception as e:
+        logger.error("[Assistant.propose_card_text_patches] failed: %s", e, exc_info=True)
+        return {"success": False, "error": "failed to create patch proposals: " + str(e)}
+# NF_ASSISTANT_BATCH_PATCH_END
+
+
 @tool
 def replace_field_text(
     card_id: int,
@@ -1107,7 +1266,7 @@ ASSISTANT_TOOLS = [
     modify_card_field,
     delete_card,
     move_card,
-    replace_card_text_by_lines,
+    replace_card_text_by_lines, propose_card_text_patches,
     replace_field_text,
     list_reviews_for_target,
     get_review_record,

@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useAssistantPreferences } from '@renderer/composables/useAssistantPreferences'
+import {
+  playTaskDoneSound,
+  requestTaskDoneNotificationPermission,
+  unlockTaskDoneSound
+} from '@renderer/utils/taskDoneNotifier'
 
 // 通过组合式统一管理灵感助手偏好，方便在设置页与助手面板之间复用
 const prefs = useAssistantPreferences()
@@ -35,6 +41,65 @@ const assistantTimeout = computed({
   get: () => prefs.assistantTimeout.value,
   set: (val: number | null) => prefs.setAssistantTimeout(val)
 })
+
+const assistantFontSize = computed({
+  get: () => prefs.assistantFontSize.value,
+  set: (val: number | null) => prefs.setAssistantFontSize(val)
+})
+
+const taskDoneSoundEnabled = computed({
+  get: () => prefs.taskDoneSoundEnabled.value,
+  set: (val: boolean) => {
+    void setTaskDoneSoundEnabled(val)
+  }
+})
+
+const taskDoneDesktopNotificationEnabled = computed({
+  get: () => prefs.taskDoneDesktopNotificationEnabled.value,
+  set: (val: boolean) => {
+    void setTaskDoneDesktopNotificationEnabled(val)
+  }
+})
+
+async function setTaskDoneSoundEnabled(val: boolean): Promise<void> {
+  prefs.setTaskDoneSoundEnabled(val)
+  if (!val) return
+
+  await unlockTaskDoneSound()
+}
+
+async function handleTestTaskDoneSound(): Promise<void> {
+  try {
+    const played = await playTaskDoneSound()
+    if (!played) {
+      ElMessage.warning('提示音播放失败，请检查系统音量、应用音量或浏览器音频权限。')
+    }
+  } catch {
+    ElMessage.warning('提示音播放失败，请检查系统音量、应用音量或浏览器音频权限。')
+  }
+}
+
+async function setTaskDoneDesktopNotificationEnabled(val: boolean): Promise<void> {
+  prefs.setTaskDoneDesktopNotificationEnabled(val)
+  if (!val) return
+
+  const permission = await requestTaskDoneNotificationPermission()
+  if (permission === 'granted') {
+    ElMessage.success('桌面通知已启用。')
+    return
+  }
+
+  prefs.setTaskDoneDesktopNotificationEnabled(false)
+  if (permission === 'denied') {
+    ElMessage.warning('桌面通知权限已被系统或浏览器拒绝，请在系统/浏览器设置中允许通知。')
+    return
+  }
+  if (permission === 'unsupported') {
+    ElMessage.warning('当前环境不支持桌面通知。')
+    return
+  }
+  ElMessage.warning('未授予桌面通知权限。')
+}
 </script>
 
 <template>
@@ -47,6 +112,28 @@ const assistantTimeout = computed({
     <el-form label-width="160px" class="assistant-form" size="small">
       <!-- 参数配置组 -->
       <div class="group-title">参数设置</div>
+
+      <el-form-item>
+        <template #label>
+          <span>
+            助手字体大小
+            <el-tooltip placement="top" effect="dark">
+              <template #content>
+                控制灵感助手消息、工具结果和输入框的主要文字大小。默认 16px，不影响正文编辑器字号。
+              </template>
+              <el-icon class="field-help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </span>
+        </template>
+        <el-input-number
+          v-model="assistantFontSize"
+          :min="13"
+          :max="24"
+          :step="1"
+          controls-position="right"
+        />
+        <span class="field-hint">px</span>
+      </el-form-item>
 
       <el-form-item>
         <template #label>
@@ -137,6 +224,25 @@ const assistantTimeout = computed({
         </template>
         <el-switch v-model="reactModeEnabled" />
       </el-form-item>
+
+      <el-divider />
+
+      <div class="group-title">完成提醒</div>
+      <el-form-item label="任务完成后播放提示音">
+        <div class="reminder-control">
+          <div class="reminder-control-row">
+            <el-switch v-model="taskDoneSoundEnabled" />
+            <el-button size="small" plain @click="handleTestTaskDoneSound">试听提示音</el-button>
+          </div>
+          <span class="field-hint reminder-hint"
+            >灵感助手、续写、润色、扩写、审阅完成时播放短提示音。</span
+          >
+        </div>
+      </el-form-item>
+      <el-form-item label="任务完成后显示桌面通知">
+        <el-switch v-model="taskDoneDesktopNotificationEnabled" />
+        <span class="field-hint">任务完成时显示系统桌面通知，需要系统或浏览器允许通知权限。</span>
+      </el-form-item>
     </el-form>
   </div>
 </template>
@@ -166,6 +272,22 @@ const assistantTimeout = computed({
   margin-left: 12px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.reminder-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reminder-control-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reminder-hint {
+  margin-left: 0;
 }
 
 .hint-alert {

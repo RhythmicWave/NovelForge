@@ -7,6 +7,9 @@ const STORAGE_KEYS = {
   temperature: 'nf:agent:temperature',
   maxTokens: 'nf:agent:max_tokens',
   timeout: 'nf:agent:timeout',
+  assistantFontSize: 'nf:agent:assistant_font_size',
+  taskDoneSoundEnabled: 'nf:agent:task_done_sound_enabled',
+  taskDoneDesktopNotificationEnabled: 'nf:agent:task_done_desktop_notification_enabled',
 } as const
 
 const LEGACY_KEYS = {
@@ -16,6 +19,9 @@ const LEGACY_KEYS = {
   temperature: 'nf:assistant:temperature',
   maxTokens: 'nf:assistant:max_tokens',
   timeout: 'nf:assistant:timeout',
+  assistantFontSize: 'nf:assistant:font_size',
+  taskDoneSoundEnabled: 'nf:assistant:task_done_sound_enabled',
+  taskDoneDesktopNotificationEnabled: 'nf:assistant:task_done_desktop_notification_enabled',
 } as const
 
 const contextSummaryEnabled = ref(false)
@@ -25,6 +31,9 @@ const agentTemperature = ref<number | null>(0.6)
 // -1 表示不限制（不向后端发送 max_tokens）
 const agentMaxTokens = ref<number | null>(-1)
 const agentTimeout = ref<number | null>(90)
+const agentAssistantFontSize = ref<number>(16)
+const taskDoneSoundEnabled = ref(false)
+const taskDoneDesktopNotificationEnabled = ref(false)
 
 let initialized = false
 
@@ -59,6 +68,14 @@ function readMaxTokens(primaryKey: string, legacyKey: string, fallback: number |
   if (parsed === -1) return -1
   if (parsed <= 0) return fallback
   return parsed
+}
+
+function readClampedNumber(primaryKey: string, legacyKey: string, fallback: number, min: number, max: number): number {
+  const raw = readRaw(primaryKey) ?? readRaw(legacyKey)
+  if (!raw) return fallback
+  const parsed = Number(raw)
+  if (Number.isNaN(parsed)) return fallback
+  return Math.min(max, Math.max(min, Math.round(parsed)))
 }
 
 
@@ -107,6 +124,23 @@ function ensureInitialized() {
   agentTemperature.value = readNumber(STORAGE_KEYS.temperature, LEGACY_KEYS.temperature, 0.6)
   agentMaxTokens.value = readMaxTokens(STORAGE_KEYS.maxTokens, LEGACY_KEYS.maxTokens, -1)
   agentTimeout.value = readNumber(STORAGE_KEYS.timeout, LEGACY_KEYS.timeout, 90)
+  agentAssistantFontSize.value = readClampedNumber(
+    STORAGE_KEYS.assistantFontSize,
+    LEGACY_KEYS.assistantFontSize,
+    16,
+    13,
+    24,
+  )
+  taskDoneSoundEnabled.value = readBoolean(
+    STORAGE_KEYS.taskDoneSoundEnabled,
+    LEGACY_KEYS.taskDoneSoundEnabled,
+    false,
+  )
+  taskDoneDesktopNotificationEnabled.value = readBoolean(
+    STORAGE_KEYS.taskDoneDesktopNotificationEnabled,
+    LEGACY_KEYS.taskDoneDesktopNotificationEnabled,
+    false,
+  )
 
   watch(contextSummaryEnabled, val => {
     persistBoolean(STORAGE_KEYS.contextSummaryEnabled, LEGACY_KEYS.contextSummaryEnabled, !!val)
@@ -139,6 +173,28 @@ function ensureInitialized() {
       persistNumber(STORAGE_KEYS.timeout, LEGACY_KEYS.timeout, val)
     }
   }, { immediate: true })
+
+  watch(agentAssistantFontSize, val => {
+    if (!Number.isNaN(val)) {
+      persistNumber(
+        STORAGE_KEYS.assistantFontSize,
+        LEGACY_KEYS.assistantFontSize,
+        Math.min(24, Math.max(13, Math.round(val))),
+      )
+    }
+  }, { immediate: true })
+
+  watch(taskDoneSoundEnabled, val => {
+    persistBoolean(STORAGE_KEYS.taskDoneSoundEnabled, LEGACY_KEYS.taskDoneSoundEnabled, !!val)
+  }, { immediate: true })
+
+  watch(taskDoneDesktopNotificationEnabled, val => {
+    persistBoolean(
+      STORAGE_KEYS.taskDoneDesktopNotificationEnabled,
+      LEGACY_KEYS.taskDoneDesktopNotificationEnabled,
+      !!val,
+    )
+  }, { immediate: true })
 }
 
 export function useAgentPreferences() {
@@ -168,6 +224,20 @@ export function useAgentPreferences() {
     agentTimeout.value = val != null && !Number.isNaN(val) && val > 0 ? val : null
   }
 
+  function setAgentAssistantFontSize(val: number | null) {
+    agentAssistantFontSize.value = val != null && !Number.isNaN(val)
+      ? Math.min(24, Math.max(13, Math.round(val)))
+      : 16
+  }
+
+  function setTaskDoneSoundEnabled(val: boolean): void {
+    taskDoneSoundEnabled.value = !!val
+  }
+
+  function setTaskDoneDesktopNotificationEnabled(val: boolean): void {
+    taskDoneDesktopNotificationEnabled.value = !!val
+  }
+
   function resetAgentPreferences() {
     setContextSummaryEnabled(false)
     setContextSummaryThreshold(4000)
@@ -175,6 +245,9 @@ export function useAgentPreferences() {
     setAgentTemperature(0.6)
     setAgentMaxTokens(-1)
     setAgentTimeout(90)
+    setAgentAssistantFontSize(16)
+    setTaskDoneSoundEnabled(false)
+    setTaskDoneDesktopNotificationEnabled(false)
   }
 
   return {
@@ -184,21 +257,29 @@ export function useAgentPreferences() {
     agentTemperature,
     agentMaxTokens,
     agentTimeout,
+    agentAssistantFontSize,
+    taskDoneSoundEnabled,
+    taskDoneDesktopNotificationEnabled,
     setContextSummaryEnabled,
     setContextSummaryThreshold,
     setReactModeEnabled,
     setAgentTemperature,
     setAgentMaxTokens,
     setAgentTimeout,
+    setAgentAssistantFontSize,
+    setTaskDoneSoundEnabled,
+    setTaskDoneDesktopNotificationEnabled,
     resetAgentPreferences,
 
     // backward-compatible aliases
     assistantTemperature: agentTemperature,
     assistantMaxTokens: agentMaxTokens,
     assistantTimeout: agentTimeout,
+    assistantFontSize: agentAssistantFontSize,
     setAssistantTemperature: setAgentTemperature,
     setAssistantMaxTokens: setAgentMaxTokens,
     setAssistantTimeout: setAgentTimeout,
+    setAssistantFontSize: setAgentAssistantFontSize,
     resetAssistantPreferences: resetAgentPreferences,
   }
 }
