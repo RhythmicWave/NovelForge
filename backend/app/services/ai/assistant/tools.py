@@ -603,17 +603,34 @@ def _nf_assistant_context(text, old_text, radius=120):
 @tool
 def propose_card_text_patches(card_id: int, field_path: str, patches: list) -> dict:
     """
-    Create multiple text replacement proposals without writing to DB.
+    批量提交正文修改建议，不直接写入数据库，由前端编辑器逐条预览、接受或拒绝。
 
-    Use this tool when the user wants multiple local edits with preview,
-    accept/reject, or right-click-polish-like review in the chapter editor.
+    使用场景：
+    - 用户要求对正文提出多条修改建议（润色、纠错、改写等）时，使用本工具。
 
-    patches item:
-    - new_text: required
-    - old_text: required; exact current text is preferred
-    - start_line/end_line: optional, 1-based inclusive, only for relocation hints
-    - instruction/reason: optional
-    - context_before/context_after: optional
+    Args:
+        card_id: 目标卡片的ID
+        field_path: 字段路径（如 "content" 表示章节正文）
+        patches: 修改建议列表（最多处理 30 条），每条为 dict，包含：
+            - old_text (必填): 当前正文中需要替换的原文片段，应尽量精确
+            - new_text (必填): 建议替换为的新文本
+            - start_line/end_line (可选): 1-based 行号范围，仅作为辅助定位提示
+            - context_before/context_after (可选): 原文前后的上下文片段，用于前端重新定位
+            - instruction/reason (可选): 本条修改的理由或说明
+
+    重要约束：
+        - 每条 patch 必须同时包含 old_text 和 new_text。
+        - old_text 应为当前正文的精确片段，便于前端定位。
+
+    Returns:
+        success: True 表示建议已生成，False 表示失败
+        kind: "assistant_text_patch_batch"（前端识别标记）
+        count: 有效建议条数
+        patches: 归一化后的建议列表
+        failed_count: 校验失败的条数
+        failed_patches: 失败条目及原因
+        preview_only: True（表示仅预览，不写数据库）
+        needs_user_accept: True（需要用户逐条确认）
     """
     deps = _get_deps()
     logger.info("[Assistant.propose_card_text_patches] card_id=%s path=%s count=%s", card_id, field_path, len(patches or []))
