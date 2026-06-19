@@ -16,6 +16,9 @@
 							<el-dropdown-item :command="16">中 (16px)</el-dropdown-item>
 							<el-dropdown-item :command="18">大 (18px)</el-dropdown-item>
 							<el-dropdown-item :command="20">特大 (20px)</el-dropdown-item>
+							<el-dropdown-item :command="24">超大 (24px)</el-dropdown-item>
+							<el-dropdown-item :command="28">巨大 (28px)</el-dropdown-item>
+							<el-dropdown-item :command="32">最大 (32px)</el-dropdown-item>
 						</el-dropdown-menu>
 					</template>
 				</el-dropdown>
@@ -164,11 +167,24 @@
 		<!-- CodeMirror 容器 -->
 		<div ref="cmRoot" class="editor-content"></div>
 		<div v-if="pendingAiEdit && !pendingAiEdit.generating" class="ai-replace-review-bar">
-			<span class="review-hint">已生成替换建议：灰色为原文，蓝色为新文本</span>
-			<div class="review-actions">
-				<el-button type="primary" size="small" @click="acceptPendingAiEdit">接受并替换</el-button>
-				<el-button size="small" @click="rejectPendingAiEdit">拒绝并还原</el-button>
-			</div>
+			<span class="review-hint">
+                <template v-if="nfAssistantPatchTotal">
+                        建议 #{{ nfAssistantPatchCurrentNo }} / {{ nfAssistantPatchTotal }}：灰色为原文，蓝色为新文本
+                </template>
+                <template v-else>
+                        已生成替换建议：灰色为原文，蓝色为新文本
+                </template>
+        </span>
+        <div class="review-actions">
+                <el-button v-if="nfAssistantPatchTotal > 1" size="small" @click="nfAssistantPatchPrev">上一条</el-button>
+                <el-button v-if="nfAssistantPatchTotal > 1" size="small" @click="nfAssistantPatchNext">下一条</el-button>
+                <el-button type="primary" size="small" @click="nfAssistantPatchTotal ? nfAssistantPatchAcceptCurrent() : acceptPendingAiEdit()">
+                        {{ nfAssistantPatchTotal ? '接受本条' : '接受并替换' }}
+                </el-button>
+                <el-button size="small" @click="nfAssistantPatchTotal ? nfAssistantPatchRejectCurrent() : rejectPendingAiEdit()">
+                        {{ nfAssistantPatchTotal ? '拒绝本条' : '拒绝并还原' }}
+                </el-button>
+        </div>
 		</div>
 	</div>
 
@@ -1132,7 +1148,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import SimpleMarkdown from '../common/SimpleMarkdown.vue'
@@ -1142,6 +1158,7 @@ import { usePerCardAISettingsStore, type PerCardAIParams } from '@renderer/store
 import { useEditorStore, type ChapterExtractRunOptions } from '@renderer/stores/useEditorStore'
 import { useAppStore } from '@renderer/stores/useAppStore'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
+import { useAssistantPreferences } from '@renderer/composables/useAssistantPreferences'
 import { updateCardRaw, type CardRead, type CardUpdate } from '@renderer/api/cards'
 import { generateContinuationStreaming, type ContinuationRequest, getAIConfigOptions, type AIConfigOptions } from '@renderer/api/ai'
 import { runReview, upsertReviewCard, type QualityGate, type ReviewDraftResult, type ReviewRunRequest } from '@renderer/api/chapterReviews'
@@ -1162,6 +1179,7 @@ import AIPerCardParams from '../common/AIPerCardParams.vue'
 import ContinuationBudgetDialog, { type ContinuationWordControlMode } from './dialogs/ContinuationBudgetDialog.vue'
 import { resolveTemplate } from '@renderer/services/contextResolver'
 import { getCardContextTemplates, getContextTemplateByKind, normalizeContextTemplateKind, type ContextTemplateKind, type ContextTemplates } from '@renderer/services/contextSlots'
+import { notifyTaskDone } from '@renderer/utils/taskDoneNotifier'
 
 import { EditorState, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view'
@@ -1195,6 +1213,7 @@ const perCardStore = usePerCardAISettingsStore()
 const editorStore = useEditorStore()
 const appStore = useAppStore()
 const assistantStore = useAssistantStore()
+const assistantPrefs = useAssistantPreferences()
 const { cards } = storeToRefs(cardStore)
 const isDarkMode = computed(() => appStore.isDarkMode)
 
@@ -1429,6 +1448,7 @@ function computeWordCount(text: string): number {
 const wordCount = ref(0)
 const aiLoading = ref(false)
 let streamHandle: { cancel: () => void } | null = null
+let aiStreamCanceled = false
 const reviewAbortController = ref<AbortController | null>(null)
 const canInterruptAiTask = computed(() => aiLoading.value || reviewLoading.value || Boolean(reviewAbortController.value))
 
@@ -1457,6 +1477,8 @@ const pendingAiEdit = ref<{
 	previewFrom: number
 	previewTo: number
 	generating: boolean
+	source?: string
+	patchId?: number
 } | null>(null)
 
 let allowPendingPreviewDocMutation = false
@@ -2020,6 +2042,24 @@ function replaceSelectedText(newText: string) {
 	})
 }
 
+type EditorTaskDoneKind = 'continue' | 'polish' | 'expand' | 'review'
+
+function notifyEditorTaskDone(kind: EditorTaskDoneKind): void {
+	const map = {
+		continue: ['续写完成', '章节续写已完成。'],
+		polish: ['润色完成', '选区润色已完成。'],
+		expand: ['扩写完成', '选区扩写已完成。'],
+		review: ['审阅完成', '审阅结果已生成。'],
+	} as const
+	const [title, body] = map[kind]
+	notifyTaskDone({
+		title,
+		body,
+		soundEnabled: assistantPrefs.taskDoneSoundEnabled.value,
+		desktopNotificationEnabled: assistantPrefs.taskDoneDesktopNotificationEnabled.value,
+	})
+}
+
 function appendAtEnd(delta: string) {
 	if (!view || !delta) return
 	const end = view.state.doc.length
@@ -2445,6 +2485,7 @@ async function executeReview() {
 		reviewText.value = result.review_text
 		reviewDraft.value = result.draft
 		reviewDialogVisible.value = true
+		notifyEditorTaskDone('review')
 		ElMessage.success('章节审核完成')
 	} catch (e) {
 		console.error('章节审核失败:', e)
@@ -2575,7 +2616,7 @@ async function runContinuationWithConfig(payload: {
 
 	if (view) { view.focus(); const end = view.state.doc.length; view.dispatch({ selection: { anchor: end } }) }
 
-	executeAIGeneration(requestData, false, '续写')
+	executeAIGeneration(requestData, false, '续写', undefined, undefined, 'continue')
 }
 
 function handlePolishPromptChange(promptName: string) {
@@ -2613,11 +2654,11 @@ function handlePromptPickerHide(key: PromptPickerKey) {
 }
 
 async function executePolish() {
-	await executeAIEdit(currentPolishPrompt.value)
+	await executeAIEdit(currentPolishPrompt.value, undefined, undefined, 'polish')
 }
 
 async function executeExpand() {
-	await executeAIEdit(currentExpandPrompt.value)
+	await executeAIEdit(currentExpandPrompt.value, undefined, undefined, 'expand')
 }
 
 // 右键菜单处理函数
@@ -2702,14 +2743,14 @@ async function handleContextMenuPolish() {
 	const requirement = contextMenu.userRequirement.trim()
 	const selectedText = contextMenu.selectedText
 	closeContextMenu()
-	await executeAIEdit(currentPolishPrompt.value, requirement || undefined, selectedText || undefined)
+	await executeAIEdit(currentPolishPrompt.value, requirement || undefined, selectedText || undefined, 'polish')
 }
 
 async function handleContextMenuExpand() {
 	const requirement = contextMenu.userRequirement.trim()
 	const selectedText = contextMenu.selectedText
 	closeContextMenu()
-	await executeAIEdit(currentExpandPrompt.value, requirement || undefined, selectedText || undefined)
+	await executeAIEdit(currentExpandPrompt.value, requirement || undefined, selectedText || undefined, 'expand')
 }
 
 async function handleContextMenuReference() {
@@ -2763,7 +2804,8 @@ async function handleContextMenuReference() {
 async function executeAIEdit(
 	promptName: string,
 	userRequirement?: string,
-	selectedTextInput?: { text: string; from: number; to: number }
+	selectedTextInput?: { text: string; from: number; to: number },
+	notifyKind?: EditorTaskDoneKind
 ) {
 	if (!ensureNoPendingAiEdit()) return
 
@@ -2847,7 +2889,7 @@ async function executeAIEdit(
 
 	applyContinuationScope(requestData)
 
-	executeAIGeneration(requestData, true, promptName, selectedText.from, selectedText.to)
+	executeAIGeneration(requestData, true, promptName, selectedText.from, selectedText.to, notifyKind)
 }
 
 function acceptPendingAiEdit() {
@@ -2891,12 +2933,14 @@ function executeAIGeneration(
 	replaceMode = false,
 	taskName = 'AI生成',
 	replaceFrom?: number,
-	replaceTo?: number
+	replaceTo?: number,
+	notifyKind?: EditorTaskDoneKind
 ) {
 	let accumulated = ''
 	let isFirstChunk = true
 	let outputStartPos = replaceFrom ?? 0
 	let currentOutputLength = 0
+	aiStreamCanceled = false
 
 	if (view) {
 		view.focus()
@@ -2967,6 +3011,8 @@ function executeAIGeneration(
 			if (chunk.length > accumulated.length) accumulated = chunk
 		},
 		() => {
+			const wasCanceled = aiStreamCanceled
+			aiStreamCanceled = false
 			aiLoading.value = false
 			streamHandle = null
 			if (replaceMode && pendingAiEdit.value) {
@@ -2986,8 +3032,12 @@ function executeAIGeneration(
 			} else {
 				ElMessage.success(`${taskName}完成！`)
 			}
+			if (!wasCanceled && notifyKind) {
+				notifyEditorTaskDone(notifyKind)
+			}
 		},
 		(error) => {
+			aiStreamCanceled = false
 			aiLoading.value = false
 			streamHandle = null
 			if (replaceMode && view && pendingAiEdit.value) {
@@ -3012,6 +3062,7 @@ function executeAIGeneration(
 
 function interruptStream() {
 	try { reviewAbortController.value?.abort(); } catch {}
+	if (streamHandle) aiStreamCanceled = true
 	try { streamHandle?.cancel(); } catch {}
 }
 
@@ -3912,6 +3963,297 @@ defineExpose({
 	handleSave,
 	restoreContent
 })
+
+/* NF_ASSISTANT_BATCH_PATCH_BEGIN */
+type NfAssistantPatchItem = {
+  id?: number
+  index?: number
+  card_id?: number
+  field_path?: string
+  start_line?: number | null
+  end_line?: number | null
+  old_text?: string
+  original_text?: string
+  new_text?: string
+  context_before?: string
+  context_after?: string
+  instruction?: string
+  status?: 'pending' | 'accepted' | 'rejected' | 'conflict'
+  _from?: number
+  _to?: number
+}
+
+const nfAssistantPatchQueue = ref<NfAssistantPatchItem[]>([])
+const nfAssistantPatchIndex = ref(0)
+const nfAssistantPatchTotal = computed(() => nfAssistantPatchQueue.value.length)
+const nfAssistantPatchCurrentNo = computed(() => nfAssistantPatchTotal.value ? nfAssistantPatchIndex.value + 1 : 0)
+
+function nfAssistantCurrentCardId(): number | null {
+  const c: any = (props as any)?.card
+  const lc: any = (localCard as any)?.value ?? (localCard as any)
+  const id = Number(c?.id ?? lc?.id)
+  return Number.isFinite(id) ? id : null
+}
+
+function nfAssistantCurrentText(): string {
+  if (view) return view.state.doc.toString()
+  const lc: any = (localCard as any)?.value ?? (localCard as any)
+  const content = lc?.content ?? (props as any)?.card?.content
+  if (typeof content === 'string') return content
+  if (typeof content?.content === 'string') return content.content
+  if (typeof content?.text === 'string') return content.text
+  return ''
+}
+
+function nfAssistantOffsetFromLine(text: string, line: number | null | undefined): number | null {
+  if (!line || line < 1) return null
+  if (line === 1) return 0
+  let pos = 0
+  for (let i = 1; i < line; i++) {
+    const n = text.indexOf('\n', pos)
+    if (n < 0) return null
+    pos = n + 1
+  }
+  return pos
+}
+
+function nfAssistantNearestIndex(text: string, needle: string, near: number | null): number {
+  if (!needle) return -1
+  let best = -1
+  let bestDist = Number.MAX_SAFE_INTEGER
+  let pos = text.indexOf(needle)
+  while (pos >= 0) {
+    const dist = near == null ? 0 : Math.abs(pos - near)
+    if (dist < bestDist) {
+      best = pos
+      bestDist = dist
+    }
+    pos = text.indexOf(needle, pos + Math.max(1, needle.length))
+  }
+  return best
+}
+
+function nfAssistantLocatePatch(patch: NfAssistantPatchItem): { from: number, to: number } | null {
+  const text = nfAssistantCurrentText()
+  const oldText = String(patch.old_text ?? patch.original_text ?? '')
+  const expected = nfAssistantOffsetFromLine(text, patch.start_line)
+
+  const exact = nfAssistantNearestIndex(text, oldText, expected)
+  if (exact >= 0) return { from: exact, to: exact + oldText.length }
+
+  const before = String(patch.context_before ?? '')
+  const after = String(patch.context_after ?? '')
+  if (before && after) {
+    const b = nfAssistantNearestIndex(text, before, expected)
+    if (b >= 0) {
+      const start = b + before.length
+      const a = text.indexOf(after, start)
+      if (a >= start) return { from: start, to: a }
+    }
+  }
+
+  if (patch.start_line && patch.end_line) {
+    const from = nfAssistantOffsetFromLine(text, patch.start_line)
+    const afterEnd = nfAssistantOffsetFromLine(text, patch.end_line + 1)
+    if (from != null) {
+      const to = afterEnd == null ? text.length : Math.max(from, afterEnd - 1)
+      return { from, to }
+    }
+  }
+
+  return null
+}
+
+function nfAssistantScrollToRange(range: { from: number, to: number }) {
+  if (!view) return
+  view.focus()
+  view.dispatch({
+    selection: { anchor: range.from },
+    effects: EditorView.scrollIntoView(range.from, { y: 'center' })
+  })
+}
+
+function nfAssistantClearCurrentPreview() {
+  if (!view || !pendingAiEdit.value) return
+  const p: any = pendingAiEdit.value
+  if (p.source !== 'assistant_batch_patch') return
+  runWithPendingPreviewMutation(() => {
+    view!.dispatch({
+      changes: { from: p.previewFrom, to: p.previewTo, insert: '' },
+      selection: { anchor: p.originalTo }
+    })
+  })
+  pendingAiEdit.value = null
+  clearHighlight()
+}
+
+function nfAssistantOpenPatch(index: number) {
+  if (!view) return
+  if (!nfAssistantPatchQueue.value.length) return
+
+  if (pendingAiEdit.value) {
+    const p: any = pendingAiEdit.value
+    if (p.source === 'assistant_batch_patch') {
+      nfAssistantClearCurrentPreview()
+    } else {
+      ElMessage.warning('请先接受或拒绝当前替换建议')
+      return
+    }
+  }
+
+  nfAssistantPatchIndex.value = Math.max(0, Math.min(index, nfAssistantPatchQueue.value.length - 1))
+  const patch = nfAssistantPatchQueue.value[nfAssistantPatchIndex.value]
+  if (patch.status && patch.status !== 'pending') return
+
+  const range = nfAssistantLocatePatch(patch)
+  if (!range) {
+    patch.status = 'conflict'
+    ElMessage.warning(`建议 #${nfAssistantPatchIndex.value + 1} 无法自动定位，已标记为冲突`)
+    nfAssistantOpenNextPending(nfAssistantPatchIndex.value + 1)
+    return
+  }
+
+  const original = view.state.doc.sliceString(range.from, range.to)
+  const newText = String(patch.new_text ?? '')
+  patch._from = range.from
+  patch._to = range.to
+
+  runWithPendingPreviewMutation(() => {
+    view!.dispatch({
+      changes: { from: range.to, to: range.to, insert: newText },
+      selection: { anchor: range.to + newText.length }
+    })
+  })
+
+  ;(pendingAiEdit as any).value = {
+    originalFrom: range.from,
+    originalTo: range.to,
+    originalText: original,
+    previewFrom: range.to,
+    previewTo: range.to + newText.length,
+    generating: false,
+    source: 'assistant_batch_patch',
+    patchId: patch.id ?? patch.index ?? (nfAssistantPatchIndex.value + 1),
+  }
+
+  setCompareHighlight(range.from, range.to, range.to, range.to + newText.length)
+  nfAssistantScrollToRange(range)
+  ElMessage.info(`正在查看建议 #${nfAssistantPatchIndex.value + 1} / ${nfAssistantPatchTotal.value}`)
+}
+
+function nfAssistantOpenNextPending(fromIndex: number = nfAssistantPatchIndex.value + 1) {
+  if (!nfAssistantPatchQueue.value.length) return
+  for (let i = fromIndex; i < nfAssistantPatchQueue.value.length; i++) {
+    if (!nfAssistantPatchQueue.value[i].status || nfAssistantPatchQueue.value[i].status === 'pending') {
+      nfAssistantOpenPatch(i)
+      return
+    }
+  }
+  for (let i = 0; i < fromIndex; i++) {
+    if (!nfAssistantPatchQueue.value[i].status || nfAssistantPatchQueue.value[i].status === 'pending') {
+      nfAssistantOpenPatch(i)
+      return
+    }
+  }
+  nfAssistantPatchQueue.value = []
+  nfAssistantPatchIndex.value = 0
+}
+
+function nfAssistantHasCurrentBatchPreview(): boolean {
+  const p = pendingAiEdit.value as any
+  return !!view && !!p && p.source === 'assistant_batch_patch'
+}
+
+function nfAssistantIsPendingPatch(patch: NfAssistantPatchItem | undefined): boolean {
+  return !!patch && (!patch.status || patch.status === 'pending')
+}
+
+function nfAssistantOpenPendingInDirection(direction: -1 | 1) {
+  if (!nfAssistantPatchQueue.value.length) return
+  let index = nfAssistantPatchIndex.value + direction
+  while (index >= 0 && index < nfAssistantPatchQueue.value.length) {
+    if (nfAssistantIsPendingPatch(nfAssistantPatchQueue.value[index])) {
+      nfAssistantOpenPatch(index)
+      return
+    }
+    index += direction
+  }
+}
+
+function nfAssistantPatchPrev() {
+  nfAssistantOpenPendingInDirection(-1)
+}
+
+function nfAssistantPatchNext() {
+  nfAssistantOpenPendingInDirection(1)
+}
+
+async function nfAssistantPatchAcceptCurrent() {
+  if (!nfAssistantPatchQueue.value.length) {
+    acceptPendingAiEdit()
+    return
+  }
+  if (!nfAssistantHasCurrentBatchPreview()) {
+    ElMessage.warning('当前没有可接受的批量建议预览')
+    return
+  }
+  const idx = nfAssistantPatchIndex.value
+  acceptPendingAiEdit()
+  if (pendingAiEdit.value) return
+  if (nfAssistantPatchQueue.value[idx]) nfAssistantPatchQueue.value[idx].status = 'accepted'
+  nfAssistantOpenNextPending(idx + 1)
+}
+
+async function nfAssistantPatchRejectCurrent() {
+  if (!nfAssistantPatchQueue.value.length) {
+    rejectPendingAiEdit()
+    return
+  }
+  if (!nfAssistantHasCurrentBatchPreview()) {
+    ElMessage.warning('当前没有可拒绝的批量建议预览')
+    return
+  }
+  const idx = nfAssistantPatchIndex.value
+  rejectPendingAiEdit()
+  if (pendingAiEdit.value) return
+  if (nfAssistantPatchQueue.value[idx]) nfAssistantPatchQueue.value[idx].status = 'rejected'
+  nfAssistantOpenNextPending(idx + 1)
+}
+
+function nfAssistantHandlePatchBatchEvent(event: Event) {
+  const detail = (event as CustomEvent).detail
+  if (!detail || detail.kind !== 'assistant_text_patch_batch' || !Array.isArray(detail.patches)) return
+
+  const currentId = nfAssistantCurrentCardId()
+  const targetId = Number(detail.card_id)
+  if (currentId && targetId && currentId !== targetId) {
+    console.warn(`Patch proposals target card #${targetId}, current card #${currentId}`)
+    return
+  }
+  if (pendingAiEdit.value && (pendingAiEdit.value as any).source !== 'assistant_batch_patch') {
+    ElMessage.warning('请先接受或拒绝当前替换建议')
+    return
+  }
+
+  nfAssistantPatchQueue.value = detail.patches.map((p: any, i: number) => ({
+    ...p,
+    id: p.id ?? i + 1,
+    index: i + 1,
+    status: 'pending',
+  }))
+  nfAssistantPatchIndex.value = 0
+  nfAssistantOpenPatch(0)
+}
+
+onMounted(() => {
+  window.addEventListener('nf-assistant-text-patch-batch', nfAssistantHandlePatchBatchEvent as EventListener)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('nf-assistant-text-patch-batch', nfAssistantHandlePatchBatchEvent as EventListener)
+})
+/* NF_ASSISTANT_BATCH_PATCH_END */
+
 </script>
 
 <style scoped>

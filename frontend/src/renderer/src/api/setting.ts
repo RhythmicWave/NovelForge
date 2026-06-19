@@ -36,6 +36,54 @@ export interface LLMGetModelsRequest {
   provider: string
   api_base?: string
   api_key: string
+  api_protocol?: 'chat_completions' | 'responses'
+  custom_request_path?: string
+  models_path?: string
+  user_agent?: string
+}
+
+export type LLMCapabilityStatus = 'pass' | 'fail' | 'skip'
+export type LLMCapabilityOverall =
+  | 'full'
+  | 'writing_review_only'
+  | 'react_assistant'
+  | 'plain_only'
+  | 'unusable'
+  | 'unknown'
+
+export interface LLMCapabilityProbeResult {
+  status: LLMCapabilityStatus
+  message: string
+  error_type?: string | null
+}
+
+export interface LLMCapabilityRecommendedMode {
+  api_protocol: 'chat_completions' | 'responses'
+  assistant_mode: 'standard' | 'react' | 'plain'
+  disable_stream: boolean
+  use_default_user_agent: boolean
+  recommended_user_agent?: string | null
+}
+
+export interface LLMCapabilityTestRequest extends LLMConnectionTest {
+  models_path?: string
+  test_models_list?: boolean
+  try_repair?: boolean
+  save_result?: boolean
+  config_id?: number | null
+}
+
+export interface LLMCapabilityTestResult {
+  overall: LLMCapabilityOverall
+  recommended_mode: LLMCapabilityRecommendedMode
+  tests: Record<
+    'models_list' | 'basic_chat' | 'review' | 'stream' | 'structured' | 'native_tools' | 'react_tools',
+    LLMCapabilityProbeResult
+  >
+  tags: string[]
+  summary: string
+  raw_errors: Record<string, string>
+  repair_notes: string[]
 }
 
 export async function listLLMConfigs(): Promise<LLMConfigRead[]> {
@@ -58,6 +106,10 @@ export async function testLLMConnection(body: LLMConnectionTest): Promise<{ mess
 
 export async function getLLMModels(body: LLMGetModelsRequest): Promise<string[]> {
   return await request.post<string[]>('/llm-configs/get-models', body)
+}
+
+export async function testLLMCapability(body: LLMCapabilityTestRequest): Promise<LLMCapabilityTestResult> {
+  return await request.post<LLMCapabilityTestResult>('/llm-configs/capability-test', body)
 }
 
 export async function resetLLMUsage(id: number): Promise<void> {

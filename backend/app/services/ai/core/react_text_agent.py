@@ -182,6 +182,10 @@ def _parse_action_payload(text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     return tool_name.strip(), args
 
 
+def parse_react_action_payload(text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+    return _parse_action_payload(text)
+
+
 def _process_react_stream_text(state: dict[str, str], new_text: str) -> str:
     buffer = state.get("buffer", "") + (new_text or "")
     output_parts: list[str] = []

@@ -41,11 +41,31 @@ ASSISTANT_REACT_PROTOCOL_INSTRUCTIONS = """
 
 执行规则：
 1) 只能调用“可用工具列表”里的工具，禁止调用任何 wf_* 工具。
-2) 用户要求创建/修改卡片内容时，必须通过工具执行（如 create_card / update_card / modify_card_field / replace_field_text）。
+2) 用户要求创建/修改卡片内容时，必须通过工具执行（如 create_card / update_card / modify_card_field / replace_field_text / propose_card_text_patches）。
 3) 每一轮最多输出一个 Action 块；工具执行结果会以 Observation 返回，再决定下一步。
 4) 若参数中包含长文本，必须输出合法 JSON（换行与引号要正确转义）。
 5) 不要输出伪调用文本（例如 tool(...)）。
+6) 当用户要求对正文提出多条可审阅修改建议时，必须调用 propose_card_text_patches，不要调用 update_card、modify_card_field、replace_field_text 或 replace_card_text_by_lines 直接改正文。
+7) propose_card_text_patches 的每条 patches 项必须包含 old_text 和 new_text；可以同时提供 start_line/end_line、context_before/context_after 辅助前端重新定位。
+8) 多条正文建议必须作为一个批次返回，让前端逐条显示“建议 #当前 / 共 N”，由用户接受或拒绝。
 """.strip()
+
+
+ASSISTANT_TEXT_PATCH_TOOL_INSTRUCTIONS = """
+正文批量修改建议规则：
+- 当用户要求灵感助手提出正文修改建议，尤其是多条建议、逐条确认、复用右键润色/扩写预览机制时，必须使用 propose_card_text_patches。
+- propose_card_text_patches 只提交建议给当前正文编辑器预览，不直接写数据库，也不直接改正文。
+- 不要为这类正文建议使用 update_card、modify_card_field、replace_field_text 或 replace_card_text_by_lines。
+- 每条建议必须包含 old_text 和 new_text；old_text 应尽量是当前正文中的精确原文片段。
+- 建议同时提供 start_line/end_line、context_before/context_after，方便用户接受前后重新定位，避免前面建议被接受后造成后续错位。
+""".strip()
+
+
+def _with_assistant_tool_guidance(system_prompt: str) -> str:
+    base = system_prompt or ""
+    if ASSISTANT_TEXT_PATCH_TOOL_INSTRUCTIONS in base:
+        return base
+    return base + "\n\n" + ASSISTANT_TEXT_PATCH_TOOL_INSTRUCTIONS
 
 
 def _should_fallback_to_plain_chat(session: Session, llm_config_id: int) -> bool:
@@ -225,18 +245,29 @@ async def generate_assistant_chat_streaming(
 ) -> AsyncGenerator[str, None]:
     """灵感助手专用流式对话生成（结构化事件流协议）。"""
     _ = track_stats
-    react_enabled = bool(getattr(request, "react_mode_enabled", False))
+    manual_react_mode = getattr(request, "react_mode_enabled", None)
+    cfg = llm_config_service.get_llm_config(session, request.llm_config_id)
+    recommended_mode = (getattr(cfg, "recommended_assistant_mode", None) or "auto").strip().lower() if cfg else "auto"
+    if manual_react_mode is None:
+        react_enabled = recommended_mode == "react"
+        recommended_plain_chat = recommended_mode == "plain"
+    else:
+        react_enabled = bool(manual_react_mode)
+        recommended_plain_chat = False
     fallback_plain_chat = _should_fallback_to_plain_chat(session, request.llm_config_id)
+    plain_chat_enabled = fallback_plain_chat or recommended_plain_chat
     logger.info(
         "[LangChain] generate_assistant_chat_streaming: 使用{}模式，模型id:{}",
-        "Responses降级纯对话" if fallback_plain_chat else ("React" if react_enabled else "标准"),
+        "纯对话" if plain_chat_enabled else ("React" if react_enabled else "标准"),
         request.llm_config_id
     )
 
-    if fallback_plain_chat:
+    if plain_chat_enabled:
         engine = stream_chat_plain
+        effective_system_prompt = system_prompt
     else:
         engine = stream_chat_with_react if react_enabled else stream_chat_with_tools
+        effective_system_prompt = _with_assistant_tool_guidance(system_prompt)
     has_visible_output = False
     has_tool_events = False
 
@@ -244,7 +275,7 @@ async def generate_assistant_chat_streaming(
         async for evt in engine(
             session=session,
             request=request,
-            system_prompt=system_prompt,
+            system_prompt=effective_system_prompt,
         ):
             evt_type = evt.get("type") if isinstance(evt, dict) else None
             evt_data = evt.get("data") if isinstance(evt, dict) else None
