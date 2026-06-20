@@ -76,10 +76,9 @@
           {{ formatNumber((row as any).used_tokens_input || 0) }} / {{ formatNumber((row as any).used_tokens_output || 0) }} / {{ formatNumber((row as any).used_calls || 0) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="340">
+      <el-table-column label="操作" width="280">
         <template #default="{ row }">
           <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
-          <el-button size="small" @click="openEditDialog(row)" plain>能力检测</el-button>
           <el-button size="small" type="primary" @click="handleCopy(row)" plain>复制</el-button>
           <el-button size="small" type="danger" @click="deleteConfig(row.id)">删除</el-button>
           <el-button size="small" type="warning" @click="handleReset(row)" plain>重置</el-button>
