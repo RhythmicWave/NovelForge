@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 import httpx
@@ -9,12 +10,15 @@ from app.schemas.llm_config import (
     LLMConfigCreate,
     LLMConfigRead,
     LLMConfigUpdate,
+    LLMCapabilityTestRequest,
+    LLMCapabilityTestResult,
     LLMConnectionTest,
     LLMGetModelsRequest,
 )
 from app.schemas.response import ApiResponse
 from app.services import llm_config_service
 from app.services.ai.core.chat_model_factory import build_chat_model_from_payload
+from app.services.ai.core.llm_capability_probe import run_capability_test
 
 
 router = APIRouter()
@@ -113,6 +117,43 @@ async def test_llm_connection_endpoint(connection_data: LLMConnectionTest):
         return ApiResponse(message="Connection successful")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"连接测试失败: {e}")
+
+
+@router.post("/capability-test", response_model=ApiResponse[LLMCapabilityTestResult], summary="LLM capability test")
+async def capability_test_endpoint(request: LLMCapabilityTestRequest, session: Session = Depends(get_session)):
+    try:
+        result = await run_capability_test(request)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"能力检测失败: {exc}")
+
+    basic_chat = (result.get("tests") or {}).get("basic_chat") or {}
+    recommended = result.get("recommended_mode") or {}
+    repaired_with_user_agent = bool(recommended.get("use_default_user_agent") and recommended.get("recommended_user_agent"))
+    should_save_result = request.save_result and basic_chat.get("status") == "pass" and (not request.try_repair or repaired_with_user_agent)
+    if should_save_result and request.config_id is not None:
+        config = llm_config_service.get_llm_config(session=session, config_id=request.config_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="LLM Config not found")
+
+        config.capability_summary = {
+            "overall": result.get("overall"),
+            "tests": result.get("tests"),
+            "tags": result.get("tags") or [],
+            "summary": result.get("summary"),
+            "recommended_mode": recommended,
+            "repair_notes": result.get("repair_notes") or [],
+        }
+        config.recommended_assistant_mode = recommended.get("assistant_mode") or "auto"
+        config.disable_stream = bool(recommended.get("disable_stream", False))
+        if recommended.get("api_protocol") in {"chat_completions", "responses"}:
+            config.api_protocol = recommended["api_protocol"]
+        if recommended.get("use_default_user_agent") and recommended.get("recommended_user_agent"):
+            config.user_agent = recommended["recommended_user_agent"]
+        config.capability_last_checked_at = datetime.now()
+        session.add(config)
+        session.commit()
+
+    return ApiResponse(data=result)
 
 
 @router.post("/{config_id}/reset-usage", response_model=ApiResponse, summary="重置统计（输入/输出 token 与调用次数）")

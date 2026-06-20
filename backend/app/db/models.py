@@ -62,6 +62,19 @@ class LLMConfig(SQLModel, table=True):
         default=-1,
         sa_column=Column(sa.Integer, nullable=False, server_default='-1')
     )
+    capability_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    recommended_assistant_mode: str = Field(
+        default="auto",
+        sa_column=Column(sa.String, nullable=False, server_default="auto"),
+    )
+    disable_stream: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.false()),
+    )
+    capability_last_checked_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(sa.DateTime, nullable=True),
+    )
 
 
 class Prompt(SQLModel, table=True):
