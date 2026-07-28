@@ -15,9 +15,9 @@ from .registry import initializer
 @initializer(name="知识库", order=30)
 def init_knowledge(session: Session) -> None:
     """初始化知识库
-    
+
     从 bootstrap/knowledge 目录导入 *.txt 和 *.md 文件。
-    
+
     Args:
         session: 数据库会话
     """
@@ -29,6 +29,7 @@ def init_knowledge(session: Session) -> None:
     existing = {k.name: k for k in session.exec(select(Knowledge)).all()}
     created = 0
     updated = 0
+    patched = 0
     skipped = 0
     overwrite = settings.bootstrap.should_overwrite
 
@@ -45,20 +46,31 @@ def init_knowledge(session: Session) -> None:
             continue
         description = f"预置知识库：{name}"
         if name in existing:
+            kb = existing[name]
             if overwrite:
-                kb = existing[name]
                 kb.content = content
                 kb.description = description
                 kb.built_in = True
+                # 同步更新原始数据（用于重置）
+                kb.original_content = content
+                kb.original_description = description
                 updated += 1
             else:
+                # 即使不覆盖，也要补充 original_* 字段（旧数据迁移）
+                if kb.original_content is None:
+                    kb.original_content = kb.content
+                    kb.original_description = kb.description
+                    patched += 1
                 skipped += 1
         else:
-            session.add(Knowledge(name=name, description=description, content=content, built_in=True))
+            session.add(Knowledge(
+                name=name, description=description, content=content, built_in=True,
+                original_content=content, original_description=description,
+            ))
             created += 1
 
-    if created or updated:
+    if created or updated or patched:
         session.commit()
-        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}（overwrite={overwrite}，跳过 {skipped}）")
+        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}，补丁 {patched}（overwrite={overwrite}，跳过 {skipped}）")
     else:
         logger.info(f"知识库已是最新状态（overwrite={overwrite}，跳过 {skipped}）。")

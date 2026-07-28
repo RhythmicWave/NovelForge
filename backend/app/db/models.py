@@ -84,6 +84,10 @@ class Prompt(SQLModel, table=True):
     template: str
     version: int = 1
     built_in: bool = Field(default=False)
+    is_modified: bool = Field(default=False)
+    original_template: Optional[str] = None
+    original_description: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False)
 
 
 
@@ -174,6 +178,10 @@ class Knowledge(SQLModel, table=True):
     description: Optional[str] = None
     content: str
     built_in: bool = Field(default=False)
+    is_modified: bool = Field(default=False)
+    original_content: Optional[str] = None
+    original_description: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False)
 
 
 # 工作流系统

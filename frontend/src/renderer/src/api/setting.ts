@@ -21,6 +21,10 @@ export async function updateKnowledge(id: number, body: KnowledgeUpdate): Promis
   return resp
 }
 
+export async function resetKnowledge(id: number): Promise<Knowledge> {
+  return await request.post<Knowledge>(`/knowledge/${id}/reset`, {})
+}
+
 export async function deleteKnowledge(id: number): Promise<{ message: string }> {
   const resp = await request.delete<{ message?: string }>(`/knowledge/${id}`)
   return { message: resp?.message || 'OK' } as any
@@ -121,11 +125,12 @@ export async function copyLLMConfig(id: number): Promise<LLMConfigRead> {
 }
 
 // --- 提示词 API ---
-export interface Prompt { id: number; name: string; description: string; template: string; built_in?: boolean }
+export interface Prompt { id: number; name: string; description: string; template: string; built_in?: boolean; is_modified?: boolean; created_at?: string }
 export async function listPrompts(): Promise<Prompt[]> { return await request.get<Prompt[]>('/prompts') }
 export async function createPrompt(body: Partial<Prompt>): Promise<void> { await request.post('/prompts', body) }
 export async function updatePrompt(id: number, body: Partial<Prompt>): Promise<void> { await request.put(`/prompts/${id}`, body) }
 export async function deletePrompt(id: number): Promise<void> { await request.delete(`/prompts/${id}`) }
+export async function resetPrompt(id: number): Promise<Prompt> { return await request.post<Prompt>(`/prompts/${id}/reset`, {}) }
 
 // --- 卡片类型 API ---
 export type CardTypeRead = components['schemas']['CardTypeRead']

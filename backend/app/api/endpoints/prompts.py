@@ -78,4 +78,21 @@ def delete_prompt(
         raise HTTPException(status_code=400, detail="系统内置提示词不可删除")
     if not prompt_service.delete_prompt(session=session, prompt_id=prompt_id):
         raise HTTPException(status_code=404, detail="提示词未找到")
-    return ApiResponse(message="提示词删除成功") 
+    return ApiResponse(message="提示词删除成功")
+
+@router.post("/{prompt_id}/reset", response_model=ApiResponse[PromptRead], summary="重置内置提示词")
+def reset_prompt_endpoint(
+    *,
+    session: Session = Depends(get_session),
+    prompt_id: int,
+):
+    """
+    重置内置提示词到原始状态。
+    """
+    try:
+        result = prompt_service.reset_prompt(session=session, prompt_id=prompt_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="提示词未找到")
+        return ApiResponse(data=result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) 

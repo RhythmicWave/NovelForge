@@ -58,11 +58,11 @@ def get_all_prompt_files() -> dict:
 @initializer(name="提示词", order=10)
 def init_prompts(session: Session) -> None:
     """初始化默认提示词
-    
+
     行为受配置项 BOOTSTRAP_OVERWRITE 控制：
     - True: 覆盖更新已存在的提示词
     - False: 跳过已存在的提示词
-    
+
     Args:
         session: 数据库会话
     """
@@ -74,28 +74,41 @@ def init_prompts(session: Session) -> None:
 
     new_count = 0
     updated_count = 0
+    patched_count = 0
     skipped_count = 0
     prompts_to_add = []
-    
+
     for name, prompt_data in all_prompts_data.items():
         if name in existing_names:
+            existing_prompt = next(p for p in existing_prompts if p.name == name)
             if overwrite:
-                existing_prompt = next(p for p in existing_prompts if p.name == name)
                 existing_prompt.template = prompt_data['template']
                 existing_prompt.description = prompt_data.get('description')
                 existing_prompt.built_in = True
+                # 同步更新原始数据（用于重置）
+                existing_prompt.original_template = prompt_data['template']
+                existing_prompt.original_description = prompt_data.get('description')
                 updated_count += 1
             else:
+                # 即使不覆盖，也要补充 original_* 字段（旧数据迁移）
+                if existing_prompt.original_template is None:
+                    existing_prompt.original_template = existing_prompt.template
+                    existing_prompt.original_description = existing_prompt.description
+                    patched_count += 1
                 skipped_count += 1
         else:
-            prompts_to_add.append(Prompt(**prompt_data, built_in=True))
+            # 创建新提示词时，同时保存原始数据
+            p = Prompt(**prompt_data, built_in=True,
+                       original_template=prompt_data['template'],
+                       original_description=prompt_data.get('description'))
+            prompts_to_add.append(p)
             new_count += 1
-    
+
     if prompts_to_add:
         session.add_all(prompts_to_add)
 
-    if new_count > 0 or updated_count > 0:
+    if new_count > 0 or updated_count > 0 or patched_count > 0:
         session.commit()
-        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
+        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个，补丁 {patched_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
     else:
         logger.info(f"所有提示词已是最新状态（overwrite={overwrite}，跳过 {skipped_count} 个）。")
