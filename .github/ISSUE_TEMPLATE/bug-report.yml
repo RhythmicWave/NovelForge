@@ -1,0 +1,32 @@
+name: bug报告
+description: 用于报告bug，反馈问题
+title: "【问题反馈】"
+labels: ["bug"]
+assignees: []
+body:
+  - type: textarea
+    attributes:
+      label: 问题现象
+      description: 清晰描述bug表现
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: "环境信息"
+      description: "如编译器、操作系统、依赖版本等。"
+      placeholder: "示例：Windows 11, Node.js v14, Python 3.12, etc."
+
+  - type: textarea
+    attributes:
+      label: "日志信息"
+      description: "如果有报错日志或截图，可以贴在此处。"
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: 你愿意提交 PR 吗？
+      description: 这不是必需的，但我们很乐意在贡献过程中为您提供指导，特别是如果你已经很好地理解了如何实现修复
+      options:
+        - label: 是的，我愿意提交 PR
