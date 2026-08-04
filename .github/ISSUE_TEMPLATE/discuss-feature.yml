@@ -1,0 +1,43 @@
+name: 方案讨论
+description: 如果你有对项目的需求、功能建议、或其他意见，请使用此模板。架构改动、跨模块大功能，必须先讨论再开发
+title: "【方案讨论】"
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: textarea
+    attributes:
+      label: 背景与问题
+      description: 描述当前痛点、为什么需要做改进
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 目标与边界
+      description: 明确要做什么，划定功能范围
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 方案草图
+      description: 核心实现思路、关键设计点
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 对现有功能的影响
+      description: 是否兼容旧逻辑、有无破坏性改动、需要适配的地方
+
+  - type: textarea
+    attributes:
+      label: 补充备注
+      description: 依赖资源、疑问点等
+
+  - type: checkboxes
+    attributes:
+      label: 你愿意提交 PR 吗？
+      description: 这不是必需的，但我们很乐意在贡献过程中为您提供指导，特别是如果你已经很好地理解了如何实现修复
+      options:
+        - label: 是的，我愿意提交 PR
