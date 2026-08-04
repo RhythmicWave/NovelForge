@@ -47,20 +47,20 @@ def init_knowledge(session: Session) -> None:
         description = f"预置知识库：{name}"
         if name in existing:
             kb = existing[name]
+            # 无论是否 overwrite，都将原始快照设为种子文件数据
+            if kb.original_content != content or kb.original_description != description:
+                kb.original_content = content
+                kb.original_description = description
+                patched += 1
+
+            kb.built_in = True
+
             if overwrite:
                 kb.content = content
                 kb.description = description
-                kb.built_in = True
-                # 同步更新原始数据（用于重置）
-                kb.original_content = content
-                kb.original_description = description
+                kb.is_modified = False
                 updated += 1
             else:
-                # 即使不覆盖，也要补充 original_* 字段（旧数据迁移）
-                if kb.original_content is None:
-                    kb.original_content = kb.content
-                    kb.original_description = kb.description
-                    patched += 1
                 skipped += 1
         else:
             session.add(Knowledge(

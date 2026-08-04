@@ -57,10 +57,13 @@ def update_prompt(
     """
     更新一个已存在的提示词模板。
     """
-    updated_prompt = prompt_service.update_prompt(session=session, prompt_id=prompt_id, prompt_update=prompt)
-    if not updated_prompt:
-        raise HTTPException(status_code=404, detail="提示词未找到")
-    return ApiResponse(data=updated_prompt)
+    try:
+        updated_prompt = prompt_service.update_prompt(session=session, prompt_id=prompt_id, prompt_update=prompt)
+        if not updated_prompt:
+            raise HTTPException(status_code=404, detail="提示词未找到")
+        return ApiResponse(data=updated_prompt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{prompt_id}", response_model=ApiResponse, summary="删除提示词")
 def delete_prompt(

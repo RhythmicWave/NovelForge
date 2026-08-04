@@ -15,14 +15,22 @@ def get_prompt_by_name(session: Session, prompt_name: str) -> Optional[Prompt]:
     return session.exec(statement).first()
 
 def get_prompts(session: Session, skip: int = 0, limit: int = 100) -> List[Prompt]:
-    """获取提示词列表（自定义在前按时间倒序，内置在后）"""
-    statement = (
+    """获取提示词列表（自定义在前按时间倒序，内置在后；保证内置项始终不被截断）"""
+    custom_stmt = (
         select(Prompt)
-        .order_by(Prompt.built_in.asc(), Prompt.created_at.desc())
+        .where(Prompt.built_in == False)
+        .order_by(Prompt.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    return session.exec(statement).all()
+    custom_prompts = session.exec(custom_stmt).all()
+    builtin_stmt = (
+        select(Prompt)
+        .where(Prompt.built_in == True)
+        .order_by(Prompt.created_at.desc())
+    )
+    builtin_prompts = session.exec(builtin_stmt).all()
+    return list(custom_prompts) + list(builtin_prompts)
 
 def create_prompt(session: Session, prompt_create: PromptCreate) -> Prompt:
     """创建新提示词"""
@@ -43,6 +51,10 @@ def update_prompt(session: Session, prompt_id: int, prompt_update: PromptUpdate)
     if not db_prompt:
         return None
     prompt_data = prompt_update.model_dump(exclude_unset=True)
+    if getattr(db_prompt, 'built_in', False):
+        new_name = prompt_data.get('name')
+        if new_name is not None and new_name != db_prompt.name:
+            raise ValueError("系统内置提示词名称不允许修改")
     for key, value in prompt_data.items():
         setattr(db_prompt, key, value)
     # 内置项被编辑时，自动标记为已修改
@@ -61,10 +73,10 @@ def reset_prompt(session: Session, prompt_id: int) -> Optional[Prompt]:
         return None
     if not getattr(db_prompt, 'built_in', False):
         raise ValueError("只能重置内置提示词")
-    if db_prompt.original_template is not None:
-        db_prompt.template = db_prompt.original_template
-    if db_prompt.original_description is not None:
-        db_prompt.description = db_prompt.original_description
+    if db_prompt.original_template is None:
+        raise ValueError("该内置提示词缺少原始快照，无法重置")
+    db_prompt.template = db_prompt.original_template
+    db_prompt.description = db_prompt.original_description
     db_prompt.is_modified = False
     session.add(db_prompt)
     session.commit()

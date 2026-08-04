@@ -67,8 +67,7 @@ def init_prompts(session: Session) -> None:
         session: 数据库会话
     """
     overwrite = settings.bootstrap.should_overwrite
-    existing_prompts = session.exec(select(Prompt)).all()
-    existing_names = {p.name for p in existing_prompts}
+    existing_prompts = {p.name: p for p in session.exec(select(Prompt)).all()}
 
     all_prompts_data = get_all_prompt_files()
 
@@ -78,26 +77,26 @@ def init_prompts(session: Session) -> None:
     skipped_count = 0
     prompts_to_add = []
 
-    for name, prompt_data in all_prompts_data.items():
-        if name in existing_names:
-            existing_prompt = next(p for p in existing_prompts if p.name == name)
+    for prompt_name, prompt_data in all_prompts_data.items():
+        if prompt_name in existing_prompts:
+            existing_prompt = existing_prompts[prompt_name]
+            # 无论是否 overwrite，都将原始快照设为种子文件数据
+            if existing_prompt.original_template != prompt_data['template'] or existing_prompt.original_description != prompt_data.get('description'):
+                existing_prompt.original_template = prompt_data['template']
+                existing_prompt.original_description = prompt_data.get('description')
+                patched_count += 1
+
+            existing_prompt.built_in = True
+
             if overwrite:
                 existing_prompt.template = prompt_data['template']
                 existing_prompt.description = prompt_data.get('description')
-                existing_prompt.built_in = True
-                # 同步更新原始数据（用于重置）
-                existing_prompt.original_template = prompt_data['template']
-                existing_prompt.original_description = prompt_data.get('description')
+                existing_prompt.is_modified = False
                 updated_count += 1
             else:
-                # 即使不覆盖，也要补充 original_* 字段（旧数据迁移）
-                if existing_prompt.original_template is None:
-                    existing_prompt.original_template = existing_prompt.template
-                    existing_prompt.original_description = existing_prompt.description
-                    patched_count += 1
                 skipped_count += 1
         else:
-            # 创建新提示词时，同时保存原始数据
+            # 创建新提示词时，保存原始数据
             p = Prompt(**prompt_data, built_in=True,
                        original_template=prompt_data['template'],
                        original_description=prompt_data.get('description'))
@@ -109,6 +108,6 @@ def init_prompts(session: Session) -> None:
 
     if new_count > 0 or updated_count > 0 or patched_count > 0:
         session.commit()
-        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个，补丁 {patched_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
+        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个，补充快照 {patched_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
     else:
         logger.info(f"所有提示词已是最新状态（overwrite={overwrite}，跳过 {skipped_count} 个）。")

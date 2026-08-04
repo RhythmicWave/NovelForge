@@ -11,13 +11,22 @@ class KnowledgeService:
         self.db = db
 
     def list(self, skip: int = 0, limit: int = 200) -> List[Knowledge]:
-        """获取知识库列表（自定义在前按时间倒序，内置在后）"""
-        return self.db.exec(
+        """获取知识库列表（自定义在前按时间倒序，内置在后；保证内置项始终不被截断）"""
+        custom_stmt = (
             select(Knowledge)
-            .order_by(Knowledge.built_in.asc(), Knowledge.created_at.desc())
+            .where(Knowledge.built_in == False)
+            .order_by(Knowledge.created_at.desc())
             .offset(skip)
             .limit(limit)
-        ).all()
+        )
+        custom_kb = self.db.exec(custom_stmt).all()
+        builtin_stmt = (
+            select(Knowledge)
+            .where(Knowledge.built_in == True)
+            .order_by(Knowledge.created_at.desc())
+        )
+        builtin_kb = self.db.exec(builtin_stmt).all()
+        return list(custom_kb) + list(builtin_kb)
 
     def get_by_id(self, kid: int) -> Optional[Knowledge]:
         return self.db.get(Knowledge, kid)
@@ -36,6 +45,9 @@ class KnowledgeService:
         kb = self.get_by_id(kid)
         if not kb:
             return None
+        if getattr(kb, 'built_in', False):
+            if name is not None and name != kb.name:
+                raise ValueError("系统内置知识库名称不允许修改")
         if name is not None:
             kb.name = name
         if description is not None:
@@ -57,10 +69,10 @@ class KnowledgeService:
             return None
         if not getattr(kb, 'built_in', False):
             raise ValueError("只能重置内置知识库")
-        if kb.original_content is not None:
-            kb.content = kb.original_content
-        if kb.original_description is not None:
-            kb.description = kb.original_description
+        if kb.original_content is None:
+            raise ValueError("该内置知识库缺少原始快照，无法重置")
+        kb.content = kb.original_content
+        kb.description = kb.original_description
         kb.is_modified = False
         self.db.add(kb)
         self.db.commit()

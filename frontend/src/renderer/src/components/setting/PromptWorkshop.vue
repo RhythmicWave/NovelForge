@@ -39,7 +39,7 @@
     <el-drawer v-model="drawerVisible" :title="dialogTitle" size="60%" append-to-body>
       <el-form :model="currentPrompt" label-width="90px" ref="promptForm" class="form-grid">
         <el-form-item label="名称" prop="name" :rules="{ required: true, message: '请输入名称', trigger: 'blur' }">
-          <el-input v-model="currentPrompt.name" />
+          <el-input v-model="currentPrompt.name" :disabled="!!currentPrompt.built_in" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="currentPrompt.description" type="textarea" :rows="2" />

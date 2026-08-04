@@ -39,9 +39,9 @@
     <!-- 将抽屉改为模态对话框，避免抽屉内嵌抽屉 -->
     <el-dialog v-model="editor.visible" :title="editor.editing ? '编辑知识' : '新建知识'" width="50%" append-to-body>
       <el-form label-position="top" :model="editor.form">
-        <el-form-item label="名称"><el-input v-model="editor.form.name" /></el-form-item>
+        <el-form-item label="名称" required><el-input v-model="editor.form.name" :disabled="!!editor.form.built_in" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editor.form.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="内容"><el-input v-model="editor.form.content" type="textarea" :rows="14" /></el-form-item>
+        <el-form-item label="内容" required><el-input v-model="editor.form.content" type="textarea" :rows="14" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editor.visible=false">取消</el-button>
