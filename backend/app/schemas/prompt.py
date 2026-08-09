@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import datetime
 
 from sqlmodel import SQLModel, Field
 
@@ -10,6 +11,8 @@ class PromptBase(SQLModel):
 class PromptRead(PromptBase):
     id: int
     built_in: bool = False
+    is_modified: bool = False
+    created_at: Optional[datetime] = None
 
 class PromptCreate(PromptBase):
     pass
@@ -28,6 +31,8 @@ class KnowledgeBase(SQLModel):
 
 class KnowledgeRead(KnowledgeBase):
     id: int
+    is_modified: bool = False
+    created_at: Optional[datetime] = None
 
 class KnowledgeCreate(SQLModel):
     name: str

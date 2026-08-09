@@ -8,19 +8,30 @@
     <el-table :data="items" height="60vh" size="small" v-loading="loading">
       <el-table-column prop="name" label="名称" width="90" />
       <el-table-column prop="description" label="描述" min-width="150" />
-      <el-table-column label="内置" width="80">
+      <el-table-column label="归属" width="120">
         <template #default="{ row }">
-          <el-tag size="small" :type="row.built_in ? 'info' : 'success'">{{ row.built_in ? '内置' : '自定义' }}</el-tag>
+          <el-tag size="small" :type="getOwnershipTagType(row)">
+            {{ getOwnershipLabel(row) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="180" align="right">
         <template #default="{ row }">
           <el-button size="small" @click="openEditor(row)">编辑</el-button>
-          <el-popconfirm title="删除该知识？" @confirm="remove(row)">
-            <template #reference>
-              <el-button size="small" type="danger" plain :disabled="row.built_in">删除</el-button>
-            </template>
-          </el-popconfirm>
+          <template v-if="!row.built_in">
+            <el-popconfirm title="删除该知识？" @confirm="remove(row)">
+              <template #reference>
+                <el-button size="small" type="danger" plain>删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+          <template v-else>
+            <el-popconfirm title="重置为原始内容？" @confirm="handleReset(row)">
+              <template #reference>
+                <el-button size="small" type="warning" plain>重置</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
         </template>
       </el-table-column>
     </el-table>
@@ -28,9 +39,9 @@
     <!-- 将抽屉改为模态对话框，避免抽屉内嵌抽屉 -->
     <el-dialog v-model="editor.visible" :title="editor.editing ? '编辑知识' : '新建知识'" width="50%" append-to-body>
       <el-form label-position="top" :model="editor.form">
-        <el-form-item label="名称"><el-input v-model="editor.form.name" :disabled="editor.editing && editor.form.built_in" /></el-form-item>
+        <el-form-item label="名称" required><el-input v-model="editor.form.name" :disabled="!!editor.form.built_in" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editor.form.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="内容"><el-input v-model="editor.form.content" type="textarea" :rows="14" /></el-form-item>
+        <el-form-item label="内容" required><el-input v-model="editor.form.content" type="textarea" :rows="14" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editor.visible=false">取消</el-button>
@@ -43,7 +54,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { listKnowledge, createKnowledge, updateKnowledge, deleteKnowledge, type Knowledge } from '@renderer/api/setting'
+import { listKnowledge, createKnowledge, updateKnowledge, deleteKnowledge, resetKnowledge, type Knowledge } from '@renderer/api/setting'
 import { resetKnowledgeOptionCache } from '@renderer/services/knowledgeOptionResolver'
 
 const loading = ref(false)
@@ -66,6 +77,41 @@ function openEditor(row?: Knowledge) {
   editor.value.visible = true
   editor.value.editing = !!row
   editor.value.form = row ? { ...row } : { name: '', description: '', content: '' }
+}
+
+/**
+ * 获取知识库条目的所有权标签类型
+ *
+ */
+function getOwnershipTagType(row: Knowledge): string {
+  if (!row.built_in) return 'success'
+  if (row.is_modified) return 'warning'
+  return 'info'
+}
+
+/**
+ * 获取知识库条目的归属标签
+ */
+function getOwnershipLabel(row: Knowledge): string {
+  if (!row.built_in) return '自定义'
+  if (row.is_modified) return '内置（已修改）'
+  return '内置'
+}
+
+async function handleReset(row: Knowledge) {
+  try {
+    const updated = await resetKnowledge(row.id)
+    resetKnowledgeOptionCache()
+    ElMessage.success('已重置为原始内容')
+    if (updated) {
+      const idx = items.value.findIndex(i => i.id === updated.id)
+      if (idx >= 0) items.value[idx] = updated
+    } else {
+      await fetchList()
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '重置失败')
+  }
 }
 
 async function save() {
@@ -110,4 +156,4 @@ fetchList()
 <style scoped>
 .knowledge-manager { display: flex; flex-direction: column; gap: 12px; height: 100%; }
 .header { display: flex; justify-content: space-between; align-items: center; }
-</style> 
+</style>
