@@ -14,23 +14,16 @@ def get_prompt_by_name(session: Session, prompt_name: str) -> Optional[Prompt]:
     statement = select(Prompt).where(Prompt.name == prompt_name)
     return session.exec(statement).first()
 
-def get_prompts(session: Session, skip: int = 0, limit: int = 100) -> List[Prompt]:
-    """获取提示词列表（自定义在前按时间倒序，内置在后；保证内置项始终不被截断）"""
-    custom_stmt = (
-        select(Prompt)
-        .where(Prompt.built_in == False)
-        .order_by(Prompt.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-    )
-    custom_prompts = session.exec(custom_stmt).all()
-    builtin_stmt = (
-        select(Prompt)
-        .where(Prompt.built_in == True)
-        .order_by(Prompt.created_at.desc())
-    )
-    builtin_prompts = session.exec(builtin_stmt).all()
-    return list(custom_prompts) + list(builtin_prompts)
+def get_prompts(session: Session, skip: int = 0, limit: Optional[int] = None) -> List[Prompt]:
+    """返回稳定排序的提示词列表；仅在显式传入 limit 时分页。"""
+    statement = select(Prompt).order_by(
+        Prompt.built_in.asc(),
+        Prompt.created_at.desc(),
+        Prompt.id.desc(),
+    ).offset(skip)
+    if limit is not None:
+        statement = statement.limit(limit)
+    return list(session.exec(statement).all())
 
 def create_prompt(session: Session, prompt_create: PromptCreate) -> Prompt:
     """创建新提示词"""
@@ -51,9 +44,17 @@ def update_prompt(session: Session, prompt_id: int, prompt_update: PromptUpdate)
     if not db_prompt:
         return None
     prompt_data = prompt_update.model_dump(exclude_unset=True)
+    new_name = prompt_data.get('name')
+    if 'name' in prompt_data:
+        if new_name is None or not new_name.strip():
+            raise ValueError("提示词名称不能为空")
+        existing_prompt = get_prompt_by_name(session, new_name)
+        if existing_prompt and existing_prompt.id != db_prompt.id:
+            raise ValueError(f"提示词名称 '{new_name}' 已存在")
+    if 'template' in prompt_data and prompt_data['template'] is None:
+        raise ValueError("提示词模板不能为空")
     if getattr(db_prompt, 'built_in', False):
-        new_name = prompt_data.get('name')
-        if new_name is not None and new_name != db_prompt.name:
+        if 'name' in prompt_data and new_name != db_prompt.name:
             raise ValueError("系统内置提示词名称不允许修改")
     for key, value in prompt_data.items():
         setattr(db_prompt, key, value)
@@ -88,6 +89,8 @@ def delete_prompt(session: Session, prompt_id: int) -> bool:
     db_prompt = session.get(Prompt, prompt_id)
     if not db_prompt:
         return False
+    if getattr(db_prompt, 'built_in', False):
+        raise ValueError("系统内置提示词不可删除")
     session.delete(db_prompt)
     session.commit()
     return True
@@ -202,4 +205,4 @@ def inject_knowledge(session: Session, template: str) -> str:
 
     result = _KB_ID_PATTERN.sub(repl_id, enumerated_text)
     result = _KB_NAME_PATTERN.sub(repl_name, result)
-    return result 
+    return result

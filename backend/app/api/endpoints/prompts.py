@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
 from sqlmodel import Session
 from app.db.session import get_session
 from app.schemas.prompt import PromptRead, PromptCreate, PromptUpdate
@@ -17,15 +17,18 @@ def create_prompt(
     """
     创建一个新的提示词模板。
     """
-    new_prompt = prompt_service.create_prompt(session=session, prompt_create=prompt)
-    return ApiResponse(data=new_prompt)
+    try:
+        new_prompt = prompt_service.create_prompt(session=session, prompt_create=prompt)
+        return ApiResponse(data=new_prompt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/", response_model=ApiResponse[List[PromptRead]], summary="获取提示词列表")
 def read_prompts(
     *,
     session: Session = Depends(get_session),
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: Optional[int] = Query(default=None, ge=1),
 ):
     """
     获取所有提示词模板的列表。
@@ -79,7 +82,11 @@ def delete_prompt(
         raise HTTPException(status_code=404, detail="提示词未找到")
     if getattr(db_prompt, 'built_in', False):
         raise HTTPException(status_code=400, detail="系统内置提示词不可删除")
-    if not prompt_service.delete_prompt(session=session, prompt_id=prompt_id):
+    try:
+        deleted = prompt_service.delete_prompt(session=session, prompt_id=prompt_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="提示词未找到")
     return ApiResponse(message="提示词删除成功")
 
@@ -98,4 +105,4 @@ def reset_prompt_endpoint(
             raise HTTPException(status_code=404, detail="提示词未找到")
         return ApiResponse(data=result)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) 
+        raise HTTPException(status_code=400, detail=str(e))

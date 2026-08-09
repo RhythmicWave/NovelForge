@@ -104,16 +104,23 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import { listKnowledge, type Knowledge, listPrompts, createPrompt, updatePrompt, deletePrompt, resetPrompt } from '@renderer/api/setting'
+import {
+  listKnowledge,
+  type Knowledge,
+  listPrompts,
+  type Prompt,
+  type PromptCreate,
+  type PromptUpdate,
+  createPrompt,
+  updatePrompt,
+  deletePrompt,
+  resetPrompt,
+} from '@renderer/api/setting'
 
-interface Prompt {
-  id: number
-  name: string
+type PromptDraft = Omit<Partial<Prompt>, 'name' | 'description' | 'template'> & {
+  name: PromptCreate['name']
   description: string
-  template: string
-  built_in?: boolean
-  is_modified?: boolean
-  created_at?: string
+  template: PromptCreate['template']
 }
 
 const DEFAULT_OUTPUT_FORMAT = '请严格根据提供的Json Schema返回结果'
@@ -122,7 +129,7 @@ const prompts = ref<Prompt[]>([])
 const loading = ref(false)
 const drawerVisible = ref(false)
 const saving = ref(false)
-const currentPrompt = ref<Partial<Prompt>>({})
+const currentPrompt = ref<PromptDraft>({ name: '', description: '', template: '' })
 const promptForm = ref<FormInstance>()
 
 const dialogTitle = computed(() => (currentPrompt.value.id ? '编辑提示词' : '新建提示词'))
@@ -266,8 +273,8 @@ async function tryParseStructured(tpl?: string) {
   }
 }
 
-async function handleEdit(prompt: any) {
-  currentPrompt.value = { ...prompt }
+async function handleEdit(prompt: Prompt) {
+  currentPrompt.value = { ...prompt, description: prompt.description ?? '' }
   await fetchKnowledgeList()
   // 尝试解析为结构化表单，若失败则回退到原始模板模式
   await tryParseStructured(prompt.template)
@@ -281,14 +288,15 @@ async function handleSave() {
     if (valid) {
       saving.value = true
       try {
-        const payload: any = { ...currentPrompt.value }
+        const template = useStructured.value ? composeTemplate(structured.value) : currentPrompt.value.template
+        const name = currentPrompt.value.name.trim()
+        const description = currentPrompt.value.description.trim() || null
         // 若是结构化编辑，则组合模板写回
-        if (useStructured.value) {
-          payload.template = composeTemplate(structured.value)
-        }
-        if (payload.id) {
-          await updatePrompt(payload.id, payload)
+        if (currentPrompt.value.id !== undefined) {
+          const payload: PromptUpdate = { name, description, template }
+          await updatePrompt(currentPrompt.value.id, payload)
         } else {
+          const payload: PromptCreate = { name, description, template }
           await createPrompt(payload)
         }
         ElMessage.success('保存成功')

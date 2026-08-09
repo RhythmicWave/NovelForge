@@ -1,76 +1,105 @@
-"""知识库初始化
+"""知识库初始化。
 
-从文件系统加载知识库内容并初始化到数据库。
+从文件系统加载知识库内容并同步到数据库。
 """
 
 import os
-from sqlmodel import Session, select
-from loguru import logger
 
-from app.db.models import Knowledge
+from loguru import logger
+from sqlmodel import Session, select
+
 from app.core.config import settings
+from app.db.models import Knowledge
+from .builtin_seed import sync_builtin_seed
 from .registry import initializer
 
 
-@initializer(name="知识库", order=30)
-def init_knowledge(session: Session) -> None:
-    """初始化知识库
-
-    从 bootstrap/knowledge 目录导入 *.txt 和 *.md 文件。
-
-    Args:
-        session: 数据库会话
-    """
-    knowledge_dir = os.path.join(os.path.dirname(__file__), 'knowledge')
+def get_all_knowledge_files() -> dict:
+    """从文件系统加载知识库种子，按名称返回。"""
+    knowledge_dir = os.path.join(os.path.dirname(__file__), "knowledge")
     if not os.path.exists(knowledge_dir):
-        logger.warning(f"Knowledge directory not found at {knowledge_dir}. Cannot load knowledge base.")
-        return
+        logger.warning("未找到知识库目录 {}，无法加载知识库。", knowledge_dir)
+        return {}
 
-    existing = {k.name: k for k in session.exec(select(Knowledge)).all()}
-    created = 0
-    updated = 0
-    patched = 0
-    skipped = 0
-    overwrite = settings.bootstrap.should_overwrite
-
+    knowledge_files = {}
     for filename in os.listdir(knowledge_dir):
-        if not filename.lower().endswith(('.txt', '.md')):
+        if not filename.lower().endswith((".txt", ".md")):
             continue
         file_path = os.path.join(knowledge_dir, filename)
         name = os.path.splitext(filename)[0]
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-        except Exception as e:
-            logger.warning(f"读取知识库文件失败 {file_path}: {e}")
+            with open(file_path, "r", encoding="utf-8") as file:
+                content = file.read().strip()
+        except OSError as exc:
+            logger.warning("读取知识库种子文件失败 {}：{}", file_path, exc)
             continue
-        description = f"预置知识库：{name}"
-        if name in existing:
-            kb = existing[name]
-            # 无论是否 overwrite，都将原始快照设为种子文件数据
-            if kb.original_content != content or kb.original_description != description:
-                kb.original_content = content
-                kb.original_description = description
-                patched += 1
+        knowledge_files[name] = {
+            "name": name,
+            "description": f"预置知识库：{name}",
+            "content": content,
+        }
+    return knowledge_files
 
-            kb.built_in = True
 
-            if overwrite:
-                kb.content = content
-                kb.description = description
-                kb.is_modified = False
-                updated += 1
-            else:
-                skipped += 1
-        else:
-            session.add(Knowledge(
-                name=name, description=description, content=content, built_in=True,
-                original_content=content, original_description=description,
-            ))
+@initializer(name="知识库", order=30)
+def init_knowledge(session: Session) -> None:
+    """同步内置知识库种子并保留用户对内置项的修改。"""
+    overwrite = settings.bootstrap.should_overwrite
+    existing = {item.name: item for item in session.exec(select(Knowledge)).all()}
+    knowledge_to_add = []
+    state_changed = False
+    created = 0
+    updated = 0
+    migrated = 0
+    conflicts = 0
+
+    for name, seed in get_all_knowledge_files().items():
+        existing_item = existing.get(name)
+        if existing_item is None:
+            knowledge_to_add.append(
+                Knowledge(
+                    **seed,
+                    built_in=True,
+                    original_content=seed["content"],
+                    original_description=seed["description"],
+                )
+            )
             created += 1
+            state_changed = True
+            continue
 
-    if created or updated or patched:
+        result, changed = sync_builtin_seed(
+            existing_item,
+            content_field="content",
+            original_content_field="original_content",
+            seed_content=seed["content"],
+            seed_description=seed["description"],
+            overwrite=overwrite,
+        )
+        state_changed |= changed
+        if result == "conflict":
+            conflicts += 1
+            logger.warning(
+                "知识库种子与同名自定义项冲突，保留自定义项：{}",
+                name,
+            )
+        elif result == "migrated":
+            migrated += 1
+        elif overwrite and changed:
+            updated += 1
+
+    if knowledge_to_add:
+        session.add_all(knowledge_to_add)
+
+    if state_changed:
         session.commit()
-        logger.info(f"知识库初始化完成：新增 {created}，更新 {updated}，补丁 {patched}（overwrite={overwrite}，跳过 {skipped}）")
+        logger.info(
+            "知识库初始化完成：新增 {}，覆盖更新 {}，兼容迁移 {}，冲突 {}（overwrite={}）",
+            created,
+            updated,
+            migrated,
+            conflicts,
+            overwrite,
+        )
     else:
-        logger.info(f"知识库已是最新状态（overwrite={overwrite}，跳过 {skipped}）。")
+        logger.info("知识库种子无需更新（overwrite={}）", overwrite)
