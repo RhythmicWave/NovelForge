@@ -39,7 +39,7 @@
     <el-drawer v-model="drawer.visible" :title="drawer.editing ? '编辑卡片类型' : '新增卡片类型'" size="60%">
       <div class="editor-grid">
         <el-form label-position="top" :model="form">
-          <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
+          <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
           <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
           <el-form-item label="是否启用AI"><el-switch v-model="form.is_ai_enabled" /></el-form-item>
           <el-form-item label="是否单例"><el-switch v-model="form.is_singleton" /></el-form-item>

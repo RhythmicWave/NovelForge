@@ -34,10 +34,13 @@ def get_knowledge(kid: int, session: Session = Depends(get_session)):
 @router.put('/{kid}', response_model=ApiResponse[KnowledgeRead], summary='更新知识库')
 def update_knowledge(kid: int, body: KnowledgeUpdate, session: Session = Depends(get_session)):
     svc = KnowledgeService(session)
-    item = svc.update(kid, name=body.name, description=body.description, content=body.content)
-    if not item:
-        raise HTTPException(status_code=404, detail='知识库不存在')
-    return ApiResponse(data=item)
+    try:
+        item = svc.update(kid, name=body.name, description=body.description, content=body.content)
+        if not item:
+            raise HTTPException(status_code=404, detail='知识库不存在')
+        return ApiResponse(data=item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete('/{kid}', response_model=ApiResponse, summary='删除知识库')
 def delete_knowledge(kid: int, session: Session = Depends(get_session)):
@@ -50,4 +53,18 @@ def delete_knowledge(kid: int, session: Session = Depends(get_session)):
     ok = svc.delete(kid)
     if not ok:
         raise HTTPException(status_code=404, detail='知识库不存在')
-    return ApiResponse(message='删除成功') 
+    return ApiResponse(message='删除成功')
+
+@router.post('/{kid}/reset', response_model=ApiResponse[KnowledgeRead], summary='重置内置知识库')
+def reset_knowledge_endpoint(kid: int, session: Session = Depends(get_session)):
+    """
+    重置内置知识库到原始状态。
+    """
+    svc = KnowledgeService(session)
+    try:
+        item = svc.reset(kid)
+        if not item:
+            raise HTTPException(status_code=404, detail='知识库不存在')
+        return ApiResponse(data=item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) 

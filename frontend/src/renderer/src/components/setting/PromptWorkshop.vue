@@ -7,15 +7,30 @@
     <el-table :data="prompts" style="width: 100%" v-loading="loading">
       <el-table-column prop="name" label="名称" width="180" />
       <el-table-column prop="description" label="描述" />
+      <el-table-column label="归属" width="150">
+        <template #default="{ row }">
+          <el-tag size="small" :type="getOwnershipTagType(row)">
+            {{ getOwnershipLabel(row) }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="220">
         <template #default="{ row }">
           <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-popconfirm title="删除该提示词？" @confirm="handleDelete(row.id)" v-if="!isBuiltInPrompt(row)">
-            <template #reference>
-              <el-button size="small" type="danger" :disabled="isBuiltInPrompt(row)">删除</el-button>
-            </template>
-          </el-popconfirm>
-          <el-button v-else size="small" type="danger" plain disabled>删除</el-button>
+          <template v-if="!isBuiltInPrompt(row)">
+            <el-popconfirm title="删除该提示词？" @confirm="handleDelete(row.id)">
+              <template #reference>
+                <el-button size="small" type="danger">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+          <template v-else>
+            <el-popconfirm title="重置为原始内容？" @confirm="handleReset(row.id)">
+              <template #reference>
+                <el-button size="small" type="warning" plain>重置</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
         </template>
       </el-table-column>
     </el-table>
@@ -24,7 +39,7 @@
     <el-drawer v-model="drawerVisible" :title="dialogTitle" size="60%" append-to-body>
       <el-form :model="currentPrompt" label-width="90px" ref="promptForm" class="form-grid">
         <el-form-item label="名称" prop="name" :rules="{ required: true, message: '请输入名称', trigger: 'blur' }">
-          <el-input v-model="currentPrompt.name" />
+          <el-input v-model="currentPrompt.name" :disabled="!!currentPrompt.built_in" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="currentPrompt.description" type="textarea" :rows="2" />
@@ -89,7 +104,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import { listKnowledge, type Knowledge, listPrompts, createPrompt, updatePrompt, deletePrompt } from '@renderer/api/setting'
+import { listKnowledge, type Knowledge, listPrompts, createPrompt, updatePrompt, deletePrompt, resetPrompt } from '@renderer/api/setting'
 
 interface Prompt {
   id: number
@@ -97,6 +112,8 @@ interface Prompt {
   description: string
   template: string
   built_in?: boolean
+  is_modified?: boolean
+  created_at?: string
 }
 
 const DEFAULT_OUTPUT_FORMAT = '请严格根据提供的Json Schema返回结果'
@@ -111,6 +128,18 @@ const promptForm = ref<FormInstance>()
 const dialogTitle = computed(() => (currentPrompt.value.id ? '编辑提示词' : '新建提示词'))
 
 const isBuiltInPrompt = (row: Prompt) => !!row.built_in
+
+// 归属状态标签
+function getOwnershipTagType(row: Prompt): string {
+  if (!row.built_in) return 'success'
+  if (row.is_modified) return 'warning'
+  return 'info'
+}
+function getOwnershipLabel(row: Prompt): string {
+  if (!row.built_in) return '自定义'
+  if (row.is_modified) return '内置（已修改）'
+  return '内置'
+}
 
 // 结构化编辑相关
 const useStructured = ref(false)
@@ -288,6 +317,16 @@ async function handleDelete(id: number) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败')
     }
+  }
+}
+
+async function handleReset(id: number) {
+  try {
+    await resetPrompt(id)
+    ElMessage.success('已重置为原始内容')
+    fetchPrompts()
+  } catch (error) {
+    ElMessage.error('重置失败')
   }
 }
 

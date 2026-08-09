@@ -83,8 +83,20 @@ class Prompt(SQLModel, table=True):
     description: Optional[str] = None
     template: str
     version: int = 1
-    built_in: bool = Field(default=False)
-
+    built_in: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.false()),
+    )
+    is_modified: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.false()),
+    )
+    original_template: Optional[str] = None
+    original_description: Optional[str] = None
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(sa.DateTime, nullable=False, server_default=sa.text("'2026-01-01 00:00:00'")),
+    )
 
 
 class CardType(SQLModel, table=True):
@@ -173,7 +185,20 @@ class Knowledge(SQLModel, table=True):
     name: str = Field(unique=True, index=True)
     description: Optional[str] = None
     content: str
-    built_in: bool = Field(default=False)
+    built_in: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.false()),
+    )
+    is_modified: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.false()),
+    )
+    original_content: Optional[str] = None
+    original_description: Optional[str] = None
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(sa.DateTime, nullable=False, server_default=sa.text("'2026-01-01 00:00:00'")),
+    )
 
 
 # 工作流系统

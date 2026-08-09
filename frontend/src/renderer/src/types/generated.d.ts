@@ -3053,6 +3053,16 @@ export interface components {
             built_in: boolean;
             /** Id */
             id: number;
+            /**
+             * Is Modified
+             * @default false
+             */
+            is_modified: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
         };
         /** KnowledgeUpdate */
         KnowledgeUpdate: {
@@ -3387,6 +3397,16 @@ export interface components {
              * @default false
              */
             built_in: boolean;
+            /**
+             * Is Modified
+             * @default false
+             */
+            is_modified: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
         };
         /** PromptUpdate */
         PromptUpdate: {
