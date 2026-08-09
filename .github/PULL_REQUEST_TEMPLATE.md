@@ -8,4 +8,3 @@
 
 ## 验证
 
-<!-- > 查看细节：[CONTRIBUTING.md](../CONTRIBUTING.md) -->

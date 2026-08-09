@@ -5179,7 +5179,7 @@ export interface operations {
         parameters: {
             query?: {
                 skip?: number;
-                limit?: number;
+                limit?: number | null;
             };
             header?: never;
             path?: never;
@@ -7136,7 +7136,10 @@ export interface operations {
     };
     list_knowledge_api_knowledge__get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                limit?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7150,6 +7153,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_List_KnowledgeRead__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

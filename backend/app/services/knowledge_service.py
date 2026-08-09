@@ -10,23 +10,16 @@ class KnowledgeService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self, skip: int = 0, limit: int = 200) -> List[Knowledge]:
-        """获取知识库列表（自定义在前按时间倒序，内置在后；保证内置项始终不被截断）"""
-        custom_stmt = (
-            select(Knowledge)
-            .where(Knowledge.built_in == False)
-            .order_by(Knowledge.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        custom_kb = self.db.exec(custom_stmt).all()
-        builtin_stmt = (
-            select(Knowledge)
-            .where(Knowledge.built_in == True)
-            .order_by(Knowledge.created_at.desc())
-        )
-        builtin_kb = self.db.exec(builtin_stmt).all()
-        return list(custom_kb) + list(builtin_kb)
+    def list(self, skip: int = 0, limit: Optional[int] = None) -> List[Knowledge]:
+        """返回稳定排序的知识库列表；仅在显式传入 limit 时分页。"""
+        statement = select(Knowledge).order_by(
+            Knowledge.built_in.asc(),
+            Knowledge.created_at.desc(),
+            Knowledge.id.desc(),
+        ).offset(skip)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list(self.db.exec(statement).all())
 
     def get_by_id(self, kid: int) -> Optional[Knowledge]:
         return self.db.get(Knowledge, kid)
@@ -45,10 +38,15 @@ class KnowledgeService:
         kb = self.get_by_id(kid)
         if not kb:
             return None
-        if getattr(kb, 'built_in', False):
-            if name is not None and name != kb.name:
+        if name is not None:
+            if not name.strip():
+                raise ValueError("知识库名称不能为空")
+            if getattr(kb, 'built_in', False) and name != kb.name:
                 raise ValueError("系统内置知识库名称不允许修改")
         if name is not None:
+            existing = self.get_by_name(name)
+            if existing and existing.id != kb.id:
+                raise ValueError(f"知识库名称 '{name}' 已存在")
             kb.name = name
         if description is not None:
             kb.description = description
@@ -87,4 +85,4 @@ class KnowledgeService:
             raise ValueError("系统内置知识库不可删除")
         self.db.delete(kb)
         self.db.commit()
-        return True 
+        return True

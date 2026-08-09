@@ -1,27 +1,26 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from datetime import datetime
 
 import pytest
-from datetime import datetime
+from fastapi import HTTPException
 from sqlmodel import SQLModel, Session, create_engine, select, text
 
-from app.db.models import Prompt, Knowledge
-from app.schemas.prompt import PromptUpdate
-from app.services.prompt_service import (
-    get_prompts,
-    update_prompt,
-    reset_prompt,
-)
-from app.services.knowledge_service import KnowledgeService
-from app.bootstrap.prompts import init_prompts
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from app.api.endpoints import knowledge as knowledge_endpoints
+from app.api.endpoints import prompts as prompt_endpoints
 from app.bootstrap.knowledge import init_knowledge
+from app.bootstrap.prompts import init_prompts
 from app.core.startup import _ensure_safe_additive_columns
+from app.db.models import Knowledge, Prompt
+from app.schemas.prompt import PromptCreate, PromptUpdate
+from app.services.knowledge_service import KnowledgeService
+from app.services.prompt_service import get_prompts, reset_prompt, update_prompt
 
 
 @pytest.fixture(name="engine")
 def engine_fixture():
-    # 使用内存 SQLite 数据库进行独立单元测试
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     yield engine
@@ -34,10 +33,7 @@ def session_fixture(engine):
 
 
 def test_old_database_column_autofill(monkeypatch):
-    """测试旧数据库升级：缺乏 is_modified, created_at, built_in 列时，启动增量补列成功"""
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
-    
-    # 模拟旧版本数据库（没有 built_in, is_modified, created_at, original_* 列）
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE prompt (
@@ -56,196 +52,285 @@ def test_old_database_column_autofill(monkeypatch):
                 content VARCHAR NOT NULL
             );
         """))
-        conn.execute(text("""
-            INSERT INTO prompt (name, description, template) VALUES ('old_prompt', 'desc', 'template_v1');
-        """))
-        conn.execute(text("""
-            INSERT INTO knowledge (name, description, content) VALUES ('old_kb', 'desc', 'content_v1');
-        """))
+        conn.execute(text("INSERT INTO prompt (name, description, template) VALUES ('old_prompt', 'desc', 'template_v1');"))
+        conn.execute(text("INSERT INTO knowledge (name, description, content) VALUES ('old_kb', 'desc', 'content_v1');"))
 
-    # 将 app.core.startup.engine 和 app.db.session.engine monkeypatch 为测试内存 engine
     monkeypatch.setattr("app.core.startup.engine", engine)
     monkeypatch.setattr("app.db.session.engine", engine)
     _ensure_safe_additive_columns()
 
-    # 验证补列后可以成功用 SQLModel ORM 完整查出旧数据，无 missing column 异常
     with Session(engine) as session:
-        prompts = session.exec(select(Prompt)).all()
-        assert len(prompts) == 1
-        assert prompts[0].name == "old_prompt"
-        assert prompts[0].is_modified is False
-        assert isinstance(prompts[0].created_at, datetime)
+        prompt = session.exec(select(Prompt)).one()
+        assert prompt.name == "old_prompt"
+        assert prompt.is_modified is False
+        assert isinstance(prompt.created_at, datetime)
 
-        kbs = session.exec(select(Knowledge)).all()
-        assert len(kbs) == 1
-        assert kbs[0].name == "old_kb"
-        assert kbs[0].is_modified is False
-        assert isinstance(kbs[0].created_at, datetime)
+        knowledge = session.exec(select(Knowledge)).one()
+        assert knowledge.name == "old_kb"
+        assert knowledge.is_modified is False
+        assert isinstance(knowledge.created_at, datetime)
 
 
 def test_bootstrap_overwrite_modes(session, monkeypatch):
-    """测试 BOOTSTRAP_OVERWRITE 在 True 和 False 下的更新行为"""
-    # 1. 运行初始化 (overwrite=True)
     monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", True)
     init_prompts(session)
     init_knowledge(session)
 
     prompt = session.exec(select(Prompt).where(Prompt.built_in == True)).first()
+    knowledge = session.exec(select(Knowledge).where(Knowledge.built_in == True)).first()
     assert prompt is not None
+    assert knowledge is not None
     assert prompt.original_template == prompt.template
+    assert knowledge.original_content == knowledge.content
     assert prompt.is_modified is False
+    assert knowledge.is_modified is False
 
-    kb = session.exec(select(Knowledge).where(Knowledge.built_in == True)).first()
-    assert kb is not None
-    assert kb.original_content == kb.content
-    assert kb.is_modified is False
-
-    # 2. 用户修改内置项内容
     prompt.template = "User Modified Template"
     prompt.is_modified = True
-    session.add(prompt)
-
-    kb.content = "User Modified Content"
-    kb.is_modified = True
-    session.add(kb)
+    knowledge.content = "User Modified Content"
+    knowledge.is_modified = True
     session.commit()
 
-    # 3. 模拟在 overwrite=False 下重新启动 Bootstrap
     monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", False)
     init_prompts(session)
     init_knowledge(session)
-
     session.refresh(prompt)
-    session.refresh(kb)
-
-    # 校验：overwrite=False 时保留用户修改的 template，但 original_template 保持原始种子快照
+    session.refresh(knowledge)
     assert prompt.template == "User Modified Template"
-    assert prompt.original_template != "User Modified Template"
     assert prompt.is_modified is True
+    assert knowledge.content == "User Modified Content"
+    assert knowledge.is_modified is True
 
-    assert kb.content == "User Modified Content"
-    assert kb.original_content != "User Modified Content"
-    assert kb.is_modified is True
-
-    # 4. 模拟在 overwrite=True 下重新启动 Bootstrap
     monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", True)
     init_prompts(session)
     init_knowledge(session)
-
     session.refresh(prompt)
-    session.refresh(kb)
-
-    # 校验：overwrite=True 时覆盖为种子数据，并且 is_modified 被重置为 False
+    session.refresh(knowledge)
     assert prompt.template == prompt.original_template
+    assert knowledge.content == knowledge.original_content
     assert prompt.is_modified is False
-
-    assert kb.content == kb.original_content
-    assert kb.is_modified is False
+    assert knowledge.is_modified is False
 
 
-def test_builtin_edit_and_reset(session):
-    """测试内置项修改与 reset 功能（包括 null 描述情况的还原）"""
-    # 初始化内置提示词和知识库
-    p = Prompt(
-        name="test_builtin_prompt",
-        description=None,  # 原始 description 为 None
-        template="Original Template",
-        original_template="Original Template",
+def test_bootstrap_does_not_take_over_different_custom_items(session, monkeypatch):
+    prompt_seed = {"name": "collision", "description": "seed description", "template": "seed template"}
+    knowledge_seed = {"name": "collision", "description": "seed description", "content": "seed content"}
+    custom_prompt = Prompt(
+        name="collision",
+        description="custom description",
+        template="custom template",
+        original_description="custom snapshot",
+        original_template="custom snapshot",
+        built_in=False,
+        is_modified=True,
+    )
+    custom_knowledge = Knowledge(
+        name="collision",
+        description="custom description",
+        content="custom content",
+        original_description="custom snapshot",
+        original_content="custom snapshot",
+        built_in=False,
+        is_modified=True,
+    )
+    session.add_all([custom_prompt, custom_knowledge])
+    session.commit()
+
+    monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", False)
+    monkeypatch.setattr("app.bootstrap.prompts.get_all_prompt_files", lambda: {"collision": prompt_seed})
+    monkeypatch.setattr("app.bootstrap.knowledge.get_all_knowledge_files", lambda: {"collision": knowledge_seed})
+    init_prompts(session)
+    init_knowledge(session)
+    session.refresh(custom_prompt)
+    session.refresh(custom_knowledge)
+
+    assert custom_prompt.built_in is False
+    assert custom_prompt.template == "custom template"
+    assert custom_prompt.original_template == "custom snapshot"
+    assert custom_prompt.is_modified is True
+    assert custom_knowledge.built_in is False
+    assert custom_knowledge.content == "custom content"
+    assert custom_knowledge.original_content == "custom snapshot"
+    assert custom_knowledge.is_modified is True
+
+
+def test_bootstrap_migrates_matching_legacy_items(session, monkeypatch):
+    prompt_seed = {"name": "legacy", "description": "seed description", "template": "seed template"}
+    knowledge_seed = {"name": "legacy", "description": "seed description", "content": "seed content"}
+    prompt = Prompt(name="legacy", description="seed description", template="seed template", built_in=False)
+    knowledge = Knowledge(name="legacy", description="seed description", content="seed content", built_in=False)
+    session.add_all([prompt, knowledge])
+    session.commit()
+
+    monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", False)
+    monkeypatch.setattr("app.bootstrap.prompts.get_all_prompt_files", lambda: {"legacy": prompt_seed})
+    monkeypatch.setattr("app.bootstrap.knowledge.get_all_knowledge_files", lambda: {"legacy": knowledge_seed})
+    init_prompts(session)
+    init_knowledge(session)
+    session.refresh(prompt)
+    session.refresh(knowledge)
+
+    assert prompt.built_in is True
+    assert prompt.original_template == "seed template"
+    assert prompt.original_description == "seed description"
+    assert knowledge.built_in is True
+    assert knowledge.original_content == "seed content"
+    assert knowledge.original_description == "seed description"
+
+
+def test_bootstrap_persists_state_only_changes(session, monkeypatch):
+    prompt_seed = {"name": "state-only", "description": "seed description", "template": "seed template"}
+    knowledge_seed = {"name": "state-only", "description": "seed description", "content": "seed content"}
+    prompt = Prompt(
+        name="state-only",
+        description="seed description",
+        template="seed template",
+        original_description="seed description",
+        original_template="seed template",
+        built_in=True,
+        is_modified=True,
+    )
+    knowledge = Knowledge(
+        name="state-only",
+        description="seed description",
+        content="seed content",
+        original_description="seed description",
+        original_content="seed content",
+        built_in=True,
+        is_modified=True,
+    )
+    session.add_all([prompt, knowledge])
+    session.commit()
+
+    monkeypatch.setattr("app.core.config.settings.bootstrap.overwrite", True)
+    monkeypatch.setattr("app.bootstrap.prompts.get_all_prompt_files", lambda: {"state-only": prompt_seed})
+    monkeypatch.setattr("app.bootstrap.knowledge.get_all_knowledge_files", lambda: {"state-only": knowledge_seed})
+    init_prompts(session)
+    init_knowledge(session)
+    session.expire_all()
+
+    assert session.get(Prompt, prompt.id).is_modified is False
+    assert session.get(Knowledge, knowledge.id).is_modified is False
+
+
+def test_paginated_lists_use_one_stable_result_set(session):
+    created_at = datetime(2025, 1, 1, 0, 0, 0)
+    session.add(Prompt(name="builtin-p", template="template", built_in=True, created_at=created_at))
+    session.add(Knowledge(name="builtin-k", content="content", built_in=True, created_at=created_at))
+    for index in range(105):
+        session.add(Prompt(name=f"custom-p-{index}", template="template", created_at=created_at))
+        session.add(Knowledge(name=f"custom-k-{index}", content="content", created_at=created_at))
+    session.commit()
+
+    prompt_page_one = get_prompts(session, skip=0, limit=100)
+    prompt_page_two = get_prompts(session, skip=100, limit=100)
+    knowledge_service = KnowledgeService(session)
+    knowledge_page_one = knowledge_service.list(skip=0, limit=100)
+    knowledge_page_two = knowledge_service.list(skip=100, limit=100)
+    prompt_api_page_one = prompt_endpoints.read_prompts(session=session, skip=0, limit=100)
+    knowledge_api_page_one = knowledge_endpoints.list_knowledge(session=session, skip=0, limit=100)
+
+    assert len(prompt_page_one) <= 100
+    assert len(prompt_page_two) <= 100
+    assert len(knowledge_page_one) <= 100
+    assert len(knowledge_page_two) <= 100
+    assert len(prompt_api_page_one.data) <= 100
+    assert len(knowledge_api_page_one.data) <= 100
+    assert not ({item.id for item in prompt_page_one} & {item.id for item in prompt_page_two})
+    assert not ({item.id for item in knowledge_page_one} & {item.id for item in knowledge_page_two})
+    assert all(not item.built_in for item in prompt_page_one)
+    assert all(not item.built_in for item in knowledge_page_one)
+    assert prompt_page_two[-1].built_in is True
+    assert knowledge_page_two[-1].built_in is True
+
+    assert len(get_prompts(session)) == 106
+    assert len(knowledge_service.list()) == 106
+    assert len(prompt_endpoints.read_prompts(session=session, skip=0, limit=None).data) == 106
+    assert len(knowledge_endpoints.list_knowledge(session=session, skip=0, limit=None).data) == 106
+
+
+def test_equal_created_at_uses_id_as_stable_tiebreaker(session):
+    created_at = datetime(2025, 1, 1, 0, 0, 0)
+    prompts = [Prompt(name=f"p-{index}", template="template", created_at=created_at) for index in range(3)]
+    knowledge = [Knowledge(name=f"k-{index}", content="content", created_at=created_at) for index in range(3)]
+    session.add_all([*prompts, *knowledge])
+    session.commit()
+
+    prompt_ids = {item.id for item in prompts}
+    knowledge_ids = {item.id for item in knowledge}
+    assert [item.id for item in get_prompts(session)] == sorted(prompt_ids, reverse=True)
+    assert [item.id for item in KnowledgeService(session).list()] == sorted(knowledge_ids, reverse=True)
+
+
+def test_builtin_edit_reset_and_security_boundaries(session):
+    prompt = Prompt(
+        name="builtin-p",
+        description=None,
+        template="original",
+        original_template="original",
         original_description=None,
         built_in=True,
-        is_modified=False,
     )
-    kb = Knowledge(
-        name="test_builtin_kb",
-        description="Original KB Desc",
-        content="Original Content",
-        original_content="Original Content",
-        original_description="Original KB Desc",
-        built_in=True,
-        is_modified=False,
-    )
-    session.add(p)
-    session.add(kb)
-    session.commit()
-
-    # 修改 Prompt
-    update_prompt(session, p.id, PromptUpdate(description="New Desc", template="New Template"))
-    session.refresh(p)
-    assert p.is_modified is True
-    assert p.template == "New Template"
-    assert p.description == "New Desc"
-
-    # 重置 Prompt
-    reset_prompt(session, p.id)
-    session.refresh(p)
-    assert p.is_modified is False
-    assert p.template == "Original Template"
-    assert p.description is None  # 正确恢复为空（None）而不是保留 New Desc
-
-    # 修改 Knowledge
-    svc = KnowledgeService(session)
-    svc.update(kb.id, description="New KB Desc", content="New Content")
-    session.refresh(kb)
-    assert kb.is_modified is True
-
-    # 重置 Knowledge
-    svc.reset(kb.id)
-    session.refresh(kb)
-    assert kb.is_modified is False
-    assert kb.content == "Original Content"
-    assert kb.description == "Original KB Desc"
-
-
-def test_builtin_rename_prohibited(session):
-    """测试禁止修改内置提示词和内置知识库的名称"""
-    p = Prompt(
-        name="builtin_prompt_fixed",
-        template="Template",
+    knowledge = Knowledge(
+        name="builtin-k",
+        content="original",
+        original_content="original",
+        original_description=None,
         built_in=True,
     )
-    kb = Knowledge(
-        name="builtin_kb_fixed",
-        content="Content",
-        built_in=True,
-    )
-    session.add(p)
-    session.add(kb)
+    custom_prompt = Prompt(name="custom-p", template="custom", built_in=False)
+    custom_knowledge = Knowledge(name="custom-k", content="custom", built_in=False)
+    session.add_all([prompt, knowledge, custom_prompt, custom_knowledge])
     session.commit()
 
-    # 尝试修改 Built-in Prompt 名称
-    with pytest.raises(ValueError, match="系统内置提示词名称不允许修改"):
-        update_prompt(session, p.id, PromptUpdate(name="renamed_prompt"))
+    update_prompt(session, prompt.id, PromptUpdate(description="changed", template="changed"))
+    reset_prompt(session, prompt.id)
+    service = KnowledgeService(session)
+    service.update(knowledge.id, description="changed", content="changed")
+    service.reset(knowledge.id)
+    session.refresh(prompt)
+    session.refresh(knowledge)
+    assert prompt.description is None and prompt.is_modified is False
+    assert knowledge.original_description is None and knowledge.is_modified is False
 
-    # 尝试修改 Built-in Knowledge 名称
-    svc = KnowledgeService(session)
-    with pytest.raises(ValueError, match="系统内置知识库名称不允许修改"):
-        svc.update(kb.id, name="renamed_kb")
+    with pytest.raises(ValueError):
+        update_prompt(session, prompt.id, PromptUpdate(name="renamed"))
+    with pytest.raises(ValueError):
+        service.update(knowledge.id, name="renamed")
+    with pytest.raises(ValueError):
+        reset_prompt(session, custom_prompt.id)
+    with pytest.raises(ValueError):
+        service.reset(custom_knowledge.id)
+    with pytest.raises(ValueError):
+        service.delete(knowledge.id)
 
 
-def test_custom_items_limit_does_not_truncate_builtin(session):
-    """测试自定义项超限时，列表接口仍能完整返回所有内置项"""
-    # 创建 1 个内置 Prompt 和 105 个自定义 Prompt
-    builtin_p = Prompt(name="builtin_p", template="Template", built_in=True)
-    session.add(builtin_p)
-    for i in range(105):
-        session.add(Prompt(name=f"custom_p_{i}", template="Template", built_in=False))
-
-    # 创建 1 个内置 Knowledge 和 105 个自定义 Knowledge
-    builtin_kb = Knowledge(name="builtin_kb", content="Content", built_in=True)
-    session.add(builtin_kb)
-    for i in range(105):
-        session.add(Knowledge(name=f"custom_kb_{i}", content="Content", built_in=False))
-    
+def test_api_returns_clear_400_errors_for_invalid_operations(session):
+    builtin_prompt = Prompt(name="builtin-api", template="template", built_in=True)
+    builtin_knowledge = Knowledge(name="builtin-api", content="content", built_in=True)
+    missing_snapshot_prompt = Prompt(name="missing-snapshot-p", template="template", built_in=True)
+    missing_snapshot_knowledge = Knowledge(name="missing-snapshot-k", content="content", built_in=True)
+    session.add_all([builtin_prompt, builtin_knowledge, missing_snapshot_prompt, missing_snapshot_knowledge])
     session.commit()
 
-    # 查询 Prompt 列表 (limit=100)
-    prompts = get_prompts(session, limit=100)
-    # 应包含 100 个自定义项 + 1 个内置项 = 101 项
-    assert len(prompts) == 101
-    assert any(p.name == "builtin_p" for p in prompts)
+    with pytest.raises(HTTPException) as prompt_delete_error:
+        prompt_endpoints.delete_prompt(session=session, prompt_id=builtin_prompt.id)
+    assert prompt_delete_error.value.status_code == 400
 
-    # 查询 Knowledge 列表 (limit=100)
-    svc = KnowledgeService(session)
-    kbs = svc.list(limit=100)
-    assert len(kbs) == 101
-    assert any(k.name == "builtin_kb" for k in kbs)
+    with pytest.raises(HTTPException) as knowledge_delete_error:
+        knowledge_endpoints.delete_knowledge(session=session, kid=builtin_knowledge.id)
+    assert knowledge_delete_error.value.status_code == 400
+
+    with pytest.raises(HTTPException) as prompt_reset_error:
+        prompt_endpoints.reset_prompt_endpoint(session=session, prompt_id=missing_snapshot_prompt.id)
+    assert prompt_reset_error.value.status_code == 400
+    with pytest.raises(HTTPException) as knowledge_reset_error:
+        knowledge_endpoints.reset_knowledge_endpoint(session=session, kid=missing_snapshot_knowledge.id)
+    assert knowledge_reset_error.value.status_code == 400
+
+    custom = Prompt(name="duplicate", template="template")
+    session.add(custom)
+    session.commit()
+    with pytest.raises(HTTPException) as duplicate_error:
+        prompt_endpoints.create_prompt(session=session, prompt=PromptCreate(name="duplicate", template="template"))
+    assert duplicate_error.value.status_code == 400

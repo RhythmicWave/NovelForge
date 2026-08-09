@@ -4,6 +4,8 @@ copyright: © 2025 NovelForge
 directories:
   buildResources: build
 icon: build/icon.ico
+beforePack: ./scripts/prepare-windows-electron.cjs
+afterAllArtifactBuild: ./scripts/cleanup-windows-electron.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'

@@ -1,54 +1,43 @@
-"""提示词初始化
+"""提示词初始化。
 
-从文件系统加载提示词模板并初始化到数据库。
+从文件系统加载提示词模板并同步到数据库。
 """
 
 import os
-from sqlmodel import Session, select
-from loguru import logger
 
-from app.db.models import Prompt
+from loguru import logger
+from sqlmodel import Session, select
+
 from app.core.config import settings
+from app.db.models import Prompt
+from .builtin_seed import sync_builtin_seed
 from .registry import initializer
 
 
 def _parse_prompt_file(file_path: str) -> dict:
-    """解析单个提示词文件
-    
-    Args:
-        file_path: 提示词文件路径
-        
-    Returns:
-        包含name, description, template的字典
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
+    """解析单个提示词文件。"""
+    with open(file_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
     filename = os.path.basename(file_path)
     name = os.path.splitext(filename)[0]
-    description = f"AI任务提示词: {name}"
-            
     return {
         "name": name,
-        "description": description,
-        "template": content.strip()
+        "description": f"AI任务提示词: {name}",
+        "template": content.strip(),
     }
 
 
 def get_all_prompt_files() -> dict:
-    """从文件系统加载所有提示词
-    
-    Returns:
-        提示词字典，key为提示词名称
-    """
-    prompt_dir = os.path.join(os.path.dirname(__file__), 'prompts')
+    """从文件系统加载所有提示词种子，按名称返回。"""
+    prompt_dir = os.path.join(os.path.dirname(__file__), "prompts")
     if not os.path.exists(prompt_dir):
-        logger.warning(f"Prompt directory not found at {prompt_dir}. Cannot load prompts.")
+        logger.warning(f"未找到提示词目录 {prompt_dir}，无法加载提示词。")
         return {}
 
     prompt_files = {}
     for filename in os.listdir(prompt_dir):
-        if filename.endswith(('.prompt', '.txt')):
+        if filename.endswith((".prompt", ".txt")):
             file_path = os.path.join(prompt_dir, filename)
             name = os.path.splitext(filename)[0]
             prompt_files[name] = _parse_prompt_file(file_path)
@@ -57,57 +46,63 @@ def get_all_prompt_files() -> dict:
 
 @initializer(name="提示词", order=10)
 def init_prompts(session: Session) -> None:
-    """初始化默认提示词
-
-    行为受配置项 BOOTSTRAP_OVERWRITE 控制：
-    - True: 覆盖更新已存在的提示词
-    - False: 跳过已存在的提示词
-
-    Args:
-        session: 数据库会话
-    """
+    """同步内置提示词种子并保留用户对内置项的修改。"""
     overwrite = settings.bootstrap.should_overwrite
-    existing_prompts = {p.name: p for p in session.exec(select(Prompt)).all()}
-
-    all_prompts_data = get_all_prompt_files()
-
-    new_count = 0
-    updated_count = 0
-    patched_count = 0
-    skipped_count = 0
+    existing_prompts = {prompt.name: prompt for prompt in session.exec(select(Prompt)).all()}
+    state_changed = False
+    created = 0
+    updated = 0
+    migrated = 0
+    conflicts = 0
     prompts_to_add = []
 
-    for prompt_name, prompt_data in all_prompts_data.items():
-        if prompt_name in existing_prompts:
-            existing_prompt = existing_prompts[prompt_name]
-            # 无论是否 overwrite，都将原始快照设为种子文件数据
-            if existing_prompt.original_template != prompt_data['template'] or existing_prompt.original_description != prompt_data.get('description'):
-                existing_prompt.original_template = prompt_data['template']
-                existing_prompt.original_description = prompt_data.get('description')
-                patched_count += 1
+    for prompt_name, prompt_data in get_all_prompt_files().items():
+        existing_prompt = existing_prompts.get(prompt_name)
+        if existing_prompt is None:
+            prompts_to_add.append(
+                Prompt(
+                    **prompt_data,
+                    built_in=True,
+                    original_template=prompt_data["template"],
+                    original_description=prompt_data.get("description"),
+                )
+            )
+            created += 1
+            state_changed = True
+            continue
 
-            existing_prompt.built_in = True
-
-            if overwrite:
-                existing_prompt.template = prompt_data['template']
-                existing_prompt.description = prompt_data.get('description')
-                existing_prompt.is_modified = False
-                updated_count += 1
-            else:
-                skipped_count += 1
-        else:
-            # 创建新提示词时，保存原始数据
-            p = Prompt(**prompt_data, built_in=True,
-                       original_template=prompt_data['template'],
-                       original_description=prompt_data.get('description'))
-            prompts_to_add.append(p)
-            new_count += 1
+        result, changed = sync_builtin_seed(
+            existing_prompt,
+            content_field="template",
+            original_content_field="original_template",
+            seed_content=prompt_data["template"],
+            seed_description=prompt_data.get("description"),
+            overwrite=overwrite,
+        )
+        state_changed |= changed
+        if result == "conflict":
+            conflicts += 1
+            logger.warning(
+                "提示词种子与同名自定义项冲突，保留自定义项：{}",
+                prompt_name,
+            )
+        elif result == "migrated":
+            migrated += 1
+        elif overwrite and changed:
+            updated += 1
 
     if prompts_to_add:
         session.add_all(prompts_to_add)
 
-    if new_count > 0 or updated_count > 0 or patched_count > 0:
+    if state_changed:
         session.commit()
-        logger.info(f"提示词更新完成: 新增 {new_count} 个，更新 {updated_count} 个，补充快照 {patched_count} 个（overwrite={overwrite}，跳过 {skipped_count} 个）。")
+        logger.info(
+            "提示词初始化完成：新增 {}，覆盖更新 {}，兼容迁移 {}，冲突 {}（overwrite={}）",
+            created,
+            updated,
+            migrated,
+            conflicts,
+            overwrite,
+        )
     else:
-        logger.info(f"所有提示词已是最新状态（overwrite={overwrite}，跳过 {skipped_count} 个）。")
+        logger.info("提示词种子无需更新（overwrite={}）", overwrite)

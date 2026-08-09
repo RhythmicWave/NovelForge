@@ -5,6 +5,8 @@ dist/
 dist-web/
 out/
 scripts/*.cjs
+!scripts/prepare-windows-electron.cjs
+!scripts/cleanup-windows-electron.cjs
 
 # IDE配置
 .vscode/
