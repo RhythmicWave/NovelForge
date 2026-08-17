@@ -128,7 +128,7 @@ def _message_text(response: Any) -> str:
     return str(content).strip()
 
 
-def _payload_kwargs(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> dict[str, Any]:
+def _payload_kwargs(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> dict[str, Any]:
     return {
         "provider": request.provider,
         "model_name": request.model_name,
@@ -138,15 +138,48 @@ def _payload_kwargs(request: LLMCapabilityTestRequest, *, user_agent: str | None
         "custom_request_path": request.custom_request_path,
         "user_agent": user_agent if user_agent is not None else request.user_agent,
         "temperature": 0,
-        "max_tokens": 64,
+        "max_tokens": max_tokens,
         "timeout": 20,
     }
+
+
+# 自动探测一个能拿到非空响应的 max_tokens。
+# 硬编码小值(如64)会让 thinking 模型(如 deepseek-v4-flash)把预算全花在思考上，
+# 正文输出为空，导致 basic_chat 被误判为 fail。这里从 64 起逐步放大，
+# 找到第一个非空后，再向上确认一个更大的候选值，返回更稳定的那个，
+# 避免临界值附近 thinking 模型时好时坏。
+async def _detect_usable_max_tokens(
+    request: LLMCapabilityTestRequest,
+    *,
+    user_agent: str | None = None,
+    api_protocol: str | None = None,
+) -> tuple[int, str]:
+    candidates = [64, 128, 256, 512, 1024, 2048, 4096]
+    first_ok: int | None = None
+    for mt in candidates:
+        try:
+            model = build_chat_model_from_payload(
+                **_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=mt)
+            )
+            response = await model.ainvoke([HumanMessage(content="ping")])
+            if _message_text(response):
+                if first_ok is None:
+                    first_ok = mt
+                else:
+                    # 已有一个更小的可用值，再向上确认一个更大的，取更稳定者
+                    return mt, f"自动探测到可用 max_tokens={mt}"
+        except Exception:
+            # 某些模型对过小的 max_tokens 直接报错，继续放大重试
+            continue
+    if first_ok is not None:
+        return first_ok, f"自动探测到可用 max_tokens={first_ok}"
+    # 全部失败，回退到 4096（thinking 模型通常需要较大预算）
+    return 4096, "自动探测未获非空响应，回退到 max_tokens=4096"
 
 
 async def _probe_models_list(request: LLMCapabilityTestRequest, *, user_agent: str | None = None) -> ProbeResult:
     if not request.test_models_list:
         return ProbeResult(status="skip", message="Model list test was not requested")
-
     provider = (request.provider or "").lower()
     try:
         if provider in {"openai", "openai_compatible"}:
@@ -189,9 +222,9 @@ async def _probe_models_list(request: LLMCapabilityTestRequest, *, user_agent: s
         return _result_from_exception(exc, request.api_key)
 
 
-async def _probe_basic_chat(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_basic_chat(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         response = await model.ainvoke([HumanMessage(content="ping")])
         if not _message_text(response):
             raise ValueError("Empty response")
@@ -200,9 +233,9 @@ async def _probe_basic_chat(request: LLMCapabilityTestRequest, *, user_agent: st
         return _result_from_exception(exc, request.api_key)
 
 
-async def _probe_review(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_review(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         response = await model.ainvoke(
             [
                 SystemMessage(content="Reply with one short Chinese review sentence."),
@@ -216,9 +249,9 @@ async def _probe_review(request: LLMCapabilityTestRequest, *, user_agent: str | 
         return _result_from_exception(exc, request.api_key)
 
 
-async def _probe_stream(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_stream(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         async for chunk in model.astream([HumanMessage(content="ping")]):
             if _message_text(chunk):
                 return ProbeResult(status="pass", message="Stream returned at least one token")
@@ -230,9 +263,9 @@ async def _probe_stream(request: LLMCapabilityTestRequest, *, user_agent: str | 
         return result
 
 
-async def _probe_structured(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_structured(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         structured = model.with_structured_output(CapabilityStructuredProbe)
         response = await structured.ainvoke([HumanMessage(content='Return JSON with ok=true and text="ok".')])
         if response is None:
@@ -242,9 +275,9 @@ async def _probe_structured(request: LLMCapabilityTestRequest, *, user_agent: st
         return _result_from_exception(exc, request.api_key)
 
 
-async def _probe_native_tools(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_native_tools(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         bound_model = model.bind_tools([get_test_value])
         response = await bound_model.ainvoke(
             [
@@ -267,9 +300,9 @@ async def _probe_native_tools(request: LLMCapabilityTestRequest, *, user_agent: 
         return result
 
 
-async def _probe_react_tools(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
+async def _probe_react_tools(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None, max_tokens: int = 64) -> ProbeResult:
     try:
-        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
+        model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=max_tokens))
         tool_descriptions = {
             "get_test_value": {
                 "description": "Return a fixed harmless test value.",
@@ -370,8 +403,15 @@ async def run_capability_test(request: LLMCapabilityTestRequest) -> dict[str, An
     effective_user_agent = request.user_agent
     effective_api_protocol = request.api_protocol
 
+    # 自动探测一个能拿到非空响应的 max_tokens（对 thinking 模型自动放宽）
+    effective_max_tokens, detect_note = await _detect_usable_max_tokens(
+        request, user_agent=effective_user_agent, api_protocol=effective_api_protocol
+    )
+    if detect_note:
+        repair_notes.append(detect_note)
+
     results["models_list"] = await _probe_models_list(request)
-    results["basic_chat"] = await _probe_basic_chat(request)
+    results["basic_chat"] = await _probe_basic_chat(request, max_tokens=effective_max_tokens)
 
     if request.try_repair and results["basic_chat"].status == "fail":
         repair_notes.append(f"User-Agent=当前配置 基础连接失败：{results['basic_chat'].message}")
@@ -380,7 +420,7 @@ async def run_capability_test(request: LLMCapabilityTestRequest) -> dict[str, An
             if candidate in seen_user_agents:
                 continue
             seen_user_agents.add(candidate)
-            ua_basic = await _probe_basic_chat(request, user_agent=candidate)
+            ua_basic = await _probe_basic_chat(request, user_agent=candidate, max_tokens=effective_max_tokens)
             if ua_basic.status == "pass":
                 repair_notes.append(f"User-Agent={candidate} 修复成功")
                 recommended["use_default_user_agent"] = True
@@ -393,7 +433,7 @@ async def run_capability_test(request: LLMCapabilityTestRequest) -> dict[str, An
 
     if request.try_repair and results["basic_chat"].status == "fail":
         alternate_protocol = "responses" if request.api_protocol == "chat_completions" else "chat_completions"
-        alternate = await _probe_basic_chat(request, user_agent=effective_user_agent, api_protocol=alternate_protocol)
+        alternate = await _probe_basic_chat(request, user_agent=effective_user_agent, api_protocol=alternate_protocol, max_tokens=effective_max_tokens)
         if alternate.status == "pass":
             repair_notes.append(f"Basic chat passed after switching protocol to {alternate_protocol}")
             recommended["api_protocol"] = alternate_protocol
@@ -401,18 +441,18 @@ async def run_capability_test(request: LLMCapabilityTestRequest) -> dict[str, An
             results["basic_chat"] = alternate
 
     if results["basic_chat"].status == "pass":
-        results["review"] = await _probe_review(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol)
-        results["stream"] = await _probe_stream(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol)
+        results["review"] = await _probe_review(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol, max_tokens=effective_max_tokens)
+        results["stream"] = await _probe_stream(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol, max_tokens=effective_max_tokens)
         if results["stream"].status == "fail":
             recommended["disable_stream"] = True
             if request.try_repair:
                 repair_notes.append("Stream failed while basic chat passed; recommend disabling stream")
-        results["structured"] = await _probe_structured(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol)
-        results["native_tools"] = await _probe_native_tools(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol)
+        results["structured"] = await _probe_structured(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol, max_tokens=effective_max_tokens)
+        results["native_tools"] = await _probe_native_tools(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol, max_tokens=effective_max_tokens)
         if results["native_tools"].status == "pass":
             recommended["assistant_mode"] = "standard"
         else:
-            results["react_tools"] = await _probe_react_tools(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol)
+            results["react_tools"] = await _probe_react_tools(request, user_agent=effective_user_agent, api_protocol=effective_api_protocol, max_tokens=effective_max_tokens)
             if results["react_tools"].status == "pass":
                 recommended["assistant_mode"] = "react"
                 if request.try_repair:
