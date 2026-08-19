@@ -331,7 +331,22 @@ async def generate_continuation_streaming(
 
         round_text = "".join(round_chunks)
         if not round_text.strip():
-            logger.warning("续写预算运行时在第 {} 轮拿到空输出，提前结束。", round_index)
+            # 偶发空输出：重试一次（LLM 端点偶尔返回空），仍空才提前结束
+            logger.warning("续写预算运行时在第 {} 轮拿到空输出，重试一次。", round_index)
+            retry_chunks = []
+            async for chunk in _stream_continuation_single_round(
+                session=session,
+                request=round_request,
+                system_prompt=system_prompt,
+                round_plan=round_plan,
+                track_stats=track_stats,
+            ):
+                retry_chunks.append(chunk)
+                if getattr(request, "stream", False):
+                    yield chunk
+            round_text = "".join(retry_chunks)
+        if not round_text.strip():
+            logger.warning("续写预算运行时在第 {} 轮重试后仍为空，提前结束。", round_index)
             break
 
         trim_result = trim_generated_text(round_text, round_plan)
@@ -387,7 +402,15 @@ def _build_continuation_user_prompt(
         
         # 续写指令
         if getattr(request, 'append_continuous_novel_directive', True):
-            user_prompt_parts.append("【指令】请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。")
+            user_prompt_parts.append(
+                "【指令】以上【已有章节内容】是同一部小说的前文，不是参考样例。你必须严格延续它：\n"
+                "- 人称与视角必须与前文一致（前文第三人称就保持第三人称，禁止切换成第一人称）；\n"
+                "- 时代背景、世界设定、叙事场景必须与前文一致（禁止跳到现代、宅邸或其他世界观）；\n"
+                "- 主角与出场角色必须沿用前文（禁止更换主角，禁止引入前文与上下文未提及的新角色）；\n"
+                "- 剧情必须从前文最后一句话的时点自然接续推进，不得重写前文、不得另起炉灶；\n"
+                "- 不得重复前文已写过的内容（包括前文末尾的场景/动作/对白），直接从断点继续推进。\n"
+                "请接着上述内容继续写作，保持文风和剧情连贯。直接输出小说正文。"
+            )
     else:
         # 新写模式或润色/扩写模式（previous_content为空）
         if getattr(request, 'append_continuous_novel_directive', True):

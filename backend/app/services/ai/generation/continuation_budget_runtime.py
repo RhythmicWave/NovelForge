@@ -90,7 +90,9 @@ def build_round_plan(
 
     rounds_left = max(1, max_rounds - round_index + 1)
     effective_remaining = remaining_word_count if remaining_word_count > 0 else 280
-    close_mode = effective_remaining <= 1000 or rounds_left <= 3
+    # 剩余 ≤1500 或轮次≤3 即进入收尾节奏，避免 remaining 略高于 1000 时
+    # advance 模式把建议规模压到下限（写不满）的问题
+    close_mode = effective_remaining <= 1500 or rounds_left <= 3
 
     if close_mode:
         suggested_word_count = _plan_close_suggestion(
