@@ -235,7 +235,13 @@ async def generate_continuation(
             raise HTTPException(status_code=400, detail=f"未找到提示词名称: {request.prompt_name}")
         # 注入知识库
         system_prompt = prompt_service.inject_knowledge(session, str(p.template))
-
+        # 追加实体设定优先级提醒（防止前文长度稀释设定约束）
+        system_prompt += (
+            "\n\n---\n\n- 实体设定优先级："
+            "用户提示中【引用上下文】里的「角色设定」「物品设定」「概念设定」「关系摘要」是绝对硬约束。"
+            "角色性格/动机/外观、物品材质/形制/能力/铁律、角色间关系与立场，必须严格遵从，不得偏离。"
+            "若前文已写内容与设定冲突，以前文为准维持一致性，但不得进一步偏离设定。"
+        )
 
         request.context_info = enrich_continuation_context_info(session, request)
         
