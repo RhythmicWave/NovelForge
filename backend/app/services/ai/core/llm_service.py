@@ -9,6 +9,7 @@ from sqlmodel import Session
 from loguru import logger
 import asyncio
 import json
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.services.ai.generation.continuation_budget_runtime import (
@@ -625,12 +626,13 @@ def _find_first_sentence_boundary(text: str) -> int | None:
 
 
 def _take_text_by_units(text: str, limit_units: int) -> str:
+    """按纯汉字数截取文本（标点/空白/数字不占配额）。"""
     if limit_units <= 0:
         return ""
     units = 0
     out_chars: list[str] = []
     for char in text:
-        if not char.isspace():
+        if re.match(r"[\u4e00-\u9fff]", char):
             units += 1
         if units > limit_units:
             break

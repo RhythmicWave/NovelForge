@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil
+import re
 from typing import Optional
 
 from app.schemas.ai import ContinuationRequest
@@ -37,7 +38,8 @@ class ContinuationTrimResult:
 
 
 def count_text_units(text: str | None) -> int:
-    return len("".join((text or "").split()))
+    """统计纯汉字数（不含标点/空白/数字/英文），与小说行业字数规范对齐。"""
+    return len(re.findall(r"[\u4e00-\u9fff]", text or ""))
 
 
 def normalize_word_control_mode(request: ContinuationRequest) -> str:
@@ -207,10 +209,13 @@ def trim_generated_text(text: str, plan: ContinuationRoundPlan) -> ContinuationT
 
 
 def _resolve_current_word_count(request: ContinuationRequest) -> int:
+    previous_content = getattr(request, "previous_content", "") or ""
+    if previous_content:
+        return count_text_units(previous_content)
     existing_word_count = getattr(request, "existing_word_count", None)
     if existing_word_count is not None and existing_word_count >= 0:
         return existing_word_count
-    return count_text_units(getattr(request, "previous_content", ""))
+    return 0
 
 
 def _resolve_remaining_word_count(request: ContinuationRequest, current_word_count: int) -> int:
