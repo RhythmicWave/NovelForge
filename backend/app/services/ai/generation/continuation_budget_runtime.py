@@ -209,13 +209,10 @@ def trim_generated_text(text: str, plan: ContinuationRoundPlan) -> ContinuationT
 
 
 def _resolve_current_word_count(request: ContinuationRequest) -> int:
-    previous_content = getattr(request, "previous_content", "") or ""
-    if previous_content:
-        return count_text_units(previous_content)
     existing_word_count = getattr(request, "existing_word_count", None)
     if existing_word_count is not None and existing_word_count >= 0:
         return existing_word_count
-    return 0
+    return count_text_units(getattr(request, "previous_content", ""))
 
 
 def _resolve_remaining_word_count(request: ContinuationRequest, current_word_count: int) -> int:
