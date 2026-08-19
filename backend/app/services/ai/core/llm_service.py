@@ -287,9 +287,7 @@ async def generate_continuation_streaming(
     Yields:
         生成的文本片段
     """
-    current_word_count = getattr(request, "existing_word_count", None)
-    if current_word_count is None:
-        current_word_count = count_text_units(getattr(request, "previous_content", ""))
+    current_word_count = getattr(request, "existing_word_count", 0) or 0
 
     control_mode = normalize_word_control_mode(request)
     expected_rounds = estimate_required_call_count(request)
@@ -305,12 +303,14 @@ async def generate_continuation_streaming(
             yield chunk
         return
 
-    current_content = request.previous_content or ""
+    # previous_content 仅作上下文参考传给 LLM，不计入本章字数统计
+    _context_only = request.previous_content or ""
+    current_content = ""
 
     for round_index in range(1, expected_rounds + 1):
         round_plan = build_round_plan(request, current_word_count, round_index)
         round_request = request.model_copy(update={
-            "previous_content": current_content,
+            "previous_content": f"{_context_only}{current_content}",
             "existing_word_count": current_word_count,
             "word_control_mode": control_mode,
             "budget_round_hint": round_plan.round_index,

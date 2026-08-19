@@ -253,7 +253,7 @@ def _find_sentence_cut(text: str, limit_units: int) -> Optional[int]:
     units = 0
     sentence_cut: Optional[int] = None
     for idx, char in enumerate(text):
-        if not char.isspace():
+        if '一' <= char <= '鿿':
             units += 1
         if char in _SENTENCE_ENDINGS and units <= limit_units:
             sentence_cut = idx + 1
@@ -265,7 +265,7 @@ def _find_sentence_cut(text: str, limit_units: int) -> Optional[int]:
 def _find_hard_cut(text: str, limit_units: int) -> Optional[int]:
     units = 0
     for idx, char in enumerate(text):
-        if not char.isspace():
+        if '一' <= char <= '鿿':
             units += 1
         if units >= limit_units:
             return idx + 1
