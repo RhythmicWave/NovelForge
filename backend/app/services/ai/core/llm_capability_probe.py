@@ -148,6 +148,11 @@ def _payload_kwargs(request: LLMCapabilityTestRequest, *, user_agent: str | None
 # 正文输出为空，导致 basic_chat 被误判为 fail。这里从 64 起逐步放大，
 # 找到第一个非空后，再向上确认一个更大的候选值，返回更稳定的那个，
 # 避免临界值附近 thinking 模型时好时坏。
+#
+# 关键：能力检测所有 probe 共用同一个 max_tokens，而结构化输出(structured)比
+# 简单 ping 需要更多预算。若只按 basic_chat 判空，探测出的值往往过小(如128)，
+# 导致 structured 被误判 Empty。因此这里对每个候选同时校验 basic_chat 非空
+# 与结构化输出有效，确保返回的值对 downstream 全链路足够。
 async def _detect_usable_max_tokens(
     request: LLMCapabilityTestRequest,
     *,
@@ -155,26 +160,35 @@ async def _detect_usable_max_tokens(
     api_protocol: str | None = None,
 ) -> tuple[int, str]:
     candidates = [64, 128, 256, 512, 1024, 2048, 4096]
-    first_ok: int | None = None
+    passed: list[int] = []
     for mt in candidates:
         try:
             model = build_chat_model_from_payload(
                 **_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol, max_tokens=mt)
             )
+            # 1) 基础聊天必须返回非空正文
             response = await model.ainvoke([HumanMessage(content="ping")])
-            if _message_text(response):
-                if first_ok is None:
-                    first_ok = mt
-                else:
-                    # 已有一个更小的可用值，再向上确认一个更大的，取更稳定者
-                    return mt, f"自动探测到可用 max_tokens={mt}"
+            if not _message_text(response):
+                continue
+            # 2) 结构化输出必须有效（thinking 模型在过小预算下会耗尽配额返回空）
+            structured = model.with_structured_output(CapabilityStructuredProbe)
+            structured_response = await structured.ainvoke(
+                [HumanMessage(content='Return JSON with ok=true and text="ok".')]
+            )
+            if structured_response is None:
+                continue
+            passed.append(mt)
+            # 单个临界档对 thinking 模型时好时坏，取"第二个通过档"的值更稳定，
+            # 确保返回的 max_tokens 对全链路（含结构化）足够且留有余量。
+            if len(passed) >= 2:
+                return passed[1], f"自动探测到可用 max_tokens={passed[1]}"
         except Exception:
             # 某些模型对过小的 max_tokens 直接报错，继续放大重试
             continue
-    if first_ok is not None:
-        return first_ok, f"自动探测到可用 max_tokens={first_ok}"
+    if passed:
+        return passed[-1], f"自动探测到可用 max_tokens={passed[-1]}"
     # 全部失败，回退到 4096（thinking 模型通常需要较大预算）
-    return 4096, "自动探测未获非空响应，回退到 max_tokens=4096"
+    return 4096, "自动探测未获可用 max_tokens，回退到 max_tokens=4096"
 
 
 async def _probe_models_list(request: LLMCapabilityTestRequest, *, user_agent: str | None = None) -> ProbeResult:
