@@ -39,11 +39,23 @@ class ConceptSummary(BaseModel):
 	counter_relations: List[str] = Field(default_factory=list, description="对立或克制关系")
 
 
+class CharacterSummary(BaseModel):
+    name: str = Field(..., description="角色名称")
+    role_type: str = Field(default="", description="角色定位（主角/反派/配角等）")
+    description: str = Field(default="", description="角色简介")
+    personality: str = Field(default="", description="性格特征")
+    core_drive: str = Field(default="", description="核心动机")
+    key_relationships: List[str] = Field(default_factory=list, description="关键关系")
+    key_items: List[str] = Field(default_factory=list, description="关键物品")
+    constraints: str = Field(default="", description="限制条件/铁律")
+
+
 class FactsStructured(BaseModel):
-	fact_summaries: List[str] = Field(default_factory=list, description="关键事实摘要")
-	relation_summaries: List[RelationItem] = Field(default_factory=list, description="关系摘要（含近期对话/事件）")
-	item_summaries: List[ItemSummary] = Field(default_factory=list, description="物品摘要")
-	concept_summaries: List[ConceptSummary] = Field(default_factory=list, description="概念摘要")
+    fact_summaries: List[str] = Field(default_factory=list, description="关键事实摘要")
+    relation_summaries: List[RelationItem] = Field(default_factory=list, description="关系摘要（含近期对话/事件）")
+    character_summaries: List[CharacterSummary] = Field(default_factory=list, description="角色摘要")
+    item_summaries: List[ItemSummary] = Field(default_factory=list, description="物品摘要")
+    concept_summaries: List[ConceptSummary] = Field(default_factory=list, description="概念摘要")
 
 
 class AssembleContextResponse(BaseModel):

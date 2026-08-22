@@ -1442,7 +1442,7 @@ watch(() => props.chapter, (ch) => {
 }, { deep: true })
 
 function computeWordCount(text: string): number {
-	return (text || '').replace(/\s+/g, '').length
+	return (text.match(/[\u4e00-\u9fff]/g) || []).length
 }
 
 const wordCount = ref(0)

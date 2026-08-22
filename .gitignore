@@ -27,6 +27,7 @@ backend/alembic/versions/*.py
 !rules/**/*.mdc
 !.github/*.md
 !CONTRIBUTING.md
+!部署指南.md
 
 
 primitive_models/
