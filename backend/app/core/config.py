@@ -158,6 +158,9 @@ class AppSettings(BaseSettings):
     
     # API前缀
     api_prefix: str = Field(default="/api", alias="API_PREFIX")
+
+    # HTTP 服务监听端口
+    port: int = Field(default=54321, alias="APP_PORT", ge=1, le=65535)
     
     # CORS允许的源
     cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
@@ -213,7 +216,8 @@ class Settings:
             f"  max_retries={self.ai.max_tool_call_retries},\n"
             f"  bootstrap_overwrite={self.bootstrap.should_overwrite},\n"
             f"  bootstrap_overwrite_card_schemas={self.bootstrap.should_overwrite_card_schemas},\n"
-            f"  app_name={self.app.app_name}\n"
+            f"  app_name={self.app.app_name},\n"
+            f"  app_port={self.app.port}\n"
             f")"
         )
 
