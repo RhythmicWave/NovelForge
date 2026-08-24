@@ -2,16 +2,20 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { readFileSync } from 'fs'
+import { loadBackendPort } from './scripts/backend-config.mjs'
 
 // 读取 package.json 中的版本号
 const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'))
 const version = packageJson.version
+const backendPort = loadBackendPort({ envFiles: [resolve(__dirname, '../backend/.env')] })
+const backendOrigin = `http://127.0.0.1:${backendPort}`
 
 export default defineConfig({
   root: 'src/renderer',
   base: './',
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(version)
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(version),
+    'import.meta.env.VITE_BACKEND_PORT': JSON.stringify(String(backendPort))
   },
   resolve: {
     alias: {
@@ -44,11 +48,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:54321',
+        target: backendOrigin,
         changeOrigin: true,
       },
       '/imgs': {
-        target: 'http://127.0.0.1:54321',
+        target: backendOrigin,
         changeOrigin: true,
       }
     }

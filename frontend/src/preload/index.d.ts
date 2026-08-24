@@ -1,6 +1,7 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 interface Api {
+  backendPort?: number
   setApiKey: (id: number, apiKey: string) => Promise<{ success: boolean; error?: string }>
   getApiKey: (id: number) => Promise<{ success: boolean; apiKey?: string; error?: string }>
   openIdeasHome: () => Promise<{ success: boolean }>
