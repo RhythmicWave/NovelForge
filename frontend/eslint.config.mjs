@@ -38,7 +38,8 @@ export default tseslint.config(
   {
     files: ['scripts/**/*.{mjs,cjs}'],
     rules: {
-      '@typescript-eslint/explicit-function-return-type': 'off'
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-require-imports': 'off'
     }
   },
   eslintConfigPrettier

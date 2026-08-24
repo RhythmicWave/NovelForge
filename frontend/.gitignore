@@ -7,6 +7,9 @@ out/
 scripts/*.cjs
 !scripts/prepare-windows-electron.cjs
 !scripts/cleanup-windows-electron.cjs
+!scripts/postbuild-copy-backend.cjs
+!scripts/start-web.py
+!scripts/start-web.bat
 
 # IDE配置
 .vscode/
