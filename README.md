@@ -462,6 +462,9 @@ pip install -r requirements.txt
 
 将backend/.env.example文件修改为.env
 
+# 如默认端口被占用，可在 backend/.env 中修改（范围 1-65535）
+APP_PORT=53210
+
 # 运行后端服务
 python main.py
 ```
@@ -510,6 +513,7 @@ npm run dev
 2.  解压到任意位置。
 3.  **（重要）** 运行前，请先确保 Neo4j Desktop 中的数据库实例已启动。
 4.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接。
+    如默认的 `54321` 端口被占用，可修改 `APP_PORT`；后端与桌面前端会读取同一配置。
 5.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
 6.  返回上一级，运行 `NovelForge.exe` 启动主程序。
 

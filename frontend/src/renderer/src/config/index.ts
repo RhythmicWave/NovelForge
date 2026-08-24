@@ -4,15 +4,17 @@
 测试环境
 线上环境
 */
+import { LOCAL_BACKEND_BASE_URL } from './backend'
+
 //当前的环境
 const env = 'local'
 
 const EnvConfig = {
     local: {
-        baseApi: 'http://localhost:54321',
+        baseApi: LOCAL_BACKEND_BASE_URL,
     },
     prod: {
-        baseApi: 'http://localhost:54321',
+        baseApi: LOCAL_BACKEND_BASE_URL,
 
     },
 }

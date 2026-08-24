@@ -1,10 +1,30 @@
-import { app, shell, BrowserWindow, session, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, session, ipcMain, type WebPreferences } from 'electron'
+import { dirname, join, resolve } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import keytar from 'keytar'
+import { loadBackendPort } from '../../scripts/backend-config.mjs'
 
 const KEYTAR_SERVICE_NAME = 'NovelForge-LLM'
+
+const backendPort = loadBackendPort({
+  envFiles: app.isPackaged
+    ? [
+        join(dirname(process.execPath), 'backend', '.env'),
+        resolve(process.resourcesPath, '../backend/.env'),
+        join(process.resourcesPath, 'backend', '.env')
+      ]
+    : [resolve(app.getAppPath(), '../backend/.env'), resolve(process.cwd(), 'backend/.env')]
+})
+const backendOrigin = `http://127.0.0.1:${backendPort}`
+
+function webPreferences(): WebPreferences {
+  return {
+    preload: join(__dirname, '../preload/index.js'),
+    sandbox: false,
+    additionalArguments: [`--novelforge-backend-port=${backendPort}`]
+  }
+}
 
 const studioWindows = new Map<string, BrowserWindow>()
 
@@ -17,10 +37,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     title: 'Novel Forge', // 设置窗口标题
     icon: icon, // 为所有平台设置图标
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
+    webPreferences: webPreferences()
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -48,7 +65,7 @@ function createWindow(): void {
           "default-src 'self'; " +
           "script-src 'self' 'wasm-unsafe-eval'; " +
           "style-src 'self' 'unsafe-inline'; " +
-          "connect-src 'self' http://127.0.0.1:54321 https://api.github.com"
+          `connect-src 'self' ${backendOrigin} https://api.github.com`
         ]
       }
     })
@@ -66,7 +83,7 @@ function openIdeasHome() {
     title: 'Novel Forge - 灵感工作台',
     autoHideMenuBar: true,
     icon: icon,
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+    webPreferences: webPreferences()
   })
   studioWindows.set(key, win)
   win.on('closed', () => studioWindows.delete(key))
