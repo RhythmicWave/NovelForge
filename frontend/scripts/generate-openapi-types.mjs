@@ -7,14 +7,11 @@ const frontendDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const backendPort = loadBackendPort({
   envFiles: [resolve(frontendDir, '../backend/.env')]
 })
-const executable = resolve(
-  frontendDir,
-  'node_modules/.bin',
-  process.platform === 'win32' ? 'openapi-typescript.cmd' : 'openapi-typescript'
-)
+const cliPath = resolve(frontendDir, 'node_modules/openapi-typescript/bin/cli.js')
 const result = spawnSync(
-  executable,
+  process.execPath,
   [
+    cliPath,
     `http://127.0.0.1:${backendPort}/openapi.json`,
     '-o',
     resolve(frontendDir, 'src/renderer/src/types/generated.d.ts')
