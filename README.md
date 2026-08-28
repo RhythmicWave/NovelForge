@@ -526,11 +526,10 @@ npm run dev
 
 1.  前往项目的 **Releases** 页面下载最新的便携版压缩包 (`.zip` 或 `.7z`)。
 2.  解压到任意位置。
-3.  **（重要）** 运行前，请先确保 Neo4j Desktop 中的数据库实例已启动。
-4.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接。
+3.  进入解压后的文件夹，找到 `backend` 目录，按需编辑 `.env` 文件以配置数据库连接。
     如默认的 `54321` 端口被占用，可修改 `APP_PORT`；后端与桌面前端会读取同一配置。
-5.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
-6.  返回上一级，运行 `NovelForge.exe` 启动主程序。
+4.  运行 `backend/NovelForgeBackend.exe` 启动后端服务。
+5.  返回上一级，运行 `NovelForge.exe` 启动主程序。
 
 > 大部分数据都存储在backend/novelforge.db数据库中，当版本更新/迁移时，将该数据库文件复制到对应位置即可。
 ---
