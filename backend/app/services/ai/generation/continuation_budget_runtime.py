@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil
+import re
 from typing import Optional
 
 from app.schemas.ai import ContinuationRequest
@@ -37,7 +38,8 @@ class ContinuationTrimResult:
 
 
 def count_text_units(text: str | None) -> int:
-    return len("".join((text or "").split()))
+    """统计纯汉字数（不含标点/空白/数字/英文），与小说行业字数规范对齐。"""
+    return len(re.findall(r"[\u4e00-\u9fff]", text or ""))
 
 
 def normalize_word_control_mode(request: ContinuationRequest) -> str:
@@ -90,7 +92,9 @@ def build_round_plan(
 
     rounds_left = max(1, max_rounds - round_index + 1)
     effective_remaining = remaining_word_count if remaining_word_count > 0 else 280
-    close_mode = effective_remaining <= 1000 or rounds_left <= 3
+    # 剩余 ≤1500 或轮次≤3 即进入收尾节奏，避免 remaining 略高于 1000 时
+    # advance 模式把建议规模压到下限（写不满）的问题
+    close_mode = effective_remaining <= 1500 or rounds_left <= 3
 
     if close_mode:
         suggested_word_count = _plan_close_suggestion(
@@ -249,7 +253,7 @@ def _find_sentence_cut(text: str, limit_units: int) -> Optional[int]:
     units = 0
     sentence_cut: Optional[int] = None
     for idx, char in enumerate(text):
-        if not char.isspace():
+        if '一' <= char <= '鿿':
             units += 1
         if char in _SENTENCE_ENDINGS and units <= limit_units:
             sentence_cut = idx + 1
@@ -261,7 +265,7 @@ def _find_sentence_cut(text: str, limit_units: int) -> Optional[int]:
 def _find_hard_cut(text: str, limit_units: int) -> Optional[int]:
     units = 0
     for idx, char in enumerate(text):
-        if not char.isspace():
+        if '一' <= char <= '鿿':
             units += 1
         if units >= limit_units:
             return idx + 1

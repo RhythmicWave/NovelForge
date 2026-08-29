@@ -119,6 +119,70 @@ def _format_facts_structured(facts_structured: Any) -> str:
                     else:
                         lines.append(f"    - {summary}")
 
+    character_summaries = payload.get("character_summaries")
+    if isinstance(character_summaries, list) and character_summaries:
+        lines.append("角色设定（必须严格一致，违反=OOC）：")
+        for ch in character_summaries:
+            ch_dict = _to_dict(ch)
+            name = str(ch_dict.get("name") or "").strip()
+            if not name:
+                continue
+            role_type = str(ch_dict.get("role_type") or "").strip()
+            name_part = f"{name}（{role_type}）" if role_type else name
+            lines.append(f"- {name_part}")
+            description = str(ch_dict.get("description") or "").strip()
+            if description:
+                lines.append(f"  · 简介：{description}")
+            personality = str(ch_dict.get("personality") or "").strip()
+            if personality:
+                lines.append(f"  · 性格：{personality}")
+            core_drive = str(ch_dict.get("core_drive") or "").strip()
+            if core_drive:
+                lines.append(f"  · 动机：{core_drive}")
+            constraints = str(ch_dict.get("constraints") or "").strip()
+            if constraints:
+                lines.append(f"  · 铁律：{constraints}")
+
+    item_summaries = payload.get("item_summaries")
+    if isinstance(item_summaries, list) and item_summaries:
+        lines.append("物品设定（必须严格一致）：")
+        for item in item_summaries:
+            item_dict = _to_dict(item)
+            name = str(item_dict.get("name") or "").strip()
+            if not name:
+                continue
+            category = str(item_dict.get("category") or "").strip()
+            name_part = f"{name}（{category}）" if category else name
+            lines.append(f"- {name_part}")
+            description = str(item_dict.get("description") or "").strip()
+            if description:
+                lines.append(f"  · 简介：{description}")
+            owner_hint = str(item_dict.get("owner_hint") or "").strip()
+            if owner_hint:
+                lines.append(f"  · 归属：{owner_hint}")
+            power = str(item_dict.get("power_or_effect") or "").strip()
+            if power:
+                lines.append(f"  · 能力/效果：{power}")
+            constraints = str(item_dict.get("constraints") or "").strip()
+            if constraints:
+                lines.append(f"  · 铁律：{constraints}")
+
+    concept_summaries = payload.get("concept_summaries")
+    if isinstance(concept_summaries, list) and concept_summaries:
+        lines.append("概念设定：")
+        for concept in concept_summaries:
+            concept_dict = _to_dict(concept)
+            name = str(concept_dict.get("name") or "").strip()
+            if not name:
+                continue
+            lines.append(f"- {name}")
+            description = str(concept_dict.get("description") or "").strip()
+            if description:
+                lines.append(f"  · {description}")
+            rule_definition = str(concept_dict.get("rule_definition") or "").strip()
+            if rule_definition:
+                lines.append(f"  · 规则：{rule_definition}")
+
     return "\n".join(lines).strip()
 
 

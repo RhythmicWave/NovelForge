@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, select
 
 from app.db.models import Card
-from app.schemas.context import ConceptSummary, FactsStructured, ItemSummary
+from app.schemas.context import CharacterSummary, ConceptSummary, FactsStructured, ItemSummary
 from app.schemas.relation_extract import CN_TO_EN_KIND
 from app.services.kg_provider import get_provider
 from app.utils.text_utils import truncate_text
@@ -68,12 +68,16 @@ def _card_entity_type(card: Card) -> str:
 		return "item"
 	if "概念" in card_type_name:
 		return "concept"
+	if "角色" in card_type_name:
+		return "character"
 
 	model_name = _clean_text(getattr(card, "model_name", "") or getattr(card.card_type, "model_name", ""))
 	if model_name == "ItemCard":
 		return "item"
 	if model_name == "ConceptCard":
 		return "concept"
+	if model_name == "CharacterCard":
+		return "character"
 	return ""
 
 
@@ -100,12 +104,25 @@ def _collect_referenced_entity_cards(
 	for card in cards:
 		if _card_entity_type(card) != entity_type:
 			continue
-		card_name = _card_name(card)
-		if card_name and card_name.lower() in normalized_participants:
+		card_name = _card_name(card).lower()
+		if card_name in normalized_participants:
+			matched.append(card)
+			continue
+		# 兼容标题去重后缀（如 "薇拉·暮语(1)" 匹配 "薇拉·暮语"）
+		if card_name and any(card_name.startswith(p) for p in normalized_participants):
 			matched.append(card)
 
-	matched.sort(key=lambda card: (card.display_order, card.id or 0))
-	return matched
+	# 同名单张去重：标题带 (N) 后缀的重复卡与同名精确卡并存时，只保留 id 最大者
+	deduped: List[Card] = []
+	best_by_key: Dict[str, Card] = {}
+	for card in matched:
+		key = _card_name(card).lower().split("(")[0].strip()
+		if key not in best_by_key or (card.id or 0) > (best_by_key[key].id or 0):
+			best_by_key[key] = card
+	deduped = list(best_by_key.values())
+
+	deduped.sort(key=lambda card: (card.display_order, card.id or 0))
+	return deduped
 
 
 def _build_item_summaries(session: Session, project_id: Optional[int], participants: List[str]) -> List[Dict[str, Any]]:
@@ -146,6 +163,26 @@ def _build_concept_summaries(session: Session, project_id: Optional[int], partic
 	return summaries
 
 
+def _build_character_summaries(session: Session, project_id: Optional[int], participants: List[str]) -> List[Dict[str, Any]]:
+	characters = _collect_referenced_entity_cards(session, project_id, participants, "character")
+	summaries: List[Dict[str, Any]] = []
+	for card in characters:
+		content = card.content if isinstance(card.content, dict) else {}
+		# 兼容两套 schema：R2 新版（role_type/description/core_drive）与 R1 旧版（role/background/core_desire）
+		summary = CharacterSummary(
+			name=_card_name(card),
+			role_type=_clean_text(content.get("role_type") or content.get("role")),
+			description=_clean_text(content.get("description") or content.get("background")),
+			personality=_clean_text(content.get("personality") or content.get("key_traits")),
+			core_drive=_clean_text(content.get("core_drive") or content.get("core_desire")),
+			key_relationships=_clean_list(content.get("key_relationships") or content.get("relationships")),
+			key_items=_clean_list(content.get("key_items")),
+			constraints=_clean_text(content.get("constraints")),
+		)
+		summaries.append(summary.model_dump())
+	return summaries
+
+
 def assemble_context(session: Session, params: ContextAssembleParams) -> AssembledContext:
 	facts_quota = 5000
 
@@ -154,6 +191,7 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
 
 	facts_text = _compose_facts_subgraph_stub()
 	facts_structured: Optional[Dict[str, Any]] = None
+	character_summaries = _build_character_summaries(session, params.project_id, eff_participants)
 	item_summaries = _build_item_summaries(session, params.project_id, eff_participants)
 	concept_summaries = _build_concept_summaries(session, params.project_id, eff_participants)
 
@@ -205,6 +243,7 @@ def assemble_context(session: Session, params: ContextAssembleParams) -> Assembl
 					}
 					for it in filtered_relation_items
 				],
+				character_summaries=character_summaries,
 				item_summaries=item_summaries,
 				concept_summaries=concept_summaries,
 			)
