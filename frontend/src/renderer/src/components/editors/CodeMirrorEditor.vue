@@ -5,7 +5,7 @@
 			<!-- 编辑功能组 -->
 			<div class="toolbar-group">
 				<span class="group-label">编辑</span>
-				<el-dropdown @command="(c:any) => fontSize = c" size="small">
+				<el-dropdown @command="(c:any) => { fontSize = c; persistFontSize(c) }" size="small">
 					<el-button size="small">
 						{{ fontSize }}px
 						<el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -23,7 +23,7 @@
 					</template>
 				</el-dropdown>
 
-				<el-dropdown @command="(c:any) => lineHeight = c" size="small">
+				<el-dropdown @command="(c:any) => { lineHeight = c; persistLineHeight(c) }" size="small">
 					<el-button size="small">
 						{{ lineHeight }}
 						<el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -1180,6 +1180,7 @@ import ContinuationBudgetDialog, { type ContinuationWordControlMode } from './di
 import { resolveTemplate } from '@renderer/services/contextResolver'
 import { getCardContextTemplates, getContextTemplateByKind, normalizeContextTemplateKind, type ContextTemplateKind, type ContextTemplates } from '@renderer/services/contextSlots'
 import { notifyTaskDone } from '@renderer/utils/taskDoneNotifier'
+import { safeGetNumber, safeSetItem } from '@renderer/utils/safeStorage'
 
 import { EditorState, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view'
@@ -1864,9 +1865,17 @@ function isCanceledRequest(error: unknown): boolean {
 		|| candidate?.message === 'CanceledError'
 }
 
-// 字号/行距（默认 16px / 1.8）
-const fontSize = ref<number>(16)
-const lineHeight = ref<number>(1.8)
+// 字号/行距（默认 16px / 1.8，全局持久化：读写 localStorage，切换卡片/重启后保持）
+const FONT_SIZE_STORAGE_KEY = 'nf:editor:font-size'
+const LINE_HEIGHT_STORAGE_KEY = 'nf:editor:line-height'
+const DEFAULT_FONT_SIZE = 16
+const DEFAULT_LINE_HEIGHT = 1.8
+
+const persistFontSize = (value: number) => safeSetItem(FONT_SIZE_STORAGE_KEY, String(value))
+const persistLineHeight = (value: number) => safeSetItem(LINE_HEIGHT_STORAGE_KEY, String(value))
+
+const fontSize = ref<number>(safeGetNumber(FONT_SIZE_STORAGE_KEY, DEFAULT_FONT_SIZE))
+const lineHeight = ref<number>(safeGetNumber(LINE_HEIGHT_STORAGE_KEY, DEFAULT_LINE_HEIGHT))
 
 // 润色和扩写的提示词列表
 const polishPrompts = ref<string[]>([])
@@ -4533,7 +4542,7 @@ onBeforeUnmount(() => {
 .editor-content :deep(.cm-editor) {
 	height: 100% !important; /* 强制占满容器高度，不自动扩展 */
 	outline: none;
-	line-height: 1.8;
+	line-height: v-bind(lineHeightStr);
 	color: var(--el-text-color-primary);
 	background-color: transparent;
 }
