@@ -14,12 +14,16 @@ from sqlmodel import Session
 from app.db.models import LLMConfig
 from app.services import llm_config_service
 
+# 连接级瞬时错误（网络抖动、网关 5xx 等）统一重试次数，覆盖各家 provider
+LLM_CONNECT_MAX_RETRIES = 2
+
 
 def _sanitize_common_generation_kwargs(
     *,
     temperature: Optional[float],
     max_tokens: Optional[int],
     timeout: Optional[float],
+    max_retries: Optional[int] = None,
 ) -> dict:
     normalized_max_tokens = None if max_tokens == -1 else max_tokens
     kwargs: dict = {}
@@ -29,6 +33,9 @@ def _sanitize_common_generation_kwargs(
         kwargs["max_tokens"] = int(normalized_max_tokens)
     if timeout is not None:
         kwargs["timeout"] = float(timeout)
+    # None 时保持各 provider SDK 默认重试行为
+    if max_retries is not None:
+        kwargs["max_retries"] = int(max_retries)
     return kwargs
 
 
@@ -62,6 +69,7 @@ def build_chat_model_from_payload(
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
     thinking_enabled: Optional[bool] = None,
+    max_retries: Optional[int] = None,
 ):
     if not api_key:
         raise ValueError("未提供 API Key")
@@ -79,6 +87,7 @@ def build_chat_model_from_payload(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        max_retries=max_retries,
     )
 
     if provider_name in {"openai_compatible", "openai"}:
@@ -147,6 +156,7 @@ def build_chat_model(
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
     thinking_enabled: Optional[bool] = None,
+    max_retries: Optional[int] = None,
 ):
     cfg = _get_llm_config(session, llm_config_id)
     return build_chat_model_from_payload(
@@ -162,4 +172,5 @@ def build_chat_model(
         max_tokens=max_tokens,
         timeout=timeout,
         thinking_enabled=thinking_enabled,
+        max_retries=max_retries,
     )

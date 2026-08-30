@@ -1,5 +1,6 @@
 export type DesktopNotificationPermission = NotificationPermission | 'unsupported'
 export type TaskDoneNotificationPermission = DesktopNotificationPermission
+export type DesktopNotificationMode = 'none' | 'failed_only' | 'all'
 
 export type TaskDoneNotifyOptions = {
   taskId?: string
@@ -9,6 +10,7 @@ export type TaskDoneNotifyOptions = {
   enableDesktopNotification?: boolean
   soundEnabled?: boolean
   desktopNotificationEnabled?: boolean
+  desktopNotificationMode?: DesktopNotificationMode
 }
 
 type AudioContextConstructor = typeof AudioContext
@@ -62,28 +64,32 @@ function safeShowDesktopNotification(title: string, body?: string): void {
   }
 }
 
-export async function warmupDoneSound(): Promise<boolean> {
+let sharedAudioContext: AudioContext | null = null
+
+function getOrCreateAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
   const AudioContextClass = getAudioContextConstructor()
-  if (!AudioContextClass) return false
-
-  let audioContext: AudioContext | undefined
-
-  try {
-    audioContext = new AudioContextClass()
-
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume()
+  if (!AudioContextClass) return null
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    try {
+      sharedAudioContext = new AudioContextClass()
+    } catch {
+      return null
     }
+  }
+  return sharedAudioContext
+}
 
-    return audioContext.state !== 'suspended'
+export async function warmupDoneSound(): Promise<boolean> {
+  try {
+    const ctx = getOrCreateAudioContext()
+    if (!ctx) return false
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+    return ctx.state === 'running'
   } catch {
     return false
-  } finally {
-    if (audioContext) {
-      audioContext.close().catch(() => {
-        /* noop */
-      })
-    }
   }
 }
 
@@ -91,84 +97,59 @@ export async function unlockTaskDoneSound(): Promise<boolean> {
   return warmupDoneSound()
 }
 
-function closeAudioContext(audioContext: AudioContext | undefined): void {
-  if (!audioContext) return
-
-  audioContext.close().catch(() => {
-    /* noop */
-  })
-}
-
-function scheduleTone(
-  audioContext: AudioContext,
+function playSingleTone(
+  ctx: AudioContext,
   frequency: number,
   startAt: number,
-  duration: number
+  duration: number,
 ): void {
-  const oscillator = audioContext.createOscillator()
-  const gain = audioContext.createGain()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
 
-  oscillator.type = 'sine'
-  oscillator.frequency.setValueAtTime(frequency, startAt)
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(frequency, startAt)
 
+  // 使用平滑稳定的线性渐变包络，避免极端值与时间异常
   gain.gain.setValueAtTime(0.0001, startAt)
-  gain.gain.exponentialRampToValueAtTime(0.8, startAt + 0.018)
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration)
+  gain.gain.linearRampToValueAtTime(0.35, startAt + 0.02)
+  gain.gain.linearRampToValueAtTime(0.0001, startAt + duration)
 
-  oscillator.connect(gain)
-  gain.connect(audioContext.destination)
-  oscillator.start(startAt)
-  oscillator.stop(startAt + duration + 0.02)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+
+  osc.start(startAt)
+  osc.stop(startAt + duration + 0.03)
 }
 
-function safePlayDoneSound(): boolean {
-  const AudioContextClass = getAudioContextConstructor()
-  if (!AudioContextClass) return false
+async function safePlayChime(frequencies: [number, number]): Promise<boolean> {
+  try {
+    const ctx = getOrCreateAudioContext()
+    if (!ctx) return false
 
-  let audioContext: AudioContext | undefined
-
-  const playBeep = (): boolean => {
-    if (!audioContext) return false
-
-    try {
-      const now = audioContext.currentTime
-      scheduleTone(audioContext, 880, now, 0.18)
-      scheduleTone(audioContext, 1175, now + 0.2, 0.2)
-
-      window.setTimeout(() => {
-        closeAudioContext(audioContext)
-        audioContext = undefined
-      }, 450)
-      return true
-    } catch {
-      closeAudioContext(audioContext)
-      audioContext = undefined
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+    if (ctx.state !== 'running') {
       return false
     }
-  }
 
-  try {
-    audioContext = new AudioContextClass()
-
-    if (audioContext.state === 'suspended') {
-      audioContext
-        .resume()
-        .then(() => {
-          if (audioContext?.state !== 'suspended') playBeep()
-          else closeAudioContext(audioContext)
-        })
-        .catch(() => {
-          closeAudioContext(audioContext)
-          audioContext = undefined
-        })
-      return true
-    }
-
-    return playBeep()
-  } catch {
-    closeAudioContext(audioContext)
+    const now = ctx.currentTime + 0.02
+    playSingleTone(ctx, frequencies[0], now, 0.16)
+    playSingleTone(ctx, frequencies[1], now + 0.18, 0.22)
+    return true
+  } catch (err) {
+    console.warn('[TaskDoneNotifier] 播放提示音失败:', err)
     return false
   }
+}
+
+function safePlayDoneSound(): Promise<boolean> {
+  return safePlayChime([440, 588])
+}
+
+function safePlayFailedSound(): Promise<boolean> {
+  // 降调双音，与完成音（升调）区分
+  return safePlayChime([440, 330])
 }
 
 export async function playTaskDoneSound(): Promise<boolean> {
@@ -187,29 +168,54 @@ function isDuplicateTaskDone(taskId?: string): boolean {
   return false
 }
 
-export function notifyTaskDone(options: TaskDoneNotifyOptions = {}): void {
+/** 共享通知分发：统一去重、声音、桌面通知逻辑 */
+function _dispatchNotification(
+  options: TaskDoneNotifyOptions,
+  defaults: { title: string; duplicatePrefix: string; playSound: () => Promise<boolean>; matchModes: DesktopNotificationMode[] },
+): void {
   try {
     const {
       taskId,
-      title = '任务已完成',
+      title = defaults.title,
       body,
       enableSound,
       enableDesktopNotification,
       soundEnabled,
-      desktopNotificationEnabled
+      desktopNotificationEnabled,
+      desktopNotificationMode,
     } = options
 
-    const duplicateKey = taskId || `${title}\n${body || ''}`
+    const duplicateKey = `${defaults.duplicatePrefix}${taskId || `${title}\n${body || ''}`}`
     if (isDuplicateTaskDone(duplicateKey)) return
 
     if (enableSound ?? soundEnabled ?? false) {
-      safePlayDoneSound()
+      void defaults.playSound()
     }
 
-    if (enableDesktopNotification ?? desktopNotificationEnabled ?? false) {
+    const mode = desktopNotificationMode ?? ((enableDesktopNotification ?? desktopNotificationEnabled) ? 'all' : 'none')
+    if (defaults.matchModes.includes(mode)) {
       safeShowDesktopNotification(title, body)
     }
   } catch {
     /* noop */
   }
 }
+
+export function notifyTaskDone(options: TaskDoneNotifyOptions = {}): void {
+  _dispatchNotification(options, {
+    title: '任务已完成',
+    duplicatePrefix: '',
+    playSound: safePlayDoneSound,
+    matchModes: ['all'],
+  })
+}
+
+export function notifyTaskFailed(options: TaskDoneNotifyOptions = {}): void {
+  _dispatchNotification(options, {
+    title: '任务失败',
+    duplicatePrefix: 'failed:',
+    playSound: safePlayFailedSound,
+    matchModes: ['all', 'failed_only'],
+  })
+}
+

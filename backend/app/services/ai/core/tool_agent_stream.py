@@ -10,7 +10,7 @@ from loguru import logger
 from sqlmodel import Session
 
 from .agent_builder import build_agent
-from .chat_model_factory import build_chat_model
+from .chat_model_factory import build_chat_model, LLM_CONNECT_MAX_RETRIES
 from .quota_manager import precheck_quota, record_usage
 from .token_utils import calc_input_tokens, estimate_tokens
 
@@ -49,6 +49,7 @@ async def stream_agent_with_tools(
         max_tokens=max_tokens,
         timeout=timeout,
         thinking_enabled=thinking_enabled,
+        max_retries=LLM_CONNECT_MAX_RETRIES,
     )
 
     if set_deps is not None:
