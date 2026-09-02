@@ -102,7 +102,7 @@ body {
 
 /* XMarkdown / Markdown 全局主题适配 */
 .elx-xmarkdown-container {
-  color: inherit;
+  color: inherit !important;
 }
 
 .elx-xmarkdown-container table {

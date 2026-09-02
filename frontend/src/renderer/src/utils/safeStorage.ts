@@ -26,11 +26,12 @@ export function safeSetItem(key: string, value: string): void {
 }
 
 /** 读取并解析为数字；非法、缺失或异常时返回 fallback。 */
-export function safeGetNumber(key: string, fallback: number): number {
+export function safeGetNumber(key: string, fallback: number, allowedValues?: readonly number[]): number {
   const raw = safeGetItem(key, '')
   if (raw === '') return fallback
   const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : fallback
+  if (!Number.isFinite(parsed)) return fallback
+  return allowedValues && !allowedValues.includes(parsed) ? fallback : parsed
 }
 
 /** 移除指定键，异常时静默忽略。 */

@@ -1870,12 +1870,14 @@ const FONT_SIZE_STORAGE_KEY = 'nf:editor:font-size'
 const LINE_HEIGHT_STORAGE_KEY = 'nf:editor:line-height'
 const DEFAULT_FONT_SIZE = 16
 const DEFAULT_LINE_HEIGHT = 1.8
+const ALLOWED_FONT_SIZES = [14, 16, 18, 20, 24, 28, 32] as const
+const ALLOWED_LINE_HEIGHTS = [1.4, 1.6, 1.8, 2.0] as const
 
 const persistFontSize = (value: number) => safeSetItem(FONT_SIZE_STORAGE_KEY, String(value))
 const persistLineHeight = (value: number) => safeSetItem(LINE_HEIGHT_STORAGE_KEY, String(value))
 
-const fontSize = ref<number>(safeGetNumber(FONT_SIZE_STORAGE_KEY, DEFAULT_FONT_SIZE))
-const lineHeight = ref<number>(safeGetNumber(LINE_HEIGHT_STORAGE_KEY, DEFAULT_LINE_HEIGHT))
+const fontSize = ref<number>(safeGetNumber(FONT_SIZE_STORAGE_KEY, DEFAULT_FONT_SIZE, ALLOWED_FONT_SIZES))
+const lineHeight = ref<number>(safeGetNumber(LINE_HEIGHT_STORAGE_KEY, DEFAULT_LINE_HEIGHT, ALLOWED_LINE_HEIGHTS))
 
 // 润色和扩写的提示词列表
 const polishPrompts = ref<string[]>([])
