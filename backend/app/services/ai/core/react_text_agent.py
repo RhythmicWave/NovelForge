@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Sys
 from loguru import logger
 from sqlmodel import Session
 
-from app.services.ai.core.chat_model_factory import build_chat_model
+from app.services.ai.core.chat_model_factory import build_chat_model, LLM_CONNECT_MAX_RETRIES
 from app.services.ai.core.quota_manager import precheck_quota, record_usage
 from app.services.ai.core.token_utils import calc_input_tokens, estimate_tokens
 
@@ -454,6 +454,7 @@ async def stream_chat_with_react_protocol(
         max_tokens=max_tokens,
         timeout=timeout or 90,
         thinking_enabled=thinking_enabled,
+        max_retries=LLM_CONNECT_MAX_RETRIES,
     )
 
     if set_deps is not None:

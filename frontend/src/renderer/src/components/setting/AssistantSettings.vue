@@ -6,7 +6,8 @@ import { useAssistantPreferences } from '@renderer/composables/useAssistantPrefe
 import {
   playTaskDoneSound,
   requestTaskDoneNotificationPermission,
-  unlockTaskDoneSound
+  unlockTaskDoneSound,
+  type DesktopNotificationMode,
 } from '@renderer/utils/taskDoneNotifier'
 
 // 通过组合式统一管理灵感助手偏好，方便在设置页与助手面板之间复用
@@ -54,10 +55,10 @@ const taskDoneSoundEnabled = computed({
   }
 })
 
-const taskDoneDesktopNotificationEnabled = computed({
-  get: () => prefs.taskDoneDesktopNotificationEnabled.value,
-  set: (val: boolean) => {
-    void setTaskDoneDesktopNotificationEnabled(val)
+const taskDoneDesktopNotificationMode = computed({
+  get: () => prefs.taskDoneDesktopNotificationMode.value,
+  set: (val: DesktopNotificationMode) => {
+    void setTaskDoneDesktopNotificationMode(val)
   }
 })
 
@@ -79,9 +80,13 @@ async function handleTestTaskDoneSound(): Promise<void> {
   }
 }
 
-async function setTaskDoneDesktopNotificationEnabled(val: boolean): Promise<void> {
-  prefs.setTaskDoneDesktopNotificationEnabled(val)
-  if (!val) return
+async function setTaskDoneDesktopNotificationMode(val: DesktopNotificationMode): Promise<void> {
+  if (val === 'none') {
+    prefs.setTaskDoneDesktopNotificationMode('none')
+    return
+  }
+
+  prefs.setTaskDoneDesktopNotificationMode(val)
 
   const permission = await requestTaskDoneNotificationPermission()
   if (permission === 'granted') {
@@ -89,7 +94,7 @@ async function setTaskDoneDesktopNotificationEnabled(val: boolean): Promise<void
     return
   }
 
-  prefs.setTaskDoneDesktopNotificationEnabled(false)
+  prefs.setTaskDoneDesktopNotificationMode('none')
   if (permission === 'denied') {
     ElMessage.warning('桌面通知权限已被系统或浏览器拒绝，请在系统/浏览器设置中允许通知。')
     return
@@ -235,13 +240,21 @@ async function setTaskDoneDesktopNotificationEnabled(val: boolean): Promise<void
             <el-button size="small" plain @click="handleTestTaskDoneSound">试听提示音</el-button>
           </div>
           <span class="field-hint reminder-hint"
-            >灵感助手、续写、润色、扩写、审阅完成时播放短提示音。</span
+            >灵感助手、续写、润色、扩写、审阅完成或失败时播放提示音（失败为降调音，便于区分）。</span
           >
         </div>
       </el-form-item>
-      <el-form-item label="任务完成后显示桌面通知">
-        <el-switch v-model="taskDoneDesktopNotificationEnabled" />
-        <span class="field-hint">任务完成时显示系统桌面通知，需要系统或浏览器允许通知权限。</span>
+      <el-form-item label="桌面通知策略">
+        <div class="reminder-control">
+          <el-radio-group v-model="taskDoneDesktopNotificationMode" size="small">
+            <el-radio-button label="none">关闭（不提示）</el-radio-button>
+            <el-radio-button label="failed_only">仅失败时提示</el-radio-button>
+            <el-radio-button label="all">完成和失败均提示</el-radio-button>
+          </el-radio-group>
+          <span class="field-hint reminder-hint">
+            灵感助手、续写、润色、扩写、审阅等任务的系统桌面通知触发策略（需要系统或浏览器允许通知权限）。
+          </span>
+        </div>
       </el-form-item>
     </el-form>
   </div>

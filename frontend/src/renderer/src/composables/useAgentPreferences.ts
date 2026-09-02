@@ -1,4 +1,5 @@
 import { ref, watch } from 'vue'
+import type { DesktopNotificationMode } from '@renderer/utils/taskDoneNotifier'
 
 const STORAGE_KEYS = {
   contextSummaryEnabled: 'nf:agent:ctx_summary_enabled',
@@ -10,6 +11,7 @@ const STORAGE_KEYS = {
   assistantFontSize: 'nf:agent:assistant_font_size',
   taskDoneSoundEnabled: 'nf:agent:task_done_sound_enabled',
   taskDoneDesktopNotificationEnabled: 'nf:agent:task_done_desktop_notification_enabled',
+  taskDoneDesktopNotificationMode: 'nf:agent:task_done_desktop_notification_mode',
 } as const
 
 const LEGACY_KEYS = {
@@ -22,6 +24,7 @@ const LEGACY_KEYS = {
   assistantFontSize: 'nf:assistant:font_size',
   taskDoneSoundEnabled: 'nf:assistant:task_done_sound_enabled',
   taskDoneDesktopNotificationEnabled: 'nf:assistant:task_done_desktop_notification_enabled',
+  taskDoneDesktopNotificationMode: 'nf:assistant:task_done_desktop_notification_mode',
 } as const
 
 const contextSummaryEnabled = ref(false)
@@ -34,6 +37,7 @@ const agentTimeout = ref<number | null>(90)
 const agentAssistantFontSize = ref<number>(16)
 const taskDoneSoundEnabled = ref(false)
 const taskDoneDesktopNotificationEnabled = ref(false)
+const taskDoneDesktopNotificationMode = ref<DesktopNotificationMode>('none')
 
 let initialized = false
 
@@ -50,6 +54,18 @@ function readBoolean(primaryKey: string, legacyKey: string, fallback: boolean): 
   const raw = readRaw(primaryKey) ?? readRaw(legacyKey)
   if (raw == null) return fallback
   return raw === '1' || raw === 'true'
+}
+
+function readDesktopNotificationMode(
+  primaryKey: string,
+  legacyKey: string,
+  fallbackEnabled: boolean,
+): DesktopNotificationMode {
+  const raw = readRaw(primaryKey) ?? readRaw(legacyKey)
+  if (raw === 'none' || raw === 'failed_only' || raw === 'all') {
+    return raw
+  }
+  return fallbackEnabled ? 'all' : 'none'
 }
 
 function readNumber(primaryKey: string, legacyKey: string, fallback: number | null): number | null {
@@ -78,6 +94,15 @@ function readClampedNumber(primaryKey: string, legacyKey: string, fallback: numb
   return Math.min(max, Math.max(min, Math.round(parsed)))
 }
 
+function persistString(primaryKey: string, legacyKey: string, value: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(primaryKey, value)
+    window.localStorage.setItem(legacyKey, value)
+  } catch {
+    /* noop */
+  }
+}
 
 function persistBoolean(primaryKey: string, legacyKey: string, value: boolean) {
   if (typeof window === 'undefined') return
@@ -136,11 +161,17 @@ function ensureInitialized() {
     LEGACY_KEYS.taskDoneSoundEnabled,
     false,
   )
-  taskDoneDesktopNotificationEnabled.value = readBoolean(
+  const legacyEnabled = readBoolean(
     STORAGE_KEYS.taskDoneDesktopNotificationEnabled,
     LEGACY_KEYS.taskDoneDesktopNotificationEnabled,
     false,
   )
+  taskDoneDesktopNotificationMode.value = readDesktopNotificationMode(
+    STORAGE_KEYS.taskDoneDesktopNotificationMode,
+    LEGACY_KEYS.taskDoneDesktopNotificationMode,
+    legacyEnabled,
+  )
+  taskDoneDesktopNotificationEnabled.value = taskDoneDesktopNotificationMode.value !== 'none'
 
   watch(contextSummaryEnabled, val => {
     persistBoolean(STORAGE_KEYS.contextSummaryEnabled, LEGACY_KEYS.contextSummaryEnabled, !!val)
@@ -188,11 +219,17 @@ function ensureInitialized() {
     persistBoolean(STORAGE_KEYS.taskDoneSoundEnabled, LEGACY_KEYS.taskDoneSoundEnabled, !!val)
   }, { immediate: true })
 
-  watch(taskDoneDesktopNotificationEnabled, val => {
+  watch(taskDoneDesktopNotificationMode, val => {
+    persistString(
+      STORAGE_KEYS.taskDoneDesktopNotificationMode,
+      LEGACY_KEYS.taskDoneDesktopNotificationMode,
+      val,
+    )
+    taskDoneDesktopNotificationEnabled.value = val !== 'none'
     persistBoolean(
       STORAGE_KEYS.taskDoneDesktopNotificationEnabled,
       LEGACY_KEYS.taskDoneDesktopNotificationEnabled,
-      !!val,
+      val !== 'none',
     )
   }, { immediate: true })
 }
@@ -234,7 +271,13 @@ export function useAgentPreferences() {
     taskDoneSoundEnabled.value = !!val
   }
 
+  function setTaskDoneDesktopNotificationMode(mode: DesktopNotificationMode): void {
+    taskDoneDesktopNotificationMode.value = mode
+    taskDoneDesktopNotificationEnabled.value = mode !== 'none'
+  }
+
   function setTaskDoneDesktopNotificationEnabled(val: boolean): void {
+    taskDoneDesktopNotificationMode.value = val ? 'all' : 'none'
     taskDoneDesktopNotificationEnabled.value = !!val
   }
 
@@ -247,7 +290,7 @@ export function useAgentPreferences() {
     setAgentTimeout(90)
     setAgentAssistantFontSize(16)
     setTaskDoneSoundEnabled(false)
-    setTaskDoneDesktopNotificationEnabled(false)
+    setTaskDoneDesktopNotificationMode('none')
   }
 
   return {
@@ -260,6 +303,7 @@ export function useAgentPreferences() {
     agentAssistantFontSize,
     taskDoneSoundEnabled,
     taskDoneDesktopNotificationEnabled,
+    taskDoneDesktopNotificationMode,
     setContextSummaryEnabled,
     setContextSummaryThreshold,
     setReactModeEnabled,
@@ -269,6 +313,7 @@ export function useAgentPreferences() {
     setAgentAssistantFontSize,
     setTaskDoneSoundEnabled,
     setTaskDoneDesktopNotificationEnabled,
+    setTaskDoneDesktopNotificationMode,
     resetAgentPreferences,
 
     // backward-compatible aliases

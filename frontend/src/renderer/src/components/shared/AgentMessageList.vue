@@ -74,7 +74,22 @@
               </div>
             </div>
 
-            <div v-if="msg.toolsInProgress" class="tools-in-progress">
+            <div v-if="msg.error" class="msg-error-card">
+              <div class="msg-error-head">
+                <span class="msg-error-title">生成失败</span>
+                <el-button
+                  v-if="msg.role === 'assistant' && !props.streaming"
+                  size="small"
+                  type="danger"
+                  plain
+                  :icon="RefreshRight"
+                  @click="emitRegenerateAssistant(idx)"
+                >重试</el-button>
+              </div>
+              <pre class="msg-error-detail">{{ msg.error }}</pre>
+            </div>
+
+            <div v-if="msg.toolsInProgress && !msg.error" class="tools-in-progress">
               <el-icon class="tools-icon spinning"><Loading /></el-icon>
               <pre class="tools-progress-text">{{ msg.toolsInProgress }}</pre>
             </div>
@@ -95,7 +110,7 @@
           v-if="msg.role === 'assistant' && shouldShowAssistantActions(msg, idx)"
           class="assistant-actions"
         >
-          <el-tooltip content="复制回复" placement="top">
+          <el-tooltip v-if="(msg.content || '').trim()" content="复制回复" placement="top">
             <el-button
               circle
               size="small"
@@ -103,7 +118,7 @@
               @click="emitCopyAssistant(idx)"
             />
           </el-tooltip>
-          <el-tooltip content="重新生成" placement="top">
+          <el-tooltip v-if="!msg.error" content="重新生成" placement="top">
             <el-button
               circle
               size="small"
@@ -288,8 +303,8 @@ function formatToolValue(value: unknown): string {
 
 function formatToolStatus(toolItem: any): string {
   const success = toolItem?.result?.success
-  if (success === true) return '✅ 成功'
-  if (success === false) return '❌ 失败'
+  if (success === true) return '成功'
+  if (success === false) return '失败'
   return '已执行'
 }
 
@@ -327,7 +342,9 @@ function isLatestAssistantIndex(index: number): boolean {
 function shouldShowAssistantActions(message: AgentChatMessage, index: number): boolean {
   if (!props.showAssistantActions) return false
   if (message.role !== 'assistant') return false
-  if (!(message.content || '').trim()) return false
+  // 失败的空回复也保留操作按钮（重新生成 = 一键重试）
+  const hasBody = !!(message.content || '').trim() || !!message.error
+  if (!hasBody) return false
   if (props.streaming && index === props.messages.length - 1) return false
   return !props.assistantActionsLatestOnly || isLatestAssistantIndex(index)
 }
@@ -594,6 +611,39 @@ defineExpose({
   padding: 6px 8px;
   border-radius: 8px;
   background: var(--el-fill-color-light);
+}
+
+.msg-error-card {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+
+.msg-error-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.msg-error-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-color-danger);
+}
+
+.msg-error-detail {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-regular);
 }
 
 .tools-icon {

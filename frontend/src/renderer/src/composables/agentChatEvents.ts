@@ -164,7 +164,7 @@ export function applyAgentStreamEvent(
       target.tools = target.tools || []
       target.tools.push({ tool_name: data.tool_name || 'tool', args: data.args })
     }
-    target.toolsInProgress = `⏳ 正在调用工具: ${data.tool_name || '工具'}...`
+    target.toolsInProgress = `正在调用工具: ${data.tool_name || '工具'}...`
     return
   }
 

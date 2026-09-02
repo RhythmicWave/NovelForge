@@ -146,7 +146,7 @@ export function applyAssistantStreamChunk(options: ApplyAssistantStreamChunkOpti
         msg._lastAssistantEvent = 'token'
       }
 
-      if (msg.toolsInProgress && !msg.toolsInProgress.includes('❌')) {
+      if (msg.toolsInProgress && !msg.toolsInProgress.includes('失败')) {
         schedule(() => {
           const latest = options.messages.value[options.targetIdx]
           if (!latest) return
@@ -251,18 +251,20 @@ export function applyAssistantStreamChunk(options: ApplyAssistantStreamChunkOpti
       const reason = data.reason || '工具调用失败'
       const current = data.current ?? data.retry
       const max = data.max
-      baseMessage.toolsInProgress = `🔄 工具调用失败，${reason}，正在重试 (${current}/${max})...`
+      baseMessage.toolsInProgress = `工具调用失败，${reason}，正在重试 (${current}/${max})...`
       options.scrollToBottom()
       return
     }
 
     if (type === 'error') {
-      const errMessage = data.error || '执行失败'
+      const errMessage = data.error || '生成失败'
       applyAgentStreamEvent(baseMessage as any, event as any, {
         trackToolStartInTools: false,
         appendErrorToContent: false,
       })
-      baseMessage.toolsInProgress = `❌ 工具调用失败: ${errMessage}`
+      // 后端所有异常（LLM 断连/超时/配额等）都走此事件，记录真实原因供错误卡片渲染
+      baseMessage.error = errMessage
+      baseMessage.toolsInProgress = undefined
       options.scrollToBottom()
       return
     }
@@ -319,4 +321,5 @@ export function resetAssistantMessageForRegenerate(message: AssistantPanelMessag
   message._hasReasoning = false
   message._reasoningUserToggled = undefined
   message._lastReasoningBucketKey = undefined
+  message.error = undefined
 }
