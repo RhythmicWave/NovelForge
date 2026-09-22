@@ -1420,7 +1420,7 @@ function resetToPreset() {
 }
 function getPresetForType(typeName?: string) : PerCardAIParams | undefined {
 	const map: Record<string, PerCardAIParams> = {
-		'章节大纲': { prompt_name: '章节大纲', llm_config_id: 1, temperature: 0.6, max_tokens: 4096, timeout: 60 },
+		'章节大纲': { prompt_name: '章节大纲', llm_config_id: 1, temperature: 0.6, max_tokens: 8192, timeout: 60 },
 		'内容生成': { prompt_name: '内容生成', llm_config_id: 1, temperature: 0.7, max_tokens: 8192, timeout: 60 },
 	}
 	return map[typeName || '']

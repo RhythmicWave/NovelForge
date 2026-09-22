@@ -84,7 +84,7 @@
                   plain
                   :icon="RefreshRight"
                   @click="emitRegenerateAssistant(idx)"
-                >重试</el-button>
+                >{{ msg.executionUnknown ? '确认重试' : '重试' }}</el-button>
               </div>
               <pre class="msg-error-detail">{{ msg.error }}</pre>
             </div>

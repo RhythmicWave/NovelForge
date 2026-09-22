@@ -35,7 +35,10 @@ async def workflow_agent_chat(
             yield chunk
 
     return StreamingResponse(
-        wrap_sse_stream(stream_with_tools()),
+        wrap_sse_stream(
+            stream_with_tools(),
+            emit_done=True,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

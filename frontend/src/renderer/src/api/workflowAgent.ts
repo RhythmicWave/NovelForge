@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './request'
 import request from './request'
-import { createSSEStreamingRequest } from './streaming'
+import { createSSEStreamingRequest, type SSECloseEvent } from './streaming'
 import type { components } from '@renderer/types/generated'
 
 
@@ -14,7 +14,7 @@ export type WorkflowPatchResponse = components['schemas']['WorkflowPatchResponse
 function createWorkflowAgentStreamingRequest(
   body: WorkflowAgentChatRequest,
   onEvent: (evt: any) => void,
-  onClose: () => void,
+  onClose: (event: SSECloseEvent) => void,
   onError?: (err: any) => void,
 ) {
   return createSSEStreamingRequest({
@@ -39,7 +39,7 @@ function createWorkflowAgentStreamingRequest(
 export function workflowAgentChatStreaming(
   body: WorkflowAgentChatRequest,
   onEvent: (evt: any) => void,
-  onClose: () => void,
+  onClose: (event: SSECloseEvent) => void,
   onError?: (err: any) => void,
 ) {
   return createWorkflowAgentStreamingRequest(body, onEvent, onClose, onError)

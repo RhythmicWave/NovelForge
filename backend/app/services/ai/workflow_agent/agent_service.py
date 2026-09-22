@@ -276,9 +276,9 @@ async def generate_workflow_agent_chat_streaming(
             yield json.dumps(evt, ensure_ascii=False)
     except asyncio.CancelledError:
         logger.info("[WorkflowAgent] cancelled")
-        return
+        raise
     except Exception as exc:
         logger.error("[WorkflowAgent] streaming failed: {}", exc)
         error_event = {"type": "error", "data": {"error": str(exc)}}
         yield json.dumps(error_event, ensure_ascii=False)
-        return
+        raise

@@ -17,6 +17,10 @@ from app.services.ai.core.react_text_agent import build_react_user_prompt, parse
 
 DEFAULT_USER_AGENT = "NovelForge/1.0"
 REPAIR_USER_AGENT_CANDIDATES = ("NovelForge/1.0", "Mozilla/5.0", "CherryStudio/1.0")
+# Thinking models count reasoning tokens against max_tokens. 64 tokens can end
+# before a short visible answer is produced, which makes a healthy model look
+# like an empty-response failure during the probe.
+CAPABILITY_PROBE_MAX_TOKENS = 1024
 TEST_NAMES = (
     "models_list",
     "basic_chat",
@@ -138,7 +142,7 @@ def _payload_kwargs(request: LLMCapabilityTestRequest, *, user_agent: str | None
         "custom_request_path": request.custom_request_path,
         "user_agent": user_agent if user_agent is not None else request.user_agent,
         "temperature": 0,
-        "max_tokens": 64,
+        "max_tokens": CAPABILITY_PROBE_MAX_TOKENS,
         "timeout": 20,
     }
 
@@ -239,6 +243,16 @@ async def _probe_structured(request: LLMCapabilityTestRequest, *, user_agent: st
             raise ValueError("Empty structured response")
         return ProbeResult(status="pass", message="Structured output returned a valid object")
     except Exception as exc:
+        error_text = str(exc or "")
+        if "thinking mode" in error_text.lower() and "tool_choice" in error_text.lower():
+            return ProbeResult(
+                status="fail",
+                message=(
+                    "Thinking 模式不支持结构化输出探测所需的强制 tool_choice；"
+                    "如需结构化输出，请关闭 Thinking 或改用 JSON 模式。"
+                ),
+                error_type="tools_unsupported",
+            )
         return _result_from_exception(exc, request.api_key)
 
 

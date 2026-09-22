@@ -2,8 +2,15 @@
   endpoint: string
   body: any
   onMessage: (payload: any) => void
-  onClose: () => void
+  onClose: (event: SSECloseEvent) => void
   onError?: (err: any) => void
+}
+
+export type SSECloseReason = 'done' | 'error' | 'eof' | 'aborted'
+
+export interface SSECloseEvent {
+  reason: SSECloseReason
+  terminalType?: string
 }
 
 function extractErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -29,6 +36,64 @@ export function createSSEStreamingRequest(params: SSERequestParams) {
   const { endpoint, body, onMessage, onClose, onError } = params
   const controller = new AbortController()
   const signal = controller.signal
+  let terminalType: string | null = null
+  let closeNotified = false
+
+  function inspectTerminalPayload(payload: any): void {
+    const candidates: any[] = [payload]
+    if (typeof payload?.content === 'string') {
+      try {
+        candidates.push(JSON.parse(payload.content))
+      } catch {
+        // Plain text chunks are not protocol events.
+      }
+    }
+
+    for (const candidate of candidates) {
+      const type = candidate && typeof candidate.type === 'string' ? candidate.type : ''
+      if (type === 'done' || type === 'error' || type === 'cancelled') {
+        terminalType = type
+        return
+      }
+    }
+  }
+
+  function notifyClose(reason: SSECloseReason): void {
+    if (closeNotified) return
+    closeNotified = true
+    const effectiveReason = terminalType === 'done' && reason === 'aborted' ? 'done' : reason
+    onClose({ reason: effectiveReason, terminalType: terminalType || undefined })
+  }
+
+  function handleTransportError(error: any): void {
+    // 一旦收到协议终止事件，后续 reader 错误只反映连接收尾过程，不能
+    // 覆盖已经确定的业务结果。
+    if (terminalType === 'done') {
+      notifyClose('done')
+      return
+    }
+    if (terminalType === 'error' || terminalType === 'cancelled') {
+      notifyClose('error')
+      return
+    }
+    if (!closeNotified) onError?.(error)
+  }
+
+  function dispatchEventBlock(eventBlock: string): void {
+    const lines = eventBlock.split(/\r?\n/).map(line => line.trim())
+    const dataLines = lines
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+    if (!dataLines.length) return
+
+    try {
+      const payload = JSON.parse(dataLines.join(''))
+      inspectTerminalPayload(payload)
+      onMessage(payload)
+    } catch {
+      // Ignore malformed SSE frames and keep reading the connection.
+    }
+  }
 
   fetch(endpoint, {
     method: 'POST',
@@ -55,46 +120,46 @@ export function createSSEStreamingRequest(params: SSERequestParams) {
     function pump() {
       reader.read().then(({ done, value }) => {
         if (done) {
-          onClose()
+          buffer += decoder.decode()
+          if (buffer.trim()) {
+            dispatchEventBlock(buffer)
+            buffer = ''
+          }
+          if (terminalType === 'done') {
+            notifyClose('done')
+          } else if (terminalType === 'error' || terminalType === 'cancelled') {
+            notifyClose('error')
+          } else {
+            notifyClose('eof')
+          }
           return
         }
 
         buffer += decoder.decode(value, { stream: true })
-        const events = buffer.split('\n\n')
+        const events = buffer.split(/\r?\n\r?\n/)
         buffer = events.pop() || ''
 
         for (const evt of events) {
-          const lines = evt.split('\n').map(line => line.trim())
-          const dataLines = lines
-            .filter(line => line.startsWith('data: '))
-            .map(line => line.slice(6))
-          if (!dataLines.length) continue
-
-          try {
-            const payload = JSON.parse(dataLines.join(''))
-            onMessage(payload)
-          } catch {
-            // ignore malformed chunk
-          }
+          dispatchEventBlock(evt)
         }
 
         pump()
       }).catch(error => {
         if (error?.name === 'AbortError') {
-          onClose()
+          notifyClose('aborted')
           return
         }
-        onError?.(error)
+        handleTransportError(error)
       })
     }
 
     pump()
   }).catch(error => {
     if (error?.name === 'AbortError') {
-      onClose()
+      notifyClose('aborted')
       return
     }
-    onError?.(error)
+    handleTransportError(error)
   })
 
   return {

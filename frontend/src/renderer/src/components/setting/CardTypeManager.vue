@@ -125,7 +125,7 @@ const form = ref<any>({ name: '', description: '', is_ai_enabled: true, is_singl
 const uiLayoutText = ref('')
 // AI 参数与可选项
 const aiParams = ref<{ llm_config_id?: number; prompt_name?: string; temperature?: number; max_tokens?: number; timeout?: number }>({})
-const defaultAIParams = { temperature: 0.7, max_tokens: 1024, timeout: 60 }
+const defaultAIParams = { temperature: 0.7, max_tokens: 8192, timeout: 60 }
 const llmConfigs = ref<any[]>([])
 const prompts = ref<any[]>([])
 
@@ -205,4 +205,4 @@ watch(() => form.value.is_ai_enabled, (v) => {
 .hint { color: var(--el-text-color-secondary); }
 .ai-section-title { font-weight: 600; color: var(--el-text-color-regular); margin-top: 4px; }
 .ai-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-</style> 
+</style>

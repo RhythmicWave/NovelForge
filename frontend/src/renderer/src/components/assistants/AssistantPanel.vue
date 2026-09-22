@@ -223,9 +223,10 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { generateContinuationStreaming, renderPromptWithKnowledge } from '@renderer/api/ai'
+import type { SSECloseEvent } from '@renderer/api/streaming'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
 import { Plus, Promotion, ChatDotRound, Delete, Clock, Document, Close, VideoPause } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AgentMessageList from '@/components/shared/AgentMessageList.vue'
 import AgentComposer from '@/components/shared/AgentComposer.vue'
 import { useAssistantStore } from '@renderer/stores/useAssistantStore'
@@ -249,11 +250,15 @@ const messages = ref<AssistantPanelMessage[]>([])
 const draft = ref('')
 const isStreaming = ref(false)
 let streamCtl: { cancel: () => void } | null = null
-let streamCanceled = false
-// 本次流是否已失败（收到 error 事件 / onError / 看门狗超时），用于 onClose 时区分"完成/失败"通知
+let streamRunSequence = 0
+let activeStreamRunId: number | null = null
+type StreamLifecycle = 'idle' | 'running' | 'user_cancelled' | 'watchdog_timeout' | 'failed' | 'completed'
+let streamLifecycle: StreamLifecycle = 'idle'
+// 本次流是否已失败（收到 error 事件 / onError / 看门狗超时），用于关闭时保留更具体的原因
 let streamFailedReason: string | null = null
-// 流停滞看门狗：超时未收到任何 chunk 则主动中止。阈值跟随助手超时设置（慢速思考模型需要更长时间）
-const STREAM_STALL_MIN_TIMEOUT_MS = 120_000
+// 只定义“连续无协议事件”的兜底阈值，与 provider 单次 timeout / 重试预算相互独立。
+// 默认 provider timeout 90 秒、连接重试 2 次时，5 分钟可覆盖完整预算与退避。
+const STREAM_IDLE_TIMEOUT_MS = 300_000
 let streamStallTimer: ReturnType<typeof setTimeout> | null = null
 const { messageListRef, scrollToBottom } = useMessageListScroll()
 
@@ -448,79 +453,115 @@ const { buildConversationText, buildAssistantChatRequest } = useAssistantRequest
   },
 })
 
-function streamStallTimeoutMs(): number {
-  const configured = assistantPrefs.assistantTimeout.value
-  const configuredMs = configured && configured > 0 ? configured * 1000 : 0
-  return Math.max(STREAM_STALL_MIN_TIMEOUT_MS, configuredMs)
+function isCurrentStreamRun(runId: number): boolean {
+  return activeStreamRunId === runId
 }
 
-function armStreamStallWatchdog(targetIdx: number): void {
-  disarmStreamStallWatchdog()
+function armStreamIdleWatchdog(targetIdx: number, runId: number): void {
+  disarmStreamIdleWatchdog()
   streamStallTimer = setTimeout(() => {
     streamStallTimer = null
-    if (!isStreaming.value) return
-    // 先捕获句柄：handleStreamFailure 会置空 streamCtl，之后再取消就取不到了
+    if (!isCurrentStreamRun(runId) || !isStreaming.value) return
+
+    // 先捕获句柄：handleStreamFailure 会使当前 run 失效，之后再取消就取不到了。
     const ctl = streamCtl
-    // 标记为已取消：abort 触发的 onClose 走"用户取消"分支，避免重复失败通知
-    streamCanceled = true
-    const stallSeconds = Math.round(streamStallTimeoutMs() / 1000)
-    handleStreamFailure(targetIdx, `生成停滞（${stallSeconds}秒无任何输出），已自动中止。可能是模型服务无响应或网络中断。`)
+    streamLifecycle = 'watchdog_timeout'
+    handleStreamFailure(
+      targetIdx,
+      `生成停滞（${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}秒无协议事件），已自动中止。可能是模型服务无响应或网络中断。`,
+      runId,
+      'watchdog_timeout',
+    )
     try { ctl?.cancel() } catch {}
-  }, streamStallTimeoutMs())
+  }, STREAM_IDLE_TIMEOUT_MS)
 }
 
-function disarmStreamStallWatchdog(): void {
+function disarmStreamIdleWatchdog(): void {
   if (streamStallTimer) {
     clearTimeout(streamStallTimer)
     streamStallTimer = null
   }
 }
 
-function handleStreamFailure(targetIdx: number, reason: string): void {
-  // 已记录的原因优先：后端 error 事件携带的信息比前端网络错误更具体
+function handleStreamFailure(
+  targetIdx: number,
+  reason: string,
+  runId = activeStreamRunId,
+  lifecycle: StreamLifecycle = 'failed',
+): void {
+  if (runId === null || !isCurrentStreamRun(runId)) return
+
+  // 已记录的原因优先：后端 error 事件携带的信息比网络错误更具体。
   const effectiveReason = streamFailedReason ?? reason
   streamFailedReason = effectiveReason
-  disarmStreamStallWatchdog()
+  disarmStreamIdleWatchdog()
 
   const msg = messages.value[targetIdx]
+  const hasToolActivity = Boolean(msg?.toolExecutionStarted)
+  const unknownSuffix = '本轮已开始工具操作，执行结果未知；请先检查相关卡片，再确认是否重试。'
+  const displayReason = hasToolActivity ? `${effectiveReason}\n\n${unknownSuffix}` : effectiveReason
   if (msg && msg.role === 'assistant') {
-    msg.error = msg.error || effectiveReason
+    msg.error = msg.error || displayReason
+    if (hasToolActivity && !msg.error.includes('执行结果未知')) {
+      msg.error = `${msg.error}\n\n${unknownSuffix}`
+    }
+    msg.executionUnknown = hasToolActivity
+    msg.streamStatus = 'failed'
     msg.toolsInProgress = undefined
   }
+
   isStreaming.value = false
+  streamLifecycle = lifecycle
+  activeStreamRunId = null
   streamCtl = null
 
   saveCurrentSession()
-  notifyAssistantFailed(effectiveReason)
+  notifyAssistantFailed(msg?.error || displayReason)
+  ElMessage.error(effectiveReason)
 }
 
 async function startStreaming(targetIdx: number) {
+  const runId = ++streamRunSequence
+  activeStreamRunId = runId
+  streamLifecycle = 'running'
   isStreaming.value = true
-  streamCanceled = false
   streamFailedReason = null
+  const startingMessage = messages.value[targetIdx]
+  if (startingMessage?.role === 'assistant') {
+    startingMessage.streamStatus = 'running'
+  }
+
+  const stopBeforeRequest = () => {
+    if (!isCurrentStreamRun(runId)) return
+    activeStreamRunId = null
+    streamLifecycle = 'failed'
+    isStreaming.value = false
+  }
 
   const hasChapterExcerptRefs = assistantStore.injectedRefs.some(ref => ref.refType === 'chapter_excerpt')
   if (hasChapterExcerptRefs) {
     try {
       const persisted = await editorStore.persistActiveChapterDraft()
       if (!persisted) {
-        isStreaming.value = false
+        stopBeforeRequest()
         return
       }
     } catch (error) {
       console.error('Failed to persist active chapter draft before assistant run:', error)
       ElMessage.error('正文保存失败，请先保存章节后重试')
-      isStreaming.value = false
+      stopBeforeRequest()
       return
     }
   }
+
+  if (!isCurrentStreamRun(runId)) return
 
   const chatRequest = buildAssistantChatRequest()
   const promptName = props.promptName?.trim() || '灵感对话'
   const requestTemperature = assistantPrefs.assistantTemperature.value
 
-  // 请求发出即武装看门狗，覆盖 fetch 建连与后端组装首 chunk 的等待期
-  armStreamStallWatchdog(targetIdx)
+  // 请求发出即武装协议空闲看门狗，覆盖 fetch 建连与首个协议事件等待期。
+  armStreamIdleWatchdog(targetIdx, runId)
   streamCtl = generateContinuationStreaming({
     ...chatRequest,
     llm_config_id: overrideLlmId.value || undefined,
@@ -530,8 +571,9 @@ async function startStreaming(targetIdx: number) {
     stream: true,
     thinking_enabled: useThinkingMode.value
   } as any, (chunk) => {
-    // 收到任何 chunk（token/reasoning/tool 事件）即重置停滞看门狗
-    armStreamStallWatchdog(targetIdx)
+    if (!isCurrentStreamRun(runId)) return
+    // 收到任意协议事件即重置空闲看门狗。
+    armStreamIdleWatchdog(targetIdx, runId)
     applyAssistantStreamChunk({
       messages,
       targetIdx,
@@ -547,14 +589,28 @@ async function startStreaming(targetIdx: number) {
     if (streamedMsg?.error && streamFailedReason === null) {
       streamFailedReason = streamedMsg.error
     }
-  }, () => {
-    const wasCanceled = streamCanceled
-    const failedReason = streamFailedReason
-    streamCanceled = false
+  }, (closeEvent: SSECloseEvent) => {
+    if (!isCurrentStreamRun(runId)) return
+    disarmStreamIdleWatchdog()
+
+    if (closeEvent?.reason !== 'done') {
+      const reason = closeEvent?.reason === 'eof'
+        ? '连接异常中断：服务端未发送完成事件。'
+        : (streamFailedReason || '生成未正常完成。')
+      handleStreamFailure(targetIdx, reason, runId)
+      return
+    }
+
+    const completedMessage = messages.value[targetIdx]
+    streamLifecycle = 'completed'
     streamFailedReason = null
-    disarmStreamStallWatchdog()
     isStreaming.value = false
+    activeStreamRunId = null
     streamCtl = null
+    if (completedMessage?.role === 'assistant') {
+      completedMessage.streamStatus = 'completed'
+      completedMessage.executionUnknown = false
+    }
 
     if (messages.value[targetIdx]?.toolsInProgress) {
       nextTick(() => {
@@ -567,20 +623,13 @@ async function startStreaming(targetIdx: number) {
     if (messages.value.length > 0) {
       saveCurrentSession()
     }
-    if (!wasCanceled) {
-      if (failedReason) {
-        // 后端异常路径：先收到 error 事件再关闭连接，此前会被误报为"完成"
-        notifyAssistantFailed(failedReason)
-      } else {
-        nfFlushAssistantTextPatchBatches(targetIdx)
-        nfMaybeDispatchTextPatchBatchFromMessage(targetIdx)
-        notifyAssistantDone()
-      }
-    }
+    nfFlushAssistantTextPatchBatches(targetIdx)
+    nfMaybeDispatchTextPatchBatchFromMessage(targetIdx)
+    notifyAssistantDone()
   }, (err) => {
+    if (!isCurrentStreamRun(runId)) return
     const reason = err?.message || '生成失败'
-    handleStreamFailure(targetIdx, reason)
-    ElMessage.error(reason)
+    handleStreamFailure(targetIdx, reason, runId)
   }) as any
 }
 
@@ -601,19 +650,30 @@ function handleSend() {
 }
 
 function handleCancel() {
-  if (streamCtl) streamCanceled = true
-  // 用户主动取消不算失败：解除看门狗并标记已取消，避免 onClose 误判
-  disarmStreamStallWatchdog()
+  const runId = activeStreamRunId
+  const ctl = streamCtl
+  if (runId === null) return
+
+  // 先使当前 run 失效，再 abort；迟到的 onData/onClose 会被统一忽略。
+  streamLifecycle = 'user_cancelled'
+  disarmStreamIdleWatchdog()
+  activeStreamRunId = null
+  streamCtl = null
   streamFailedReason = null
-  try { streamCtl?.cancel() } catch {}
   isStreaming.value = false
 
-  // 清除所有消息中的工具调用进度提示
-  messages.value.forEach(msg => {
-    if (msg.toolsInProgress) {
-      msg.toolsInProgress = undefined
+  const targetIdx = lastRun.value?.targetIdx
+  const msg = targetIdx === undefined ? undefined : messages.value[targetIdx]
+  if (msg?.role === 'assistant') {
+    msg.streamStatus = 'cancelled'
+    msg.toolsInProgress = undefined
+    if (msg.toolExecutionStarted) {
+      msg.executionUnknown = true
+      msg.error = '本轮已取消；工具执行结果未知，请先检查相关卡片，再确认是否重试。'
     }
-  })
+  }
+  saveCurrentSession()
+  try { ctl?.cancel() } catch {}
 }
 
 function handlePrimaryAction() {
@@ -650,10 +710,27 @@ function handleCopyUserAt(index: number) {
   })
 }
 
-function handleRegenerateAt(index: number) {
+async function regenerateAssistantAt(index: number): Promise<void> {
   if (isStreaming.value) return
   if (index < 0 || index >= messages.value.length) return
-  if (messages.value[index]?.role !== 'assistant') return
+  const current = messages.value[index]
+  if (current?.role !== 'assistant') return
+
+  if (current.executionUnknown) {
+    try {
+      await ElMessageBox.confirm(
+        '本轮已经开始工具操作，结果可能已经生效。确认重试可能重复创建或修改卡片。',
+        '执行结果未知',
+        {
+          type: 'warning',
+          confirmButtonText: '确认重试',
+          cancelButtonText: '取消',
+        },
+      )
+    } catch {
+      return
+    }
+  }
 
   messages.value = messages.value.slice(0, index + 1)
   const target = messages.value[index]
@@ -662,6 +739,10 @@ function handleRegenerateAt(index: number) {
   lastRun.value = { prev: '', tail: '', targetIdx: index }
   scrollToBottom()
   startStreaming(index)
+}
+
+function handleRegenerateAt(index: number): void {
+  void regenerateAssistantAt(index)
 }
 
 function handleDeleteAssistantAt(index: number) {
@@ -701,15 +782,18 @@ function deleteMessageAt(index: number) {
   saveCurrentSession()
 }
 
-function handleRegenerate() { if (!canRegenerate.value || !lastRun.value) return; messages.value[lastRun.value.targetIdx].content = ''; scrollToBottom(); startStreaming(lastRun.value.targetIdx) }
+function handleRegenerate() {
+  if (!canRegenerate.value || !lastRun.value) return
+  void regenerateAssistantAt(lastRun.value.targetIdx)
+}
 function regenerateFromCurrent() {
   if (isStreaming.value) return
   const lastIndex = messages.value.length - 1
   const lastIsAssistant = lastIndex >= 0 && messages.value[lastIndex].role === 'assistant'
   let targetIdx: number
   if (lastIsAssistant) {
-    resetAssistantMessageForRegenerate(messages.value[lastIndex])
-    targetIdx = lastIndex
+    void regenerateAssistantAt(lastIndex)
+    return
   } else {
     targetIdx = messages.value.push({ role: 'assistant', content: '' }) - 1
   }
@@ -1076,7 +1160,10 @@ onBeforeUnmount(() => {
     clearTimeout(saveDebounceTimer)
     saveDebounceTimer = null
   }
-  disarmStreamStallWatchdog()
+  disarmStreamIdleWatchdog()
+  activeStreamRunId = null
+  try { streamCtl?.cancel() } catch {}
+  streamCtl = null
 })
 </script>
 

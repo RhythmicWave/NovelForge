@@ -159,6 +159,7 @@ export function applyAssistantStreamChunk(options: ApplyAssistantStreamChunkOpti
     }
 
     if (type === 'tool_start') {
+      baseMessage.toolExecutionStarted = true
       applyAgentStreamEvent(baseMessage as any, event as any, {
         trackToolStartInTools: false,
         appendErrorToContent: false,
@@ -174,6 +175,7 @@ export function applyAssistantStreamChunk(options: ApplyAssistantStreamChunkOpti
         result: data.result,
       }
       const msg = options.messages.value[options.targetIdx]
+      msg.toolExecutionStarted = true
       applyAgentStreamEvent(msg as any, event as any, {
         trackToolStartInTools: false,
         appendErrorToContent: false,
@@ -203,6 +205,7 @@ export function applyAssistantStreamChunk(options: ApplyAssistantStreamChunkOpti
     if (type === 'tool_summary') {
       const tools = Array.isArray(data.tools) ? (data.tools as AssistantToolResult[]) : []
       if (tools.length) {
+        baseMessage.toolExecutionStarted = true
         options.onToolsExecuted?.(tools)
       }
       baseMessage.toolsInProgress = undefined
@@ -322,4 +325,7 @@ export function resetAssistantMessageForRegenerate(message: AssistantPanelMessag
   message._reasoningUserToggled = undefined
   message._lastReasoningBucketKey = undefined
   message.error = undefined
+  message.toolExecutionStarted = undefined
+  message.executionUnknown = undefined
+  message.streamStatus = 'running'
 }

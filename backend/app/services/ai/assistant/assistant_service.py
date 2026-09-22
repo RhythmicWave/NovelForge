@@ -189,6 +189,7 @@ async def stream_chat_with_react(
         temperature=request.temperature,
         max_tokens=request.max_tokens,
         timeout=request.timeout,
+        max_retries=LLM_CONNECT_MAX_RETRIES,
         thinking_enabled=getattr(request, "thinking_enabled", None),
         max_steps=MAX_REACT_STEPS,
         protocol_instructions=ASSISTANT_REACT_PROTOCOL_INSTRUCTIONS,
@@ -230,6 +231,7 @@ async def stream_chat_with_tools(
         temperature=request.temperature or 0.6,
         max_tokens=16384 if request.max_tokens is None else request.max_tokens,
         timeout=request.timeout or 90,
+        max_retries=LLM_CONNECT_MAX_RETRIES,
         thinking_enabled=getattr(request, "thinking_enabled", None),
         enable_summarization=bool(enable_summarization),
         max_tokens_before_summary=max_tokens_before_summary,
@@ -305,7 +307,7 @@ async def generate_assistant_chat_streaming(
             )
     except asyncio.CancelledError:
         logger.info("[LangChain] 助手调用被取消（CancelledError）")
-        return
+        raise
     except Exception as exc:
         logger.error("[LangChain] 灵感助手生成失败: {}", exc)
         error_event = {

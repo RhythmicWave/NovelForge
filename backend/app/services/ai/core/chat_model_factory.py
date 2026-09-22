@@ -134,6 +134,8 @@ def build_chat_model_from_payload(
             model_kwargs["temperature"] = common_kwargs["temperature"]
         if common_kwargs.get("timeout") is not None:
             model_kwargs["timeout"] = common_kwargs["timeout"]
+        if common_kwargs.get("max_retries") is not None:
+            model_kwargs["max_retries"] = common_kwargs["max_retries"]
         return ChatGoogleGenerativeAI(**model_kwargs)
 
     raise ValueError(f"不支持的 LLM 提供商: {provider}")
