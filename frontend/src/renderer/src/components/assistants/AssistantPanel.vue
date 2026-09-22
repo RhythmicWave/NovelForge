@@ -239,7 +239,7 @@ import { useAssistantRequestBuilder } from '@renderer/composables/useAssistantRe
 import { applyAssistantStreamChunk, resetAssistantMessageForRegenerate } from '@renderer/composables/useAssistantStreamMessageOps'
 import { useEnterToSend } from '@renderer/composables/useEnterToSend'
 import { useMessageListScroll } from '@renderer/composables/useMessageListScroll'
-import { notifyTaskDone } from '@renderer/utils/taskDoneNotifier'
+import { notifyTaskDone, notifyTaskFailed } from '@renderer/utils/taskDoneNotifier'
 import type { AssistantChatSession, AssistantPanelMessage } from '@renderer/types/assistantPanel'
 import type { AssistantRef } from '@renderer/api/ai'
 
@@ -250,6 +250,11 @@ const draft = ref('')
 const isStreaming = ref(false)
 let streamCtl: { cancel: () => void } | null = null
 let streamCanceled = false
+// 本次流是否已失败（收到 error 事件 / onError / 看门狗超时），用于 onClose 时区分"完成/失败"通知
+let streamFailedReason: string | null = null
+// 流停滞看门狗：超时未收到任何 chunk 则主动中止。阈值跟随助手超时设置（慢速思考模型需要更长时间）
+const STREAM_STALL_MIN_TIMEOUT_MS = 120_000
+let streamStallTimer: ReturnType<typeof setTimeout> | null = null
 const { messageListRef, scrollToBottom } = useMessageListScroll()
 
 // ---- 多卡片数据引用（跨项目，使用 Pinia） ----
@@ -378,13 +383,20 @@ const assistantPanelStyle = computed(() => ({
   '--nf-assistant-line-height': '1.65',
 }))
 
-function notifyAssistantDone(): void {
-  notifyTaskDone({
-    title: '灵感助手完成',
-    body: '助手回复已生成。',
+function buildNotifyOptions() {
+  return {
     soundEnabled: assistantPrefs.taskDoneSoundEnabled.value,
     desktopNotificationEnabled: assistantPrefs.taskDoneDesktopNotificationEnabled.value,
-  })
+    desktopNotificationMode: assistantPrefs.taskDoneDesktopNotificationMode.value,
+  }
+}
+
+function notifyAssistantDone(): void {
+  notifyTaskDone({ title: '灵感助手完成', body: '助手回复已生成。', ...buildNotifyOptions() })
+}
+
+function notifyAssistantFailed(reason: string): void {
+  notifyTaskFailed({ title: '灵感助手生成失败', body: reason || '生成中断，请重试。', ...buildNotifyOptions() })
 }
 const injectionSelector = useAssistantInjectionSelector({
   assistantStore,
@@ -436,9 +448,56 @@ const { buildConversationText, buildAssistantChatRequest } = useAssistantRequest
   },
 })
 
+function streamStallTimeoutMs(): number {
+  const configured = assistantPrefs.assistantTimeout.value
+  const configuredMs = configured && configured > 0 ? configured * 1000 : 0
+  return Math.max(STREAM_STALL_MIN_TIMEOUT_MS, configuredMs)
+}
+
+function armStreamStallWatchdog(targetIdx: number): void {
+  disarmStreamStallWatchdog()
+  streamStallTimer = setTimeout(() => {
+    streamStallTimer = null
+    if (!isStreaming.value) return
+    // 先捕获句柄：handleStreamFailure 会置空 streamCtl，之后再取消就取不到了
+    const ctl = streamCtl
+    // 标记为已取消：abort 触发的 onClose 走"用户取消"分支，避免重复失败通知
+    streamCanceled = true
+    const stallSeconds = Math.round(streamStallTimeoutMs() / 1000)
+    handleStreamFailure(targetIdx, `生成停滞（${stallSeconds}秒无任何输出），已自动中止。可能是模型服务无响应或网络中断。`)
+    try { ctl?.cancel() } catch {}
+  }, streamStallTimeoutMs())
+}
+
+function disarmStreamStallWatchdog(): void {
+  if (streamStallTimer) {
+    clearTimeout(streamStallTimer)
+    streamStallTimer = null
+  }
+}
+
+function handleStreamFailure(targetIdx: number, reason: string): void {
+  // 已记录的原因优先：后端 error 事件携带的信息比前端网络错误更具体
+  const effectiveReason = streamFailedReason ?? reason
+  streamFailedReason = effectiveReason
+  disarmStreamStallWatchdog()
+
+  const msg = messages.value[targetIdx]
+  if (msg && msg.role === 'assistant') {
+    msg.error = msg.error || effectiveReason
+    msg.toolsInProgress = undefined
+  }
+  isStreaming.value = false
+  streamCtl = null
+
+  saveCurrentSession()
+  notifyAssistantFailed(effectiveReason)
+}
+
 async function startStreaming(targetIdx: number) {
   isStreaming.value = true
   streamCanceled = false
+  streamFailedReason = null
 
   const hasChapterExcerptRefs = assistantStore.injectedRefs.some(ref => ref.refType === 'chapter_excerpt')
   if (hasChapterExcerptRefs) {
@@ -460,6 +519,8 @@ async function startStreaming(targetIdx: number) {
   const promptName = props.promptName?.trim() || '灵感对话'
   const requestTemperature = assistantPrefs.assistantTemperature.value
 
+  // 请求发出即武装看门狗，覆盖 fetch 建连与后端组装首 chunk 的等待期
+  armStreamStallWatchdog(targetIdx)
   streamCtl = generateContinuationStreaming({
     ...chatRequest,
     llm_config_id: overrideLlmId.value || undefined,
@@ -469,6 +530,8 @@ async function startStreaming(targetIdx: number) {
     stream: true,
     thinking_enabled: useThinkingMode.value
   } as any, (chunk) => {
+    // 收到任何 chunk（token/reasoning/tool 事件）即重置停滞看门狗
+    armStreamStallWatchdog(targetIdx)
     applyAssistantStreamChunk({
       messages,
       targetIdx,
@@ -479,14 +542,21 @@ async function startStreaming(targetIdx: number) {
       schedule: callback => nextTick(callback),
       onToolsExecuted: tools => handleToolsExecuted(targetIdx, tools),
     })
+    // 后端异常走 error 事件（onData 路径）：记录失败原因，onClose 时据此改发失败通知
+    const streamedMsg = messages.value[targetIdx]
+    if (streamedMsg?.error && streamFailedReason === null) {
+      streamFailedReason = streamedMsg.error
+    }
   }, () => {
     const wasCanceled = streamCanceled
+    const failedReason = streamFailedReason
     streamCanceled = false
+    streamFailedReason = null
+    disarmStreamStallWatchdog()
     isStreaming.value = false
     streamCtl = null
 
-    if (messages.value[targetIdx]?.toolsInProgress && 
-        !messages.value[targetIdx].toolsInProgress.includes('❌')) {
+    if (messages.value[targetIdx]?.toolsInProgress) {
       nextTick(() => {
         if (messages.value[targetIdx]) {
           messages.value[targetIdx].toolsInProgress = undefined
@@ -498,18 +568,19 @@ async function startStreaming(targetIdx: number) {
       saveCurrentSession()
     }
     if (!wasCanceled) {
-      nfFlushAssistantTextPatchBatches(targetIdx)
-      nfMaybeDispatchTextPatchBatchFromMessage(targetIdx)
-      notifyAssistantDone()
+      if (failedReason) {
+        // 后端异常路径：先收到 error 事件再关闭连接，此前会被误报为"完成"
+        notifyAssistantFailed(failedReason)
+      } else {
+        nfFlushAssistantTextPatchBatches(targetIdx)
+        nfMaybeDispatchTextPatchBatchFromMessage(targetIdx)
+        notifyAssistantDone()
+      }
     }
-  }, (err) => { 
-    streamCanceled = false
-    if (messages.value[targetIdx]) {
-      messages.value[targetIdx].toolsInProgress = undefined
-    }
-    ElMessage.error(err?.message || '生成失败')
-    isStreaming.value = false
-    streamCtl = null 
+  }, (err) => {
+    const reason = err?.message || '生成失败'
+    handleStreamFailure(targetIdx, reason)
+    ElMessage.error(reason)
   }) as any
 }
 
@@ -529,8 +600,11 @@ function handleSend() {
   startStreaming(assistantIdx)
 }
 
-function handleCancel() { 
+function handleCancel() {
   if (streamCtl) streamCanceled = true
+  // 用户主动取消不算失败：解除看门狗并标记已取消，避免 onClose 误判
+  disarmStreamStallWatchdog()
+  streamFailedReason = null
   try { streamCtl?.cancel() } catch {}
   isStreaming.value = false
 
@@ -969,7 +1043,7 @@ function handleToolsExecuted(targetIdx: number, tools: Array<{tool_name: string,
   // 显示通知
   const successTools = tools.filter(t => t.result?.success)
   if (successTools.length > 0) {
-    ElMessage.success(`✅ 已执行 ${successTools.length} 个操作`)
+    ElMessage.success(`已执行 ${successTools.length} 个操作`)
   }
 
   const failedTools = tools.filter(t => t.result?.success === false || t.result?.error)
@@ -1002,6 +1076,7 @@ onBeforeUnmount(() => {
     clearTimeout(saveDebounceTimer)
     saveDebounceTimer = null
   }
+  disarmStreamStallWatchdog()
 })
 </script>
 

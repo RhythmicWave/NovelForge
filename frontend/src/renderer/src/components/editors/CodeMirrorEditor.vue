@@ -2068,6 +2068,7 @@ function notifyEditorTaskDone(kind: EditorTaskDoneKind): void {
 		body,
 		soundEnabled: assistantPrefs.taskDoneSoundEnabled.value,
 		desktopNotificationEnabled: assistantPrefs.taskDoneDesktopNotificationEnabled.value,
+		desktopNotificationMode: assistantPrefs.taskDoneDesktopNotificationMode.value,
 	})
 }
 

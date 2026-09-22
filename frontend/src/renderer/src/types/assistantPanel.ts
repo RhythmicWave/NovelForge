@@ -30,6 +30,8 @@ export interface AssistantPanelMessage {
   _hasReasoning?: boolean
   _reasoningUserToggled?: boolean
   _lastReasoningBucketKey?: string
+  /** 生成失败原因（连接错误/流中断等），用于渲染错误卡片与重试入口 */
+  error?: string
 }
 
 export interface AssistantChatSession {

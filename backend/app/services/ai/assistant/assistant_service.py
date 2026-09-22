@@ -16,7 +16,7 @@ from sqlmodel import Session
 
 from app.schemas.ai import AssistantChatRequest
 from app.services import llm_config_service
-from app.services.ai.core.chat_model_factory import build_chat_model
+from app.services.ai.core.chat_model_factory import build_chat_model, LLM_CONNECT_MAX_RETRIES
 from app.services.ai.core.quota_manager import precheck_quota, record_usage
 from app.services.ai.core.react_text_agent import stream_chat_with_react_protocol
 from app.services.ai.core.tool_agent_stream import stream_agent_with_tools
@@ -109,6 +109,7 @@ async def stream_chat_plain(
         max_tokens=16384 if request.max_tokens is None else request.max_tokens,
         timeout=request.timeout or 90,
         thinking_enabled=getattr(request, "thinking_enabled", None),
+        max_retries=LLM_CONNECT_MAX_RETRIES,
     )
 
     messages = [
