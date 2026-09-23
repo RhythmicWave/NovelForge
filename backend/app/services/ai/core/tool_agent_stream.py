@@ -27,6 +27,7 @@ async def stream_agent_with_tools(
     temperature: float = 0.6,
     max_tokens: int = 8192,
     timeout: float = 90,
+    max_retries: Optional[int] = None,
     thinking_enabled: Optional[bool] = None,
     enable_summarization: bool = False,
     max_tokens_before_summary: int = 8192,
@@ -49,6 +50,7 @@ async def stream_agent_with_tools(
         max_tokens=max_tokens,
         timeout=timeout,
         thinking_enabled=thinking_enabled,
+        max_retries=max_retries,
     )
 
     if set_deps is not None:
@@ -235,12 +237,7 @@ async def stream_agent_with_tools(
             aborted=True,
         )
 
-        if reasoning_accumulated:
-            yield {
-                "type": "reasoning",
-                "data": {"text": reasoning_accumulated},
-            }
-        return
+        raise
     except Exception as exc:
         logger.error("[{}] chat failed: {}", log_tag, exc)
         raise

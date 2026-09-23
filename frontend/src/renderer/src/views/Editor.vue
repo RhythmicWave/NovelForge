@@ -1,7 +1,12 @@
 <template>
-  <div class="editor-layout">
+  <div class="editor-layout" :class="{ 'is-mobile': isMobile }">
     <!-- 左侧卡片导航树 -->
-    <el-aside class="sidebar card-navigation-sidebar" :style="{ width: leftSidebarDisplayWidth + 'px' }" @contextmenu.prevent="onSidebarContextMenu">
+    <el-aside
+      class="sidebar card-navigation-sidebar"
+      :class="{ 'is-drawer': isMobile, 'is-open': isLeftSidebarVisible }"
+      :style="{ width: leftSidebarDisplayWidth + 'px' }"
+      @contextmenu.prevent="onSidebarContextMenu"
+    >
       <div class="sidebar-header">
         <h3 class="sidebar-title">创作卡片</h3>
         
@@ -149,7 +154,7 @@
     </el-aside>
     
     <!-- 拖拽条 -->
-    <div v-if="isLeftSidebarVisible" class="resizer left-resizer" @mousedown="startResizing('left')"></div>
+    <div v-if="isLeftSidebarVisible && !isMobile" class="resizer left-resizer" @mousedown="startResizing('left')"></div>
 
     <!-- 中栏主内容区 -->
     <el-main class="main-content">
@@ -170,8 +175,12 @@
     </el-main>
 
     <!-- 右侧助手面板分隔条与面板 -->
-    <div class="resizer right-resizer" @mousedown="startResizing('right')"></div>
-    <el-aside class="sidebar assistant-sidebar" :style="{ width: rightSidebarWidth + 'px' }">
+    <div v-if="!isMobile" class="resizer right-resizer" @mousedown="startResizing('right')"></div>
+    <el-aside
+      class="sidebar assistant-sidebar"
+      :class="{ 'is-drawer': isMobile, 'is-open': isRightSidebarVisible }"
+      :style="{ width: rightSidebarDisplayWidth + 'px' }"
+    >
       <!-- 章节正文卡片：显示4个Tab -->
       <template v-if="showRightSidebarTabs">
         <el-tabs v-model="activeRightTab" type="card" class="right-tabs">
@@ -247,6 +256,21 @@
         @jump-to-card="handleJumpToCard"
       />
     </el-aside>
+    <!-- 抽屉遮罩：点空白处收起，避免窄屏上侧栏挡住正文出不来 -->
+    <div v-if="isAnyDrawerOpen" class="drawer-backdrop" @click="closeDrawers"></div>
+    <!-- 左抽屉展开时它的把手会滑到右边缘，两颗按钮会叠在一起，所以这时先收起 -->
+    <button
+      v-if="isMobile && !isLeftSidebarVisible"
+      type="button"
+      class="sidebar-edge-toggle sidebar-edge-toggle--right"
+      :class="{ 'is-collapsed': !isRightSidebarVisible }"
+      :aria-label="isRightSidebarVisible ? '收起助手面板' : '展开助手面板'"
+      @click="toggleRightSidebar"
+    >
+      <el-icon class="sidebar-edge-toggle__icon">
+        <component :is="isRightSidebarVisible ? ArrowRight : ArrowLeft" />
+      </el-icon>
+    </button>
     <el-tooltip :content="isLeftSidebarVisible ? '收起左侧导航' : '展开左侧导航'" placement="right">
       <button
         type="button"
@@ -371,6 +395,7 @@ import {
 } from '@element-plus/icons-vue'
 import type { components } from '@renderer/types/generated'
 import { useSidebarResizer } from '@renderer/composables/useSidebarResizer'
+import { useIsMobile } from '@renderer/composables/useIsMobile'
 import AssistantPanel from '@renderer/components/assistants/AssistantPanel.vue'
 import ContextPanel from '@renderer/components/panels/ContextPanel.vue'
 import ChapterToolsPanel from '@renderer/components/panels/ChapterToolsPanel.vue'
@@ -590,12 +615,43 @@ const handleSearch = debounce(async (query: string) => {
 
 // Composables
 const { leftSidebarWidth, rightSidebarWidth, startResizing } = useSidebarResizer()
+const { isMobile } = useIsMobile()
 const isLeftSidebarVisible = ref(true)
-const leftSidebarDisplayWidth = computed(() => (isLeftSidebarVisible.value ? leftSidebarWidth.value : 0))
+// 窄屏时侧栏浮在正文之上（抽屉），默认收起，把整个宽度让给编辑器
+const isRightSidebarVisible = ref(true)
+
+watch(isMobile, (mobile) => {
+  isLeftSidebarVisible.value = !mobile
+  isRightSidebarVisible.value = !mobile
+}, { immediate: true })
+
+// 抽屉模式下宽度不再挤压正文，改为占屏但留一条回到正文的空隙
+const drawerWidth = computed(() => Math.min(window.innerWidth - 48, 360))
+const leftSidebarDisplayWidth = computed(() => {
+  if (isMobile.value) return isLeftSidebarVisible.value ? drawerWidth.value : 0
+  return isLeftSidebarVisible.value ? leftSidebarWidth.value : 0
+})
+const rightSidebarDisplayWidth = computed(() => {
+  if (isMobile.value) return isRightSidebarVisible.value ? drawerWidth.value : 0
+  return rightSidebarWidth.value
+})
 const leftSidebarToggleOffset = computed(() => (isLeftSidebarVisible.value ? Math.max(leftSidebarDisplayWidth.value - 18, 8) : 10))
+const isAnyDrawerOpen = computed(() => isMobile.value && (isLeftSidebarVisible.value || isRightSidebarVisible.value))
 
 function toggleLeftSidebar() {
   isLeftSidebarVisible.value = !isLeftSidebarVisible.value
+  // 两个抽屉同时盖住正文没有意义，开一个就关另一个
+  if (isMobile.value && isLeftSidebarVisible.value) isRightSidebarVisible.value = false
+}
+
+function toggleRightSidebar() {
+  isRightSidebarVisible.value = !isRightSidebarVisible.value
+  if (isMobile.value && isRightSidebarVisible.value) isLeftSidebarVisible.value = false
+}
+
+function closeDrawers() {
+  isLeftSidebarVisible.value = false
+  isRightSidebarVisible.value = false
 }
   
  // 统一 TreeSelect 样式/属性，确保选项可见
@@ -2138,5 +2194,55 @@ function onSwitchRightTab(e: CustomEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* ===== 窄屏（<=900px）：单栏 + 抽屉式侧栏 =====
+   桌面三栏在手机上会把正文挤到只剩几十像素，这里让两侧浮起来盖在正文之上。 */
+.editor-layout.is-mobile .sidebar.is-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  background-color: var(--el-bg-color);
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.18);
+}
+/* 收起时 width 归零，但 padding 还会把元素撑出 16px 的白条并投下阴影，
+   里面的控件也依然能被 Tab 聚焦；整个藏起来才算真的收起。
+   visibility 延后到宽度收完再切，收起动画才不会突然消失。 */
+.editor-layout.is-mobile .sidebar.is-drawer:not(.is-open) {
+  padding: 0;
+  box-shadow: none;
+  visibility: hidden;
+  transition: width 0.2s, padding 0.2s, box-shadow 0.2s, visibility 0s 0.2s;
+}
+.editor-layout.is-mobile .card-navigation-sidebar.is-drawer {
+  left: 0;
+}
+.editor-layout.is-mobile .assistant-sidebar.is-drawer {
+  right: 0;
+  padding: 8px;
+}
+.editor-layout.is-mobile .main-content {
+  /* 抽屉浮起后正文独占整行 */
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 8px 4px;
+}
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sidebar-edge-toggle--right {
+  right: 10px;
+  left: auto;
+}
+/* 窄屏上把 tab 文字和内边距收紧，避免标签换行把正文高度吃掉 */
+.editor-layout.is-mobile :deep(.el-tabs__item) {
+  padding: 0 10px;
+  font-size: 13px;
+}
+.editor-layout.is-mobile :deep(.el-tabs__content) {
+  padding: 8px;
 }
 </style>

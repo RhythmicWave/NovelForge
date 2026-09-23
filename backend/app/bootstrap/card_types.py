@@ -259,10 +259,10 @@ def create_default_card_types(session: Session) -> None:
 
     # 类型默认 AI 参数预设（不包含 llm_config_id）
     DEFAULT_AI_PARAMS = {
-        "金手指": {"prompt_name": "金手指生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
-        "一句话梗概": {"prompt_name": "一句话梗概", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
+        "金手指": {"prompt_name": "金手指生成", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
+        "一句话梗概": {"prompt_name": "一句话梗概", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
         "故事大纲": {"prompt_name": "一段话大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
-        "世界观设定": {"prompt_name": "世界观设定", "temperature": 0.7, "max_tokens": 4096, "timeout": 150},
+        "世界观设定": {"prompt_name": "世界观设定", "temperature": 0.7, "max_tokens": 8192, "timeout": 150},
         "核心蓝图": {"prompt_name": "核心蓝图", "temperature": 0.7, "max_tokens": 8192, "timeout": 150},
         "分卷大纲": {"prompt_name": "分卷大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 150},
         "写作指南": {"prompt_name": "写作指南", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
@@ -270,9 +270,9 @@ def create_default_card_types(session: Session) -> None:
         "章节大纲": {"prompt_name": "章节大纲", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
         "章节正文": {"prompt_name": "内容生成", "temperature": 0.7, "max_tokens": 8192, "timeout": 120},
         "内容审核卡片": None,
-        "角色卡": {"prompt_name": "角色动态信息提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
-        "场景卡": {"prompt_name": "内容生成", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
-        "组织卡": {"prompt_name": "关系提取", "temperature": 0.6, "max_tokens": 4096, "timeout": 120},
+        "角色卡": {"prompt_name": "角色动态信息提取", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
+        "场景卡": {"prompt_name": "内容生成", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
+        "组织卡": {"prompt_name": "关系提取", "temperature": 0.6, "max_tokens": 8192, "timeout": 120},
         "物品卡": None,
         "概念卡": None,
     }

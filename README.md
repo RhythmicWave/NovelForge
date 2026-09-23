@@ -106,6 +106,15 @@
 
 ## 📅 更新日志
 <details>
+<summary>v0.9.8</summary>
+
+- 修复灵感助手等若干bug 
+- 优化Web移动端界面
+- 其它若干优化
+
+</details>
+
+<details>
 <summary>v0.9.7</summary>
 
 - **内置提示词与知识库管理增强**

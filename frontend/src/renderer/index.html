@@ -2,6 +2,9 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <!-- 移动端必需：没有它浏览器会按 980px 虚拟视口排版再整页缩放，
+         字会变小、触控目标失准，而且所有 max-width 媒体查询都不会触发 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Novel Forge</title>
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <!--

@@ -425,6 +425,7 @@ async def stream_chat_with_react_protocol(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
     thinking_enabled: Optional[bool] = None,
     max_steps: int = 100,
     history_messages: Optional[Sequence[dict[str, str]]] = None,
@@ -454,6 +455,7 @@ async def stream_chat_with_react_protocol(
         max_tokens=max_tokens,
         timeout=timeout or 90,
         thinking_enabled=thinking_enabled,
+        max_retries=max_retries,
     )
 
     if set_deps is not None:

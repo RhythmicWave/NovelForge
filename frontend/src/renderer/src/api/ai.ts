@@ -1,5 +1,5 @@
 import { aiHttpClient, API_BASE_URL } from './request'
-import { createSSEStreamingRequest } from './streaming'
+import { createSSEStreamingRequest, type SSECloseEvent } from './streaming'
 import type { components } from '@renderer/types/generated'
 
 export type GeneralAIRequest = components['schemas']['GeneralAIRequest']
@@ -109,7 +109,7 @@ function createStreamingRequest(
   endpoint: string,
   body: any,
   onData: (data: string) => void,
-  onClose: () => void,
+  onClose: (event: SSECloseEvent) => void,
   onError?: (err: any) => void
 ) {
   return createSSEStreamingRequest({
@@ -132,7 +132,7 @@ function createStreamingRequest(
 export function generateContinuationStreaming(
   params: ContinuationRequestExtended,
   onData: (data: string) => void,
-  onClose: () => void,
+  onClose: (event: SSECloseEvent) => void,
   onError?: (err: any) => void
 ) {
   const endpoint = params.prompt_name === '灵感对话'
@@ -180,7 +180,7 @@ export function deleteForeshadow(projectId: number, itemId: number): Promise<{ s
 export function generateAssistantChatStreaming(
   params: AssistantChatRequest,
   onData: (data: string) => void,
-  onClose: () => void,
+  onClose: (event: SSECloseEvent) => void,
   onError?: (err: any) => void
 ) {
   return createStreamingRequest(`${API_BASE_URL}/ai/assistant/chat`, params, onData, onClose, onError)

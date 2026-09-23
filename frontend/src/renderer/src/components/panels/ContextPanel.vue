@@ -7,7 +7,7 @@
     
     <el-form label-width="70px" class="controls">
       <el-form-item label="参与者">
-        <el-select v-model="localParticipants" multiple filterable allow-create default-first-option placeholder="输入或选择参与者" @change="onParticipantsChange">
+        <el-select v-model="localParticipants" multiple filterable allow-create default-first-option :reserve-keyword="false" placeholder="输入或选择参与者" @change="onParticipantsChange">
           <el-option-group v-for="g in participantGroups" :key="g.label" :label="g.label">
             <el-option v-for="p in g.values" :key="p" :label="p" :value="p" />
           </el-option-group>
