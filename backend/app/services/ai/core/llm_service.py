@@ -171,6 +171,123 @@ async def generate_review(
         raise
 
 
+# ---------------------------------------------------------------------------
+# 结构化输出的“无工具”兜底
+#
+# DeepSeek V4 / V3.2 这类模型的思考模式（thinking，服务端默认 enabled）只接受
+# tool_choice = none / auto；一旦请求里出现“强制指定某个函数”的 tool_choice
+# （{"type":"function","function":{"name":...}} 或 required），服务端会直接返回
+# 400: Thinking mode does not support this tool_choice。
+# LangChain 的 with_structured_output()（function_calling 模式）正是靠强制
+# tool_choice 实现的（ChatQwen 传函数名，ChatOpenAI 传 required），所以在思考模型上
+# 必然失败——记忆提取预览、卡片结构化生成、工作流结构化节点都会撞上；而普通
+# bind_tools（tool_choice 缺省 auto）不受影响，这正是“原生工具可用、结构化输出失败”
+# 的原因。
+# 这里在捕获到该错误时退回“纯文本 JSON”路径：不带 tools / tool_choice，把
+# JSON Schema 写进系统提示词，再在本地解析并校验成 Pydantic 对象。
+# ---------------------------------------------------------------------------
+
+
+def _is_thinking_tool_choice_error(exc: BaseException) -> bool:
+    """判断异常是否为“思考模式不支持强制 tool_choice”这一类拒绝。"""
+    text = str(exc or "").lower()
+    if "tool_choice" not in text:
+        return False
+    return (
+        "thinking" in text
+        or "reasoning" in text
+        or "思考模式" in text
+        or "force" in text
+    )
+
+
+def _message_content_text(response: Any) -> str:
+    """从 ChatModel 响应里取纯文本（兼容 str / 多段 content / None）。"""
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or item.get("content") or ""))
+            else:
+                parts.append(str(item))
+        return "".join(parts).strip()
+    if content is None:
+        return ""
+    return str(content).strip()
+
+
+def _loads_json_payload(text: str) -> Any:
+    """解析模型输出中的 JSON（容忍代码块围栏、前后多余文字、轻微格式错误）。"""
+    if not text or not text.strip():
+        raise ValueError("LLM返回了空响应")
+
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        fenced = candidate.split("```")
+        if len(fenced) > 1:
+            candidate = fenced[1].strip()
+            if candidate[:4].lower() == "json":
+                candidate = candidate[4:].strip()
+
+    try:
+        return json.loads(candidate)
+    except Exception:
+        pass
+
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start == -1 or end <= start:
+        start, end = candidate.find("["), candidate.rfind("]")
+    if start == -1 or end <= start:
+        raise ValueError("LLM返回的内容不是合法JSON")
+
+    sliced = candidate[start:end + 1]
+    try:
+        return json.loads(sliced)
+    except Exception:
+        pass
+    try:
+        from json_repair import repair_json  # 项目内置依赖，用于修复轻微格式问题
+
+        return json.loads(repair_json(sliced))
+    except Exception as repair_error:
+        raise ValueError(f"LLM返回的内容不是合法JSON: {repair_error}") from repair_error
+
+
+def _json_schema_instruction(output_type: Type[BaseModel]) -> str:
+    schema = json.dumps(output_type.model_json_schema(), ensure_ascii=False, indent=2)
+    return (
+        "【输出格式要求】只输出一个 JSON 对象：不要解释、不要前言或结尾语、"
+        "不要使用 Markdown 代码块；字段名、类型与层级必须严格符合下面的 JSON Schema：\n"
+        f"{schema}"
+    )
+
+
+async def _invoke_structured_without_tools(
+    *,
+    model: Any,
+    output_type: Type[BaseModel],
+    system_prompt: Optional[str],
+    user_prompt: str,
+) -> BaseModel:
+    """不传 tools / tool_choice 的结构化输出（思考模式兼容路径）。"""
+    combined_system_prompt = "\n\n".join(
+        part for part in ((system_prompt or "").strip(), _json_schema_instruction(output_type)) if part
+    )
+    response = await model.ainvoke(
+        [
+            SystemMessage(content=combined_system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+    )
+    payload = _loads_json_payload(_message_content_text(response))
+    if not isinstance(payload, dict):
+        raise ValueError("LLM返回的JSON不是对象")
+    return output_type.model_validate(payload)
+
+
 async def _generate_structured_native(
     *,
     session: Session,
@@ -214,7 +331,24 @@ async def _generate_structured_native(
                 messages.append(SystemMessage(content=system_prompt))
             messages.append(HumanMessage(content=user_prompt))
 
-            response = await structured_llm.ainvoke(messages)
+            try:
+                response = await structured_llm.ainvoke(messages)
+            except Exception as structured_error:
+                if not _is_thinking_tool_choice_error(structured_error):
+                    raise
+                # 思考模式（thinking）不支持强制 tool_choice，例如 DeepSeek V4/V3.2 会返回
+                # 400 Thinking mode does not support this tool_choice。
+                # 退回不带 tools / tool_choice 的纯文本 JSON 路径。
+                logger.warning(
+                    "[LangChain-Structured] 当前模型思考模式不支持强制 tool_choice，"
+                    f"改用无工具 JSON 模式：{structured_error}"
+                )
+                response = await _invoke_structured_without_tools(
+                    model=model,
+                    output_type=output_type,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                )
 
             if response is None:
                 raise ValueError("LLM返回了空响应")
