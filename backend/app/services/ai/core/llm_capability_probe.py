@@ -12,6 +12,10 @@ from pydantic import BaseModel, Field
 from app.schemas.llm_config import LLMCapabilityRecommendedMode, LLMCapabilityTestRequest
 from app.services import llm_config_service
 from app.services.ai.core.chat_model_factory import build_chat_model_from_payload
+from app.services.ai.core.llm_service import (
+    _invoke_structured_without_tools,
+    _is_thinking_tool_choice_error,
+)
 from app.services.ai.core.react_text_agent import build_react_user_prompt, parse_react_action_payload
 
 
@@ -237,11 +241,27 @@ async def _probe_stream(request: LLMCapabilityTestRequest, *, user_agent: str | 
 async def _probe_structured(request: LLMCapabilityTestRequest, *, user_agent: str | None = None, api_protocol: str | None = None) -> ProbeResult:
     try:
         model = build_chat_model_from_payload(**_payload_kwargs(request, user_agent=user_agent, api_protocol=api_protocol))
-        structured = model.with_structured_output(CapabilityStructuredProbe)
-        response = await structured.ainvoke([HumanMessage(content='Return JSON with ok=true and text="ok".')])
+        probe_prompt = 'Return JSON with ok=true and text="ok".'
+        try:
+            structured = model.with_structured_output(CapabilityStructuredProbe)
+            response = await structured.ainvoke([HumanMessage(content=probe_prompt)])
+            message = "Structured output returned a valid object"
+        except Exception as structured_error:
+            # 思考模式（如 DeepSeek V4/V3.2）不接受强制 tool_choice，退回无工具 JSON 模式。
+            if not _is_thinking_tool_choice_error(structured_error):
+                raise
+            response = await _invoke_structured_without_tools(
+                model=model,
+                output_type=CapabilityStructuredProbe,
+                system_prompt=None,
+                user_prompt=probe_prompt,
+            )
+            message = (
+                "Thinking 模式不支持强制 tool_choice；已自动改用无工具 JSON 模式并通过结构化输出测试"
+            )
         if response is None:
             raise ValueError("Empty structured response")
-        return ProbeResult(status="pass", message="Structured output returned a valid object")
+        return ProbeResult(status="pass", message=message)
     except Exception as exc:
         error_text = str(exc or "")
         if "thinking mode" in error_text.lower() and "tool_choice" in error_text.lower():
