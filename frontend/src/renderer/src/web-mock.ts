@@ -80,7 +80,11 @@ export function setupWebMock(): void {
       },
       openIdeasHome: async () => {
         console.log(`[WebMock] openIdeasHome`)
-        window.open('/#/ideas-home', '_blank')
+        // 保留当前部署路径（例如 /novelforge/），只替换 hash；
+        // 不能硬编码为 '/#/ideas-home'，否则子路径部署会跳到站点根路径。
+        const target = new URL(window.location.href)
+        target.hash = '#/ideas-home'
+        window.open(target.toString(), '_blank')
         return { success: true }
       }
     }
